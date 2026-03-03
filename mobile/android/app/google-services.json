@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "449886354083",
+    "project_id": "almajd-whatsapp",
+    "storage_bucket": "almajd-whatsapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449886354083:android:132e69019a227039421d16",
+        "android_client_info": {
+          "package_name": "com.almajd.whatsapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYiF_C_NgINH8DvpYC0y3eR_cFN3A2HDc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
