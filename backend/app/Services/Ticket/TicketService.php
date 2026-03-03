@@ -1,0 +1,234 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Ticket;
+
+use App\Enums\TicketPriority;
+use App\Enums\TicketStatus;
+use App\Enums\DeliveryStatus;
+use App\Enums\MessageDirection;
+use App\Enums\MessageType;
+use App\Jobs\SendWhatsAppMessageJob;
+use App\Models\Guardian;
+use App\Models\Ticket;
+use App\Models\TicketLog;
+use App\Models\TicketNote;
+use App\Models\WhatsappMessage;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+class TicketService
+{
+    /**
+     * List tickets with filters and pagination.
+     */
+    public function list(array $filters = [], int $perPage = 20): LengthAwarePaginator
+    {
+        $query = Ticket::with(['guardian', 'student', 'assignedTo', 'tags'])
+            ->latest();
+
+        if (!empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+        if (!empty($filters['priority'])) {
+            $query->where('priority', $filters['priority']);
+        }
+        if (!empty($filters['assigned_to'])) {
+            $query->where('assigned_to', $filters['assigned_to']);
+        }
+        if (!empty($filters['sla_breached'])) {
+            $query->where('sla_breached', true);
+        }
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('ticket_number', 'ilike', "%{$search}%")
+                  ->orWhere('subject', 'ilike', "%{$search}%")
+                  ->orWhereHas('guardian', fn ($gq) => $gq->where('name', 'ilike', "%{$search}%")
+                      ->orWhere('phone', 'ilike', "%{$search}%"));
+            });
+        }
+        if (!empty($filters['tag_id'])) {
+            $query->whereHas('tags', fn ($q) => $q->where('tags.id', $filters['tag_id']));
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * Get a single ticket with all relations.
+     */
+    public function show(int $ticketId): Ticket
+    {
+        return Ticket::with([
+            'guardian', 'student', 'assignedTo', 'tags',
+            'messages' => fn ($q) => $q->orderBy('timestamp'),
+            'notes' => fn ($q) => $q->with('user')->orderBy('created_at'),
+            'logs' => fn ($q) => $q->with('user')->orderBy('created_at', 'desc'),
+        ])->findOrFail($ticketId);
+    }
+
+    /**
+     * Reply to a ticket: create outbound WhatsApp message + dispatch send job.
+     */
+    public function reply(Ticket $ticket, int $userId, string $content, ?string $mediaUrl = null): WhatsappMessage
+    {
+        $guardian = $ticket->guardian;
+        if (!$guardian) {
+            throw new \RuntimeException('Ticket has no guardian to reply to');
+        }
+
+        $message = WhatsappMessage::create([
+            'wa_message_id'   => 'out_' . Str::uuid(),
+            'ticket_id'       => $ticket->id,
+            'direction'       => MessageDirection::Outbound,
+            'from_number'     => config('whatsapp.twilio.from_number'),
+            'to_number'       => $guardian->phone,
+            'message_type'    => $mediaUrl ? MessageType::Image : MessageType::Text,
+            'content'         => $content,
+            'media_url'       => $mediaUrl,
+            'delivery_status' => DeliveryStatus::Scheduled,
+            'sent_by_id'      => $userId,
+            'idempotency_key' => Str::uuid()->toString(),
+            'timestamp'       => now(),
+        ]);
+
+        // Update ticket
+        $ticket->update([
+            'last_message_preview' => Str::limit($content, 100),
+            'status' => TicketStatus::Pending,
+        ]);
+
+        // Track first response time
+        if (!$ticket->first_response_at) {
+            $ticket->update(['first_response_at' => now()]);
+        }
+
+        // Dispatch send job
+        SendWhatsAppMessageJob::dispatch($message->id);
+
+        // Audit log
+        $this->log($ticket, $userId, 'replied', details: Str::limit($content, 200));
+
+        return $message;
+    }
+
+    /**
+     * Assign ticket to a supervisor.
+     */
+    public function assign(Ticket $ticket, int $assigneeId, int $assigner): Ticket
+    {
+        $oldAssigned = $ticket->assigned_to;
+
+        $ticket->update(['assigned_to' => $assigneeId]);
+
+        $this->log($ticket, $assigner, 'assigned',
+            old: $oldAssigned ? (string) $oldAssigned : null,
+            new: (string) $assigneeId
+        );
+
+        return $ticket->refresh()->load('assignedTo');
+    }
+
+    /**
+     * Update ticket status.
+     */
+    public function updateStatus(Ticket $ticket, TicketStatus $status, int $userId): Ticket
+    {
+        $oldStatus = $ticket->status->value;
+
+        $updates = ['status' => $status];
+
+        if ($status === TicketStatus::Resolved) {
+            $updates['resolved_at'] = now();
+        }
+        if ($status === TicketStatus::Closed) {
+            $updates['closed_at'] = now();
+        }
+
+        $ticket->update($updates);
+
+        $this->log($ticket, $userId, 'status_changed', old: $oldStatus, new: $status->value);
+
+        return $ticket->refresh();
+    }
+
+    /**
+     * Escalate a ticket (increase level).
+     */
+    public function escalate(Ticket $ticket, int $userId, ?string $reason = null): Ticket
+    {
+        $oldLevel = $ticket->escalation_level;
+        $ticket->update([
+            'escalation_level' => $oldLevel + 1,
+            'priority' => TicketPriority::Urgent,
+        ]);
+
+        $this->log($ticket, $userId, 'escalated',
+            old: (string) $oldLevel,
+            new: (string) ($oldLevel + 1),
+            details: $reason
+        );
+
+        return $ticket->refresh();
+    }
+
+    /**
+     * Add internal note to ticket.
+     */
+    public function addNote(Ticket $ticket, int $userId, string $content): TicketNote
+    {
+        $note = TicketNote::create([
+            'ticket_id'   => $ticket->id,
+            'user_id'     => $userId,
+            'content'     => $content,
+            'is_internal' => true,
+        ]);
+
+        $this->log($ticket, $userId, 'note_added');
+
+        return $note->load('user');
+    }
+
+    /**
+     * Get dashboard stats.
+     */
+    public function stats(?int $userId = null): array
+    {
+        $query = Ticket::query();
+
+        if ($userId) {
+            $query->where('assigned_to', $userId);
+        }
+
+        return [
+            'open'         => (clone $query)->where('status', TicketStatus::Open)->count(),
+            'pending'      => (clone $query)->where('status', TicketStatus::Pending)->count(),
+            'resolved'     => (clone $query)->where('status', TicketStatus::Resolved)->count(),
+            'sla_breached' => (clone $query)->where('sla_breached', true)
+                                           ->whereNotIn('status', [TicketStatus::Closed])->count(),
+            'today_total'  => Ticket::whereDate('created_at', today())->count(),
+            'avg_response_minutes' => Ticket::whereNotNull('first_response_at')
+                ->whereDate('created_at', '>=', now()->subDays(7))
+                ->selectRaw('AVG(EXTRACT(EPOCH FROM (first_response_at - created_at)) / 60) as avg_min')
+                ->value('avg_min') ?? 0,
+        ];
+    }
+
+    /**
+     * Create an audit log entry.
+     */
+    private function log(Ticket $ticket, int $userId, string $action, ?string $old = null, ?string $new = null, ?string $details = null): void
+    {
+        TicketLog::create([
+            'ticket_id' => $ticket->id,
+            'user_id'   => $userId,
+            'action'    => $action,
+            'old_value' => $old,
+            'new_value' => $new,
+            'details'   => $details,
+        ]);
+    }
+}
