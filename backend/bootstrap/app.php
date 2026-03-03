@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role'              => \App\Http\Middleware\RoleMiddleware::class,
             'permission'        => \App\Http\Middleware\PermissionMiddleware::class,
             'webhook.signature' => \App\Http\Middleware\WebhookSignatureMiddleware::class,
+            'twilio.signature'  => \App\Http\Middleware\TwilioSignatureMiddleware::class,
             'idempotency'       => \App\Http\Middleware\IdempotencyMiddleware::class,
         ]);
 

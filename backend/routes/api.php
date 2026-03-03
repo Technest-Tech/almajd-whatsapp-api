@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\ReminderController;
 use App\Http\Controllers\Webhook\WhatsAppWebhookController;
+use App\Http\Controllers\Webhook\TwilioWebhookController;
 
 /*
 |--------------------------------------------------------------------------
@@ -20,7 +21,16 @@ use App\Http\Controllers\Webhook\WhatsAppWebhookController;
 |--------------------------------------------------------------------------
 */
 
-// ── Webhooks (No Auth, signature-verified) ────────────────
+// ── Twilio Webhooks (No Auth, SDK signature-verified) ────────
+Route::prefix('webhooks/twilio/whatsapp')->group(function () {
+    Route::post('/', [TwilioWebhookController::class, 'receive'])
+        ->middleware(['twilio.signature', 'idempotency']);
+        
+    Route::post('status', [TwilioWebhookController::class, 'status'])
+        ->middleware('twilio.signature');
+});
+
+// ── Meta Webhooks (Legacy fallback) ──────────────────────────
 Route::prefix('webhooks/whatsapp')->group(function () {
     Route::get('verify', [WhatsAppWebhookController::class, 'verify']);
     Route::post('/', [WhatsAppWebhookController::class, 'receive'])
