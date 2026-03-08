@@ -6,7 +6,8 @@ namespace App\Enums;
 
 enum TemplateStatus: string
 {
-    case Approved = 'approved';
-    case Pending = 'pending';
-    case Rejected = 'rejected';
+    case Draft     = 'draft';      // Saved locally, not sent to Twilio yet
+    case Pending   = 'pending';    // Submitted to Twilio/Meta, awaiting approval
+    case Approved  = 'approved';   // Approved by Meta — ready to send
+    case Rejected  = 'rejected';   // Rejected by Meta
 }

@@ -1,3 +1,5 @@
+import 'message_model.dart';
+
 class TicketModel {
   final int id;
   final String ticketNumber;
@@ -14,6 +16,7 @@ class TicketModel {
   final DateTime updatedAt;
   final DateTime? slaDeadline;
   final List<String> tags;
+  final List<MessageModel> messages;
 
   const TicketModel({
     required this.id,
@@ -31,6 +34,7 @@ class TicketModel {
     required this.updatedAt,
     this.slaDeadline,
     this.tags = const [],
+    this.messages = const [],
   });
 
   factory TicketModel.fromJson(Map<String, dynamic> json) {
@@ -53,6 +57,9 @@ class TicketModel {
           : null,
       tags: json['tags'] != null
           ? (json['tags'] as List).map((t) => t is String ? t : t['name'].toString()).toList()
+          : [],
+      messages: json['messages'] != null
+          ? (json['messages'] as List).map((m) => MessageModel.fromJson(m)).toList()
           : [],
     );
   }

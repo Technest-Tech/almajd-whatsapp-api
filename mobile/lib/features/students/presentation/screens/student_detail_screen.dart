@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 import '../../data/models/student_model.dart';
 import '../../data/models/class_session_model.dart';
+import '../../data/student_repository.dart';
 import '../../../schedules/data/models/schedule_model.dart';
+import '../../../../core/di/injection.dart';
 import '../widgets/student_classes_tab.dart';
 import 'single_class_session_form.dart';
 
@@ -21,6 +23,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   StudentModel? _student;
   final List<ScheduleEntryModel> _scheduleEntries = [];
   final List<ClassSessionModel> _classSessions = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -29,57 +32,24 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
     _loadStudent();
   }
 
-  void _loadStudent() {
-    if (AuthBloc.demoMode) {
-      final mockStudents = _demoStudents();
-      final found = mockStudents.where((s) => s.id == widget.studentId);
-      if (found.isNotEmpty) {
+  void _loadStudent() async {
+    try {
+      final repo = getIt<StudentRepository>();
+      final student = await repo.getStudent(widget.studentId);
+      if (mounted) {
         setState(() {
-          _student = found.first;
-          _scheduleEntries.addAll(_demoScheduleEntries());
-          // Auto-generate this month's class sessions
-          _classSessions.addAll(_demoClassSessions());
+          _student = student;
+          _isLoading = false;
         });
       }
-    }
-  }
-
-  List<ScheduleEntryModel> _demoScheduleEntries() {
-    return [
-      ScheduleEntryModel(id: 1, scheduleId: null, teacherName: 'أ. عبدالله المحمد', title: 'القرآن الكريم', dayOfWeek: 0, startTime: '08:00', endTime: '09:00', recurrence: 'weekly'),
-      ScheduleEntryModel(id: 2, scheduleId: null, teacherName: 'أ. فاطمة الأحمد', title: 'الرياضيات', dayOfWeek: 0, startTime: '09:30', endTime: '10:30', recurrence: 'weekly'),
-      ScheduleEntryModel(id: 3, scheduleId: null, teacherName: 'أ. خالد العتيبي', title: 'اللغة العربية', dayOfWeek: 1, startTime: '08:00', endTime: '09:00', recurrence: 'weekly'),
-      ScheduleEntryModel(id: 4, scheduleId: null, teacherName: 'أ. نورة السعيد', title: 'العلوم', dayOfWeek: 2, startTime: '10:00', endTime: '11:00', recurrence: 'weekly'),
-    ];
-  }
-
-  List<ClassSessionModel> _demoClassSessions() {
-    final now = DateTime.now();
-    final sessions = <ClassSessionModel>[];
-    int id = 100;
-    for (final entry in _scheduleEntries) {
-      // Generate sessions for current month
-      var date = DateTime(now.year, now.month, 1);
-      while (date.month == now.month) {
-        if (date.weekday % 7 == entry.dayOfWeek) {
-          final status = date.isBefore(now) ? 'completed' : 'scheduled';
-          sessions.add(ClassSessionModel(
-            id: id++,
-            scheduleEntryId: entry.id,
-            studentId: widget.studentId,
-            teacherName: entry.teacherName,
-            title: entry.title,
-            sessionDate: date,
-            startTime: entry.startTime,
-            endTime: entry.endTime,
-            status: status,
-          ));
-        }
-        date = date.add(const Duration(days: 1));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تحميل بيانات الطالب')),
+        );
       }
     }
-    sessions.sort((a, b) => a.sessionDate.compareTo(b.sessionDate));
-    return sessions;
   }
 
   @override
@@ -90,7 +60,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
-    if (_student == null) {
+    if (_isLoading || _student == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('تفاصيل الطالب')),
         body: const Center(child: CircularProgressIndicator(color: AppColors.primary)),
@@ -495,10 +465,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
       onGenerate: () {
         setState(() {
           _classSessions.clear();
-          _classSessions.addAll(_demoClassSessions());
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم توليد ${_classSessions.length} حصة لهذا الشهر'), backgroundColor: AppColors.success),
+          const SnackBar(content: Text('يرجى مزامنة البيانات من الخادم'), backgroundColor: AppColors.success),
         );
       },
       onAction: (sessionId, action, {reason, newDate, newStart, newEnd}) {
@@ -600,12 +569,25 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
             child: const Text('إلغاء'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('تم حذف الطالب'), backgroundColor: AppColors.coral),
-              );
+              setState(() => _isLoading = true);
+              try {
+                await getIt<StudentRepository>().deleteStudent(student.id);
+                if (mounted) {
+                  Navigator.pop(context, true); // True signals to refresh the list
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم حذف الطالب'), backgroundColor: AppColors.coral),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  setState(() => _isLoading = false);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('فشل حذف الطالب'), backgroundColor: AppColors.coral),
+                  );
+                }
+              }
             },
             child: const Text('حذف', style: TextStyle(color: AppColors.coral)),
           ),
@@ -627,17 +609,4 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
     }
   }
 
-  List<StudentModel> _demoStudents() {
-    final now = DateTime.now();
-    return [
-      StudentModel(id: 1, name: 'يوسف أحمد العلي', phone: '+966501112233', status: 'active', guardianName: 'أحمد العلي', guardianPhone: '+966501112200', guardianRelation: 'أب', enrollmentDate: now.subtract(const Duration(days: 180)), notes: 'طالب متميز في القرآن الكريم', createdAt: now.subtract(const Duration(days: 180)), updatedAt: now.subtract(const Duration(days: 2))),
-      StudentModel(id: 2, name: 'سارة محمد القحطاني', phone: '+966502223344', status: 'active', guardianName: 'محمد القحطاني', guardianPhone: '+966502223300', guardianRelation: 'أب', enrollmentDate: now.subtract(const Duration(days: 120)), createdAt: now.subtract(const Duration(days: 120)), updatedAt: now.subtract(const Duration(days: 5))),
-      StudentModel(id: 3, name: 'عبدالله خالد السعيد', phone: '+966503334455', status: 'active', guardianName: 'خالد السعيد', guardianPhone: '+966503334400', guardianRelation: 'أب', enrollmentDate: now.subtract(const Duration(days: 90)), notes: 'يحتاج متابعة في الرياضيات', createdAt: now.subtract(const Duration(days: 90)), updatedAt: now.subtract(const Duration(days: 1))),
-      StudentModel(id: 4, name: 'لمى عبدالرحمن الدوسري', phone: '+966504445566', status: 'inactive', guardianName: 'نورة القحطاني', guardianPhone: '+966504445500', guardianRelation: 'أم', enrollmentDate: now.subtract(const Duration(days: 365)), notes: 'انسحبت مؤقتاً', createdAt: now.subtract(const Duration(days: 365)), updatedAt: now.subtract(const Duration(days: 30))),
-      StudentModel(id: 5, name: 'ريان أحمد الشمري', phone: '+966505556677', status: 'active', guardianName: 'أحمد الشمري', guardianPhone: '+966505556600', guardianRelation: 'أب', enrollmentDate: now.subtract(const Duration(days: 60)), createdAt: now.subtract(const Duration(days: 60)), updatedAt: now.subtract(const Duration(days: 3))),
-      StudentModel(id: 6, name: 'عمر هشام الحربي', phone: '+966506667788', status: 'suspended', guardianName: 'هند الدوسري', guardianPhone: '+966506667700', guardianRelation: 'أم', enrollmentDate: now.subtract(const Duration(days: 200)), notes: 'موقوف بسبب عدم السداد', createdAt: now.subtract(const Duration(days: 200)), updatedAt: now.subtract(const Duration(days: 7))),
-      StudentModel(id: 7, name: 'نوف سعد المالكي', phone: '+966507778899', status: 'active', guardianName: 'سعد المالكي', guardianPhone: '+966507778800', guardianRelation: 'أب', enrollmentDate: now.subtract(const Duration(days: 45)), createdAt: now.subtract(const Duration(days: 45)), updatedAt: now),
-      StudentModel(id: 8, name: 'فيصل ناصر العتيبي', phone: '+966508889900', status: 'active', guardianName: 'ناصر العتيبي', guardianPhone: '+966508889900', guardianRelation: 'أب', enrollmentDate: now.subtract(const Duration(days: 30)), notes: 'مسجل في دورة التجويد', createdAt: now.subtract(const Duration(days: 30)), updatedAt: now.subtract(const Duration(hours: 6))),
-    ];
-  }
 }

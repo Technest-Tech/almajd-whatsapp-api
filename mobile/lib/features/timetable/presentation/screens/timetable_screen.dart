@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 import '../../../schedules/data/models/schedule_model.dart';
 import '../../../students/presentation/screens/student_schedule_form.dart';
 
@@ -32,7 +32,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
   @override
   void initState() {
     super.initState();
-    _entries = AuthBloc.demoMode ? _demoEntries() : [];
+    _entries = [];
   }
 
   static const _dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -445,19 +445,6 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  List<_TimetableRow> _demoEntries() {
-    return [
-      _TimetableRow('أحمد محمد الأنصاري', 1, ScheduleEntryModel(id: 1, scheduleId: null, teacherName: 'أ. عبدالله المحمد', title: 'القرآن الكريم', dayOfWeek: 0, startTime: '08:00', endTime: '09:00', recurrence: 'weekly')),
-      _TimetableRow('أحمد محمد الأنصاري', 1, ScheduleEntryModel(id: 2, scheduleId: null, teacherName: 'أ. فاطمة الأحمد', title: 'الرياضيات', dayOfWeek: 0, startTime: '09:30', endTime: '10:30', recurrence: 'weekly')),
-      _TimetableRow('أحمد محمد الأنصاري', 1, ScheduleEntryModel(id: 3, scheduleId: null, teacherName: 'أ. خالد العتيبي', title: 'اللغة العربية', dayOfWeek: 1, startTime: '08:00', endTime: '09:00', recurrence: 'weekly')),
-      _TimetableRow('أحمد محمد الأنصاري', 1, ScheduleEntryModel(id: 4, scheduleId: null, teacherName: 'أ. نورة السعيد', title: 'العلوم', dayOfWeek: 2, startTime: '10:00', endTime: '11:00', recurrence: 'weekly')),
-      _TimetableRow('فاطمة علي السعدي', 2, ScheduleEntryModel(id: 5, scheduleId: null, teacherName: 'أ. عبدالله المحمد', title: 'القرآن الكريم', dayOfWeek: 0, startTime: '10:00', endTime: '11:00', recurrence: 'weekly')),
-      _TimetableRow('فاطمة علي السعدي', 2, ScheduleEntryModel(id: 6, scheduleId: null, teacherName: 'أ. فاطمة الأحمد', title: 'الرياضيات', dayOfWeek: 1, startTime: '09:00', endTime: '10:00', recurrence: 'weekly')),
-      _TimetableRow('فاطمة علي السعدي', 2, ScheduleEntryModel(id: 7, scheduleId: null, teacherName: 'أ. خالد العتيبي', title: 'اللغة الإنجليزية', dayOfWeek: 3, startTime: '08:00', endTime: '09:00', recurrence: 'weekly')),
-      _TimetableRow('محمد خالد العتيبي', 3, ScheduleEntryModel(id: 8, scheduleId: null, teacherName: 'أ. نورة السعيد', title: 'الفيزياء', dayOfWeek: 0, startTime: '11:00', endTime: '12:00', recurrence: 'weekly')),
-      _TimetableRow('محمد خالد العتيبي', 3, ScheduleEntryModel(id: 9, scheduleId: null, teacherName: 'أ. عبدالله المحمد', title: 'الكيمياء', dayOfWeek: 4, startTime: '08:00', endTime: '09:30', recurrence: 'biweekly')),
-    ];
-  }
 }
 
 class _TimetableRow {

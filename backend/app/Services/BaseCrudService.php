@@ -25,7 +25,7 @@ abstract class BaseCrudService
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
                 foreach ($this->searchableColumns() as $col) {
-                    $q->orWhere($col, 'ilike', "%{$search}%");
+                    $q->orWhere($col, 'like', "%{$search}%");
                 }
             });
         }

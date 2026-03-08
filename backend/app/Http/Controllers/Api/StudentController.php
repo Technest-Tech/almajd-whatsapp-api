@@ -23,24 +23,72 @@ class StudentController extends CrudController
     protected function storeRules(): array
     {
         return [
-            'name'         => 'required|string|max:255',
-            'guardian_id'  => 'nullable|exists:guardians,id',
-            'phone'        => 'nullable|string|max:20',
-            'student_code' => 'nullable|string|max:50',
-            'notes'        => 'nullable|string|max:2000',
+            'name'           => 'required|string|max:255',
+            'guardian_id'    => 'nullable|exists:guardians,id',
+            'phone'          => 'nullable|string|max:20',
+            'student_code'   => 'nullable|string|max:50',
+            'notes'          => 'nullable|string|max:2000',
+            'status'         => 'nullable|string|max:50',
+            'guardian_name'  => 'nullable|string|max:255',
+            'guardian_phone' => 'nullable|string|max:20',
         ];
     }
 
     protected function updateRules(): array
     {
         return [
-            'name'         => 'sometimes|string|max:255',
-            'guardian_id'  => 'nullable|exists:guardians,id',
-            'phone'        => 'nullable|string|max:20',
-            'student_code' => 'nullable|string|max:50',
-            'notes'        => 'nullable|string|max:2000',
+            'name'           => 'sometimes|string|max:255',
+            'guardian_id'    => 'nullable|exists:guardians,id',
+            'phone'          => 'nullable|string|max:20',
+            'student_code'   => 'nullable|string|max:50',
+            'notes'          => 'nullable|string|max:2000',
+            'status'         => 'nullable|string|max:50',
+            'guardian_name'  => 'nullable|string|max:255',
+            'guardian_phone' => 'nullable|string|max:20',
         ];
     }
+
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate($this->storeRules());
+        $data = $this->handleGuardianData($data);
+        
+        $record = $this->service->create($data);
+        return $this->response->success($record, 'Created', code: 201);
+    }
+
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate($this->updateRules());
+        $data = $this->handleGuardianData($data);
+        
+        $record = $this->service->update($id, $data);
+        return $this->response->success($record, 'Updated');
+    }
+
+    private function handleGuardianData(array $data): array
+    {
+        if (!empty($data['guardian_phone'])) {
+            $phone = str_starts_with($data['guardian_phone'], '+') 
+                ? $data['guardian_phone'] 
+                : '+' . ltrim($data['guardian_phone'], '0');
+                
+            $guardian = \App\Models\Guardian::firstOrCreate(
+                ['phone' => $phone],
+                ['name' => !empty($data['guardian_name']) ? $data['guardian_name'] : 'Unknown Contact']
+            );
+            
+            if ($guardian->name === 'Unknown Contact' && !empty($data['guardian_name'])) {
+                $guardian->update(['name' => $data['guardian_name']]);
+            }
+            
+            $data['guardian_id'] = $guardian->id;
+        }
+        
+        unset($data['guardian_name'], $data['guardian_phone']);
+        return $data;
+    }
+
 
     // ── Per-Student Schedule Entries ─────────────────────
 

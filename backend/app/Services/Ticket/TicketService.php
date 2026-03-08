@@ -15,6 +15,7 @@ use App\Models\Ticket;
 use App\Models\TicketLog;
 use App\Models\TicketNote;
 use App\Models\WhatsappMessage;
+use App\Models\WhatsappTemplate;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -64,7 +65,7 @@ class TicketService
     {
         return Ticket::with([
             'guardian', 'student', 'assignedTo', 'tags',
-            'messages' => fn ($q) => $q->orderBy('timestamp'),
+            'messages' => fn ($q) => $q->with('replyToMessage.sentBy')->orderBy('timestamp'),
             'notes' => fn ($q) => $q->with('user')->orderBy('created_at'),
             'logs' => fn ($q) => $q->with('user')->orderBy('created_at', 'desc'),
         ])->findOrFail($ticketId);
@@ -73,7 +74,7 @@ class TicketService
     /**
      * Reply to a ticket: create outbound WhatsApp message + dispatch send job.
      */
-    public function reply(Ticket $ticket, int $userId, string $content, ?string $mediaUrl = null): WhatsappMessage
+    public function reply(Ticket $ticket, int $userId, ?string $content = null, ?string $mediaUrl = null, ?string $replyToMessageId = null): WhatsappMessage
     {
         $guardian = $ticket->guardian;
         if (!$guardian) {
@@ -81,23 +82,24 @@ class TicketService
         }
 
         $message = WhatsappMessage::create([
-            'wa_message_id'   => 'out_' . Str::uuid(),
-            'ticket_id'       => $ticket->id,
-            'direction'       => MessageDirection::Outbound,
-            'from_number'     => config('whatsapp.twilio.from_number'),
-            'to_number'       => $guardian->phone,
-            'message_type'    => $mediaUrl ? MessageType::Image : MessageType::Text,
-            'content'         => $content,
-            'media_url'       => $mediaUrl,
-            'delivery_status' => DeliveryStatus::Scheduled,
-            'sent_by_id'      => $userId,
-            'idempotency_key' => Str::uuid()->toString(),
-            'timestamp'       => now(),
+            'wa_message_id'       => 'out_' . Str::uuid(),
+            'ticket_id'           => $ticket->id,
+            'direction'           => MessageDirection::Outbound,
+            'from_number'         => config('whatsapp.twilio.from_number'),
+            'to_number'           => $guardian->phone,
+            'message_type'        => $mediaUrl ? $this->detectMediaType($mediaUrl) : MessageType::Text,
+            'content'             => $content,
+            'media_url'           => $mediaUrl,
+            'reply_to_message_id' => $replyToMessageId,
+            'delivery_status'     => DeliveryStatus::Scheduled,
+            'sent_by_id'          => $userId,
+            'idempotency_key'     => Str::uuid()->toString(),
+            'timestamp'           => now(),
         ]);
 
         // Update ticket
         $ticket->update([
-            'last_message_preview' => Str::limit($content, 100),
+            'last_message_preview' => Str::limit($content ?? 'Media Message', 100),
             'status' => TicketStatus::Pending,
         ]);
 
@@ -112,7 +114,84 @@ class TicketService
         // Audit log
         $this->log($ticket, $userId, 'replied', details: Str::limit($content, 200));
 
+        // Reload so DB-defaulted columns (created_at) are present in the response
+        $message->refresh();
+
+        // Trigger Event for frontend WebSockets
+        event(new \App\Events\TicketMessageCreated($ticket, $message));
+
         return $message;
+    }
+
+    /**
+     * Send an approved WhatsApp template to a contact (for new / out-of-session contacts).
+     */
+    public function replyWithTemplate(Ticket $ticket, int $userId, int $templateId, array $variables = []): WhatsappMessage
+    {
+        $guardian = $ticket->guardian;
+        if (!$guardian) {
+            throw new \RuntimeException('Ticket has no guardian to reply to');
+        }
+
+        $template = WhatsappTemplate::findOrFail($templateId);
+
+        if ($template->status->value !== 'approved') {
+            throw new \RuntimeException('Template is not approved yet');
+        }
+
+        // Resolve body preview for message preview (variables substituted)
+        $bodyPreview = $template->resolvePreview($variables);
+
+        $message = WhatsappMessage::create([
+            'wa_message_id'       => 'out_' . Str::uuid(),
+            'ticket_id'           => $ticket->id,
+            'direction'           => MessageDirection::Outbound,
+            'from_number'         => config('whatsapp.twilio.from_number'),
+            'to_number'           => $guardian->phone,
+            'message_type'        => MessageType::Text,
+            'content'             => $bodyPreview,
+            'template_name'       => $template->content_sid, // Twilio ContentSid (HXxxx)
+            'template_variables'  => $variables,
+            'delivery_status'     => DeliveryStatus::Scheduled,
+            'sent_by_id'          => $userId,
+            'idempotency_key'     => Str::uuid()->toString(),
+            'timestamp'           => now(),
+        ]);
+
+        $ticket->update([
+            'last_message_preview' => Str::limit($bodyPreview, 100),
+            'status' => TicketStatus::Pending,
+        ]);
+
+        if (!$ticket->first_response_at) {
+            $ticket->update(['first_response_at' => now()]);
+        }
+
+        SendWhatsAppMessageJob::dispatch($message->id);
+
+        $this->log($ticket, $userId, 'template_sent', details: $template->name);
+
+        $message->refresh();
+
+        event(new \App\Events\TicketMessageCreated($ticket, $message));
+
+        return $message;
+    }
+
+    /**
+     * Detect media type from URL extension.
+     */
+    private function detectMediaType(string $url): MessageType
+    {
+        $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+
+        $audioExts = ['m4a', 'mp3', 'ogg', 'wav', 'aac', 'opus', 'amr'];
+        $docExts   = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'zip', 'rar'];
+
+        if (in_array($ext, $audioExts)) return MessageType::Audio;
+        if (in_array($ext, $docExts))   return MessageType::Document;
+
+        return MessageType::Image;
     }
 
     /**
@@ -212,7 +291,7 @@ class TicketService
             'today_total'  => Ticket::whereDate('created_at', today())->count(),
             'avg_response_minutes' => Ticket::whereNotNull('first_response_at')
                 ->whereDate('created_at', '>=', now()->subDays(7))
-                ->selectRaw('AVG(EXTRACT(EPOCH FROM (first_response_at - created_at)) / 60) as avg_min')
+                ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, created_at, first_response_at)) as avg_min')
                 ->value('avg_min') ?? 0,
         ];
     }

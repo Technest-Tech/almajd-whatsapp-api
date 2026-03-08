@@ -13,12 +13,13 @@ class TwilioWebhookController extends Controller
 {
     /**
      * POST /api/webhooks/twilio/whatsapp
-     * Receive inbound webhook from Twilio Sandbox.
+     * Receive inbound webhook from Twilio WhatsApp (production sender).
      * Middleware: twilio.signature
      */
     public function receive(Request $request): Response
     {
         $payload = $request->all();
+        \Illuminate\Support\Facades\Log::info("Twilio Webhook Reached Controller", $payload);
 
         // Dispatch to the high-priority queue immediately
         ProcessTwilioInboundMessageJob::dispatch($payload);
@@ -51,8 +52,12 @@ class TwilioWebhookController extends Controller
                     'bsp_response' => $payload,
                     'attempted_at' => now(),
                 ]);
+
+                // Broadcast real-time status update so Flutter updates ticks instantly
+                event(new \App\Events\TicketMessageStatusUpdated($message));
             }
         }
+
 
         return response('', 200)->header('Content-Type', 'text/xml');
     }

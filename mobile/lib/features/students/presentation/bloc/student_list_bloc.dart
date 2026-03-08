@@ -1,7 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../data/models/student_model.dart';
 import '../../data/student_repository.dart';
 
@@ -110,30 +109,6 @@ class StudentListBloc extends Bloc<StudentListEvent, StudentListState> {
     _currentFilter = filter;
 
     try {
-      if (AuthBloc.demoMode) {
-        await Future.delayed(const Duration(milliseconds: 400));
-        var students = _generateMockStudents();
-
-        if (filter != 'all') {
-          students = students.where((s) => s.status == filter).toList();
-        }
-        if (search.isNotEmpty) {
-          students = students
-              .where((s) =>
-                  s.name.contains(search) ||
-                  (s.phone?.contains(search) ?? false) ||
-                  (s.guardianName?.contains(search) ?? false))
-              .toList();
-        }
-
-        emit(StudentListLoaded(
-          students: students,
-          activeFilter: filter,
-          searchQuery: search,
-        ));
-        return;
-      }
-
       final students = await studentRepository.getStudents(
         search: search.isNotEmpty ? search : null,
         status: filter != 'all' ? filter : null,
@@ -167,123 +142,9 @@ class StudentListBloc extends Bloc<StudentListEvent, StudentListState> {
   }
 
   Future<void> _onDelete(StudentDeleteRequested event, Emitter<StudentListState> emit) async {
-    if (AuthBloc.demoMode) {
-      // In demo mode, just refresh the list (mock data won't actually change)
-      add(StudentListRefreshRequested());
-      return;
-    }
     try {
       await studentRepository.deleteStudent(event.studentId);
       add(StudentListRefreshRequested());
     } catch (_) {}
-  }
-
-  // ── Mock Data ──────────────────────────────────────
-
-  List<StudentModel> _generateMockStudents() {
-    final now = DateTime.now();
-    return [
-      StudentModel(
-        id: 1,
-        name: 'يوسف أحمد العلي',
-        phone: '+966501112233',
-        status: 'active',
-        guardianName: 'أحمد العلي',
-        guardianPhone: '+966501112200',
-        guardianRelation: 'أب',
-        enrollmentDate: now.subtract(const Duration(days: 180)),
-        notes: 'طالب متميز في القرآن الكريم',
-        createdAt: now.subtract(const Duration(days: 180)),
-        updatedAt: now.subtract(const Duration(days: 2)),
-      ),
-      StudentModel(
-        id: 2,
-        name: 'سارة محمد القحطاني',
-        phone: '+966502223344',
-        status: 'active',
-        guardianName: 'محمد القحطاني',
-        guardianPhone: '+966502223300',
-        guardianRelation: 'أب',
-        enrollmentDate: now.subtract(const Duration(days: 120)),
-        createdAt: now.subtract(const Duration(days: 120)),
-        updatedAt: now.subtract(const Duration(days: 5)),
-      ),
-      StudentModel(
-        id: 3,
-        name: 'عبدالله خالد السعيد',
-        phone: '+966503334455',
-        status: 'active',
-        guardianName: 'خالد السعيد',
-        guardianPhone: '+966503334400',
-        guardianRelation: 'أب',
-        enrollmentDate: now.subtract(const Duration(days: 90)),
-        notes: 'يحتاج متابعة في الرياضيات',
-        createdAt: now.subtract(const Duration(days: 90)),
-        updatedAt: now.subtract(const Duration(days: 1)),
-      ),
-      StudentModel(
-        id: 4,
-        name: 'لمى عبدالرحمن الدوسري',
-        phone: '+966504445566',
-        status: 'inactive',
-        guardianName: 'نورة القحطاني',
-        guardianPhone: '+966504445500',
-        guardianRelation: 'أم',
-        enrollmentDate: now.subtract(const Duration(days: 365)),
-        notes: 'انسحبت مؤقتاً',
-        createdAt: now.subtract(const Duration(days: 365)),
-        updatedAt: now.subtract(const Duration(days: 30)),
-      ),
-      StudentModel(
-        id: 5,
-        name: 'ريان أحمد الشمري',
-        phone: '+966505556677',
-        status: 'active',
-        guardianName: 'أحمد الشمري',
-        guardianPhone: '+966505556600',
-        guardianRelation: 'أب',
-        enrollmentDate: now.subtract(const Duration(days: 60)),
-        createdAt: now.subtract(const Duration(days: 60)),
-        updatedAt: now.subtract(const Duration(days: 3)),
-      ),
-      StudentModel(
-        id: 6,
-        name: 'عمر هشام الحربي',
-        phone: '+966506667788',
-        status: 'suspended',
-        guardianName: 'هند الدوسري',
-        guardianPhone: '+966506667700',
-        guardianRelation: 'أم',
-        enrollmentDate: now.subtract(const Duration(days: 200)),
-        notes: 'موقوف بسبب عدم السداد',
-        createdAt: now.subtract(const Duration(days: 200)),
-        updatedAt: now.subtract(const Duration(days: 7)),
-      ),
-      StudentModel(
-        id: 7,
-        name: 'نوف سعد المالكي',
-        phone: '+966507778899',
-        status: 'active',
-        guardianName: 'سعد المالكي',
-        guardianPhone: '+966507778800',
-        guardianRelation: 'أب',
-        enrollmentDate: now.subtract(const Duration(days: 45)),
-        createdAt: now.subtract(const Duration(days: 45)),
-        updatedAt: now,
-      ),
-      StudentModel(
-        id: 8,
-        name: 'فيصل ناصر العتيبي',
-        phone: '+966508889900',
-        status: 'active',
-        guardianName: 'ناصر العتيبي',
-        guardianPhone: '+966508889900',
-        guardianRelation: 'أب',
-        enrollmentDate: now.subtract(const Duration(days: 30)),
-        notes: 'مسجل في دورة التجويد',
-        createdAt: now.subtract(const Duration(days: 30)),
-        updatedAt: now.subtract(const Duration(hours: 6)),
-      ),
-    ];
   }
 }

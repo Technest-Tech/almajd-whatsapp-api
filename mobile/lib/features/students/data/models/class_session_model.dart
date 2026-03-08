@@ -4,6 +4,7 @@ class ClassSessionModel {
   final int? studentId;
   final int? teacherId;
   final String? teacherName;
+  final String? studentName;
   final String title;
   final DateTime sessionDate;
   final String startTime;
@@ -13,6 +14,7 @@ class ClassSessionModel {
   final DateTime? rescheduledDate;
   final String? rescheduledStartTime;
   final String? rescheduledEndTime;
+  final String? attendanceStatus; // pending, teacher_joined, student_absent, both_joined, no_show
 
   const ClassSessionModel({
     required this.id,
@@ -20,6 +22,7 @@ class ClassSessionModel {
     this.studentId,
     this.teacherId,
     this.teacherName,
+    this.studentName,
     required this.title,
     required this.sessionDate,
     required this.startTime,
@@ -29,6 +32,7 @@ class ClassSessionModel {
     this.rescheduledDate,
     this.rescheduledStartTime,
     this.rescheduledEndTime,
+    this.attendanceStatus,
   });
 
   factory ClassSessionModel.fromJson(Map<String, dynamic> json) {
@@ -38,6 +42,7 @@ class ClassSessionModel {
       studentId: json['student_id'],
       teacherId: json['teacher_id'],
       teacherName: json['teacher'] != null ? json['teacher']['name'] : null,
+      studentName: json['student'] != null ? json['student']['name'] : null,
       title: json['title'] ?? '',
       sessionDate: DateTime.parse(json['session_date']),
       startTime: json['start_time'] ?? '00:00',
@@ -47,6 +52,7 @@ class ClassSessionModel {
       rescheduledDate: json['rescheduled_date'] != null ? DateTime.tryParse(json['rescheduled_date']) : null,
       rescheduledStartTime: json['rescheduled_start_time'],
       rescheduledEndTime: json['rescheduled_end_time'],
+      attendanceStatus: json['attendance_status'],
     );
   }
 

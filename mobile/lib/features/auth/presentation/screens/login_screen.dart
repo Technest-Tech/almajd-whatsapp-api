@@ -202,19 +202,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             // TODO: Biometric auth
                           },
                         ),
-                        const SizedBox(height: 16),
 
-                        // ── Demo Mode ──
-                        TextButton.icon(
-                          onPressed: () {
-                            context.read<AuthBloc>().add(AuthDemoLogin());
-                          },
-                          icon: const Icon(Icons.play_circle_outline, color: AppColors.amber),
-                          label: const Text(
-                            'وضع تجريبي — بدون خادم',
-                            style: TextStyle(color: AppColors.amber, fontSize: 13),
-                          ),
-                        ),
                       ],
                     ),
                   ),

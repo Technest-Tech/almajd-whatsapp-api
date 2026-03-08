@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiClient {
-  static const String _baseUrl = 'http://64.225.63.111/api';
+  static const String _baseUrl = 'https://cloud.almajd.info/api';
 
   late final Dio dio;
   final FlutterSecureStorage _storage;
@@ -53,6 +53,7 @@ class _AuthInterceptor extends Interceptor {
         if (refreshToken != null) {
           final response = await _dio.post('/auth/refresh', data: {
             'refresh_token': refreshToken,
+             'device_id': 'flutter_mobile_client',
           });
 
           final newToken = response.data['data']['access_token'];

@@ -17,6 +17,7 @@ import '../../features/sessions/presentation/bloc/session_list_bloc.dart';
 import '../../features/reminders/data/reminder_repository.dart';
 import '../../features/reminders/presentation/bloc/reminder_list_bloc.dart';
 import '../../features/admin/data/admin_repository.dart';
+import '../../features/templates/data/template_repository.dart';
 
 final getIt = GetIt.instance;
 
@@ -49,6 +50,9 @@ Future<void> setupDependencies() async {
     apiClient: getIt<ApiClient>(),
   ));
   getIt.registerLazySingleton(() => AdminRepository(
+    apiClient: getIt<ApiClient>(),
+  ));
+  getIt.registerLazySingleton(() => TemplateRepository(
     apiClient: getIt<ApiClient>(),
   ));
 

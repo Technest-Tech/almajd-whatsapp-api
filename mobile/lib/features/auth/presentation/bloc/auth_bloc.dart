@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/auth_repository.dart';
 import '../../data/models/user_model.dart';
+import '../../../../core/api/websockets_client.dart';
 
 // ── Events ──────────────────────────────────────────
 
@@ -23,8 +24,6 @@ class AuthLoginRequested extends AuthEvent {
   @override
   List<Object?> get props => [email, password];
 }
-
-class AuthDemoLogin extends AuthEvent {}
 
 class AuthLogoutRequested extends AuthEvent {}
 
@@ -70,12 +69,10 @@ class AuthError extends AuthState {
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthRepository authRepository;
-  static bool demoMode = false;
 
   AuthBloc({required this.authRepository}) : super(AuthInitial()) {
     on<AuthCheckStatus>(_onCheckStatus);
     on<AuthLoginRequested>(_onLogin);
-    on<AuthDemoLogin>(_onDemoLogin);
     on<AuthLogoutRequested>(_onLogout);
     on<AuthAvailabilityChanged>(_onAvailabilityChanged);
   }
@@ -86,11 +83,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final hasToken = await authRepository.hasValidToken();
       if (hasToken) {
         final user = await authRepository.getProfile();
+        await WebSocketsClient.instance.init(authRepository.storage);
         emit(AuthAuthenticated(user));
       } else {
         emit(AuthUnauthenticated());
       }
-    } catch (_) {
+    } catch (e, stackTrace) {
+      print('AUTH CHECK ERROR: $e');
+      print('STACK: $stackTrace');
       emit(AuthUnauthenticated());
     }
   }
@@ -102,6 +102,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         email: event.email,
         password: event.password,
       );
+      await WebSocketsClient.instance.init(authRepository.storage);
       emit(AuthAuthenticated(user));
     } catch (e) {
       String message = 'فشل تسجيل الدخول';
@@ -114,29 +115,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  Future<void> _onDemoLogin(AuthDemoLogin event, Emitter<AuthState> emit) async {
-    demoMode = true;
-    emit(AuthLoading());
-    await Future.delayed(const Duration(milliseconds: 800));
-    emit(const AuthAuthenticated(UserModel(
-      id: 1,
-      name: 'أحمد المشرف',
-      email: 'admin@almajd.com',
-      phone: '+966501234567',
-      availability: 'available',
-      maxOpenTickets: 10,
-      roles: ['admin'],
-    )));
-  }
-
   Future<void> _onLogout(AuthLogoutRequested event, Emitter<AuthState> emit) async {
-    demoMode = false;
     await authRepository.logout();
+    WebSocketsClient.instance.disconnect();
     emit(AuthUnauthenticated());
   }
 
   Future<void> _onAvailabilityChanged(AuthAvailabilityChanged event, Emitter<AuthState> emit) async {
-    if (demoMode) return;
     try {
       await authRepository.updateAvailability(event.availability);
       if (state is AuthAuthenticated) {
@@ -146,4 +131,3 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } catch (_) {}
   }
 }
-

@@ -20,6 +20,8 @@ import '../../features/admin/presentation/screens/user_list_screen.dart';
 import '../../features/admin/presentation/screens/settings_screen.dart';
 import '../../features/admin/presentation/screens/management_hub_screen.dart';
 import '../../features/timetable/presentation/screens/timetable_screen.dart';
+import '../../features/templates/presentation/screens/templates_screen.dart';
+import '../../features/reminders/presentation/screens/classes_tracker_screen.dart';
 
 class AppRouter {
   static final GoRouter router = GoRouter(
@@ -127,6 +129,10 @@ class AppRouter {
             builder: (_, __) => const ReminderListScreen(),
           ),
           GoRoute(
+            path: '/classes',
+            builder: (_, __) => const ClassesTrackerScreen(),
+          ),
+          GoRoute(
             path: '/analytics',
             builder: (_, __) => const AnalyticsScreen(),
           ),
@@ -145,6 +151,10 @@ class AppRouter {
           GoRoute(
             path: '/timetable',
             builder: (_, __) => const TimetableScreen(),
+          ),
+          GoRoute(
+            path: '/templates',
+            builder: (_, __) => const TemplatesScreen(),
           ),
         ],
       ),

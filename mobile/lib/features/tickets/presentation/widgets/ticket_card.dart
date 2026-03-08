@@ -1,154 +1,291 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'dart:ui' show FontFeature;
 
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/ticket_model.dart';
 
+// ─────────────────────────────────────────────────────────────
+// Compact WhatsApp-style chat row
+// ─────────────────────────────────────────────────────────────
 class TicketCard extends StatelessWidget {
   final TicketModel ticket;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
-  const TicketCard({super.key, required this.ticket, this.onTap});
+  const TicketCard({super.key, required this.ticket, this.onTap, this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: IntrinsicHeight(
-          child: Row(
-            children: [
-              // ── Priority Strip ──
-              Container(
-                width: 5,
-                decoration: BoxDecoration(
-                  color: _priorityColor,
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  ),
-                ),
-              ),
+    final hasGuardianName = ticket.guardianName?.isNotEmpty == true && ticket.guardianName != 'Unknown Contact';
+    final hasStudentName  = ticket.studentName?.isNotEmpty == true;
 
-              // ── Content ──
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    final displayName = hasGuardianName
+        ? ticket.guardianName!
+        : hasStudentName
+            ? ticket.studentName!
+            : (ticket.guardianPhone != null ? '\u200E${ticket.guardianPhone}' : 'مجهول');
+
+    final sub = (hasGuardianName && hasStudentName) ? ticket.studentName! : null;
+    final preview = _buildPreview();
+    final timeLabel = _timeLabel();
+    final isUnread = ticket.unreadCount > 0;
+
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      splashColor: AppColors.primary.withValues(alpha: 0.06),
+      highlightColor: AppColors.primary.withValues(alpha: 0.03),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            // ── Avatar ──
+            _Avatar(name: displayName, isUnread: isUnread),
+            const SizedBox(width: 12),
+
+            // ── Content ──
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Row 1: name + time
+                  Row(
                     children: [
-                      // Row 1: ticket number + SLA pill
-                      Row(
-                        children: [
-                          Text(
-                            ticket.ticketNumber,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.5),
-                              fontSize: 12,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                displayName,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: isUnread ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          StatusBadge(status: ticket.status, label: ticket.statusDisplay),
-                          const Spacer(),
-                          if (ticket.slaDeadline != null)
-                            SlaTimerPill(deadline: ticket.slaDeadline!),
-                        ],
+                            if (sub != null) ...[
+                              const SizedBox(width: 6),
+                              Flexible(
+                                flex: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    sub,
+                                    style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: 0.5)),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 6),
-
-                      // Row 2: Guardian name
+                      const SizedBox(width: 8),
                       Text(
-                        ticket.guardianName ?? 'ولي أمر غير معروف',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                        timeLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isUnread ? AppColors.primary : Colors.white.withValues(alpha: 0.35),
+                          fontWeight: isUnread ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
+                    ],
+                  ),
 
-                      // Student name
-                      if (ticket.studentName != null)
-                        Text(
-                          'الطالب: ${ticket.studentName}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.white.withValues(alpha: 0.6),
-                          ),
+                  const SizedBox(height: 3),
+
+                  // Row 2: preview + status/unread
+                  Row(
+                    children: [
+                      // Status indicator dot
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _statusDotColor,
                         ),
-                      const SizedBox(height: 4),
-
-                      // Last message preview
-                      if (ticket.lastMessage != null)
-                        Text(
-                          ticket.lastMessage!,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          preview,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.white.withValues(alpha: 0.5),
+                            color: isUnread
+                                ? Colors.white.withValues(alpha: 0.75)
+                                : Colors.white.withValues(alpha: 0.38),
+                            fontWeight: isUnread ? FontWeight.w500 : FontWeight.normal,
                           ),
                         ),
-                      const SizedBox(height: 6),
-
-                      // Row 3: time ago + unread badge + tags
-                      Row(
-                        children: [
-                          Text(
-                            ticket.timeAgo,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.white.withValues(alpha: 0.4),
+                      ),
+                      if (isUnread) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          constraints: const BoxConstraints(minWidth: 18),
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Text(
+                            ticket.unreadCount > 99 ? '99+' : '${ticket.unreadCount}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                          if (ticket.unreadCount > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '${ticket.unreadCount}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                          const Spacer(),
-                          // Priority chip
-                          PriorityChip(priority: ticket.priority, label: ticket.priorityDisplay),
-                        ],
-                      ),
+                        ),
+                      ],
                     ],
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Color get _priorityColor {
-    switch (ticket.priority) {
-      case 'urgent': return AppColors.priorityUrgent;
-      case 'high': return AppColors.priorityHigh;
-      case 'normal': return AppColors.priorityNormal;
-      case 'low': return AppColors.priorityLow;
-      default: return AppColors.priorityNormal;
+  Color get _statusDotColor {
+    switch (ticket.status) {
+      case 'open':       return const Color(0xFF53BDEB);
+      case 'assigned':   return AppColors.primary;
+      case 'pending':    return const Color(0xFFFFB74D);
+      case 'escalated':  return const Color(0xFFEF5350);
+      case 'resolved':   return const Color(0xFF25D366);
+      case 'closed':     return const Color(0xFF8696A0);
+      default:           return const Color(0xFF8696A0);
     }
+  }
+
+  String _buildPreview() {
+    if (ticket.lastMessage != null && ticket.lastMessage!.isNotEmpty) {
+      return ticket.lastMessage!;
+    }
+    switch (ticket.status) {
+      case 'open':    return 'تذكرة جديدة';
+      case 'closed':  return 'تم إغلاق المحادثة';
+      default:        return 'لا توجد رسائل';
+    }
+  }
+
+  String _timeLabel() {
+    final now = DateTime.now();
+    final t = ticket.updatedAt;
+    final diff = now.difference(t);
+
+    if (diff.inMinutes < 1) return 'الآن';
+    if (diff.inDays == 0) {
+      final isPm = t.hour >= 12;
+      final h12 = t.hour % 12 == 0 ? 12 : t.hour % 12;
+      final m = t.minute.toString().padLeft(2, '0');
+      return '$h12:$m ${isPm ? 'م' : 'ص'}';
+    }
+    if (diff.inDays == 1) return 'أمس';
+    if (diff.inDays < 7) return _weekdayAr(t.weekday);
+    return '${t.day}/${t.month}';
+  }
+
+  String _weekdayAr(int d) {
+    const days = ['', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+    return days[d];
   }
 }
 
-// ── Status Badge ──
+// ─────────────────────────────────────────────────────────────
+// Compact avatar with online-style ring for unread
+// ─────────────────────────────────────────────────────────────
+class _Avatar extends StatelessWidget {
+  final String name;
+  final bool isUnread;
 
+  const _Avatar({required this.name, this.isUnread = false});
+
+  static const _palette = [
+    Color(0xFF1E88E5), Color(0xFF00897B), Color(0xFF8E24AA),
+    Color(0xFFE53935), Color(0xFFF4511E), Color(0xFF43A047),
+    Color(0xFF00ACC1), Color(0xFF6D4C41), Color(0xFF546E7A),
+  ];
+
+  Color get _color {
+    int hash = 0;
+    for (final c in name.codeUnits) {
+      hash = (hash * 31 + c) & 0x7fffffff;
+    }
+    return _palette[hash % _palette.length];
+  }
+
+  String get _initials {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: isUnread
+            ? Border.all(color: AppColors.primary, width: 2)
+            : null,
+      ),
+      child: CircleAvatar(
+        radius: 22,
+        backgroundColor: _color.withValues(alpha: 0.2),
+        child: Text(
+          _initials,
+          style: TextStyle(
+            color: _color,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Thin divider between cards
+// ─────────────────────────────────────────────────────────────
+class TicketDivider extends StatelessWidget {
+  const TicketDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(
+      height: 1,
+      thickness: 0.4,
+      indent: 74,
+      color: Colors.white.withValues(alpha: 0.06),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Keep StatusBadge + SlaTimerPill for detail screen
+// ─────────────────────────────────────────────────────────────
 class StatusBadge extends StatelessWidget {
   final String status;
   final String label;
@@ -176,66 +313,19 @@ class StatusBadge extends StatelessWidget {
 
   Color get _statusColor {
     switch (status) {
-      case 'open': return AppColors.statusOpen;
-      case 'assigned': return AppColors.primary;
-      case 'pending': return AppColors.statusPending;
-      case 'resolved': return AppColors.statusResolved;
-      case 'closed': return AppColors.statusClosed;
-      case 'escalated': return AppColors.statusEscalated;
-      default: return AppColors.textSecondary;
+      case 'open':       return AppColors.statusOpen;
+      case 'assigned':   return AppColors.primary;
+      case 'pending':    return AppColors.statusPending;
+      case 'resolved':   return AppColors.statusResolved;
+      case 'closed':     return AppColors.statusClosed;
+      case 'escalated':  return AppColors.statusEscalated;
+      default:           return AppColors.textSecondary;
     }
   }
 }
-
-// ── Priority Chip ──
-
-class PriorityChip extends StatelessWidget {
-  final String priority;
-  final String label;
-
-  const PriorityChip({super.key, required this.priority, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(_icon, size: 12, color: _color),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(color: _color, fontSize: 11, fontWeight: FontWeight.w600),
-        ),
-      ],
-    );
-  }
-
-  IconData get _icon {
-    switch (priority) {
-      case 'urgent': return Icons.error;
-      case 'high': return Icons.arrow_upward;
-      case 'normal': return Icons.remove;
-      case 'low': return Icons.arrow_downward;
-      default: return Icons.remove;
-    }
-  }
-
-  Color get _color {
-    switch (priority) {
-      case 'urgent': return AppColors.priorityUrgent;
-      case 'high': return AppColors.priorityHigh;
-      case 'normal': return AppColors.priorityNormal;
-      case 'low': return AppColors.priorityLow;
-      default: return AppColors.priorityNormal;
-    }
-  }
-}
-
-// ── SLA Timer Pill ──
 
 class SlaTimerPill extends StatefulWidget {
   final DateTime deadline;
-
   const SlaTimerPill({super.key, required this.deadline});
 
   @override
@@ -254,35 +344,27 @@ class _SlaTimerPillState extends State<SlaTimerPill> {
   }
 
   @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
+  void dispose() { _timer.cancel(); super.dispose(); }
 
   void _updateRemaining() {
     final diff = widget.deadline.difference(DateTime.now());
-    setState(() {
-      _remaining = diff.isNegative ? Duration.zero : diff;
-    });
+    setState(() { _remaining = diff.isNegative ? Duration.zero : diff; });
   }
 
   @override
   Widget build(BuildContext context) {
-    final hours = _remaining.inHours.toString().padLeft(2, '0');
+    final hours   = _remaining.inHours.toString().padLeft(2, '0');
     final minutes = (_remaining.inMinutes % 60).toString().padLeft(2, '0');
     final seconds = (_remaining.inSeconds % 60).toString().padLeft(2, '0');
     final isBreached = _remaining == Duration.zero;
 
-    Color color;
-    if (isBreached) {
-      color = AppColors.slaRed;
-    } else if (_remaining.inMinutes < 30) {
-      color = AppColors.slaRed;
-    } else if (_remaining.inHours < 2) {
-      color = AppColors.slaYellow;
-    } else {
-      color = AppColors.slaGreen;
-    }
+    final color = isBreached
+        ? AppColors.slaRed
+        : _remaining.inMinutes < 30
+            ? AppColors.slaRed
+            : _remaining.inHours < 2
+                ? AppColors.slaYellow
+                : AppColors.slaGreen;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -295,11 +377,8 @@ class _SlaTimerPillState extends State<SlaTimerPill> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            isBreached ? Icons.warning_amber_rounded : Icons.timer_outlined,
-            size: 12,
-            color: color,
-          ),
+          Icon(isBreached ? Icons.warning_amber_rounded : Icons.timer_outlined,
+              size: 12, color: color),
           const SizedBox(width: 4),
           Text(
             isBreached ? 'منتهي' : '$hours:$minutes:$seconds',

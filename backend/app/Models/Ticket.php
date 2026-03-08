@@ -16,6 +16,7 @@ class Ticket extends Model
     protected $fillable = [
         'ticket_number', 'guardian_id', 'student_id', 'assigned_to',
         'status', 'priority', 'channel', 'subject', 'last_message_preview',
+        'last_message_at', 'unread_count',
         'escalation_level', 'first_response_at', 'resolved_at', 'closed_at',
         'sla_deadline_at', 'sla_breached',
     ];
@@ -31,6 +32,7 @@ class Ticket extends Model
             'resolved_at'       => 'datetime',
             'closed_at'         => 'datetime',
             'sla_deadline_at'   => 'datetime',
+            'last_message_at'   => 'datetime',
         ];
     }
 

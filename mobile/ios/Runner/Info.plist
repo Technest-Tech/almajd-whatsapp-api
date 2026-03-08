@@ -43,6 +43,12 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need access to your photo library so you can attach images to support tickets.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>We need access to your camera so you can take photos for support tickets.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>We need access to your microphone so you can record and send audio voice notes.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

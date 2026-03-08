@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\TicketController;
+use App\Http\Controllers\Api\TicketMediaController;
 use App\Http\Controllers\Api\GuardianController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\TeacherController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\ReminderController;
+use App\Http\Controllers\Api\TemplateController;
 use App\Http\Controllers\Webhook\WhatsAppWebhookController;
 use App\Http\Controllers\Webhook\TwilioWebhookController;
 
@@ -39,6 +41,10 @@ Route::prefix('webhooks/whatsapp')->group(function () {
         ->middleware('webhook.signature');
 });
 
+// ── Public Media ──────────────────────────────────────────
+Route::get('media/tickets/{ticket}/{filename}', [TicketMediaController::class, 'download'])
+    ->name('ticket.media.download');
+
 // ── Public Auth ───────────────────────────────────────────
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login']);
@@ -59,8 +65,12 @@ Route::middleware('auth:api')->group(function () {
     Route::prefix('tickets')->middleware('permission:tickets.view')->group(function () {
         Route::get('/', [TicketController::class, 'index']);
         Route::get('stats', [TicketController::class, 'stats']);
+        Route::post('create-for-student', [TicketController::class, 'createForStudent'])
+            ->middleware('permission:tickets.create');
         Route::get('{ticket}', [TicketController::class, 'show']);
         Route::post('{ticket}/reply', [TicketController::class, 'reply'])
+            ->middleware('permission:tickets.reply');
+        Route::post('{ticket}/send-template', [TicketController::class, 'sendTemplate'])
             ->middleware('permission:tickets.reply');
         Route::put('{ticket}/assign', [TicketController::class, 'assign'])
             ->middleware('permission:tickets.assign');
@@ -70,6 +80,26 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:tickets.escalate');
         Route::post('{ticket}/note', [TicketController::class, 'addNote'])
             ->middleware('permission:tickets.reply');
+        Route::post('{ticket}/upload', [TicketMediaController::class, 'upload'])
+            ->middleware('permission:tickets.reply');
+        Route::delete('{ticket}', [TicketController::class, 'destroy'])
+            ->middleware('permission:tickets.resolve');
+    });
+
+    // ── WhatsApp Templates ──────────────────────────────
+    Route::prefix('templates')->group(function () {
+        Route::get('/', [TemplateController::class, 'index'])
+            ->middleware('permission:templates.view');
+        Route::get('approved', [TemplateController::class, 'approved'])
+            ->middleware('permission:tickets.reply');
+        Route::post('/', [TemplateController::class, 'store'])
+            ->middleware('permission:templates.manage');
+        Route::post('{id}/submit', [TemplateController::class, 'submit'])
+            ->middleware('permission:templates.manage');
+        Route::post('sync', [TemplateController::class, 'sync'])
+            ->middleware('permission:templates.manage');
+        Route::delete('{id}', [TemplateController::class, 'destroy'])
+            ->middleware('permission:templates.manage');
     });
 
     // ── Guardians ───────────────────────────────────────
@@ -159,6 +189,8 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/', [SessionController::class, 'index']);
         Route::get('{id}', [SessionController::class, 'show']);
         Route::put('{id}/status', [SessionController::class, 'updateStatus'])
+            ->middleware('permission:sessions.edit');
+        Route::post('{id}/remind', [SessionController::class, 'sendReminder'])
             ->middleware('permission:sessions.edit');
     });
 

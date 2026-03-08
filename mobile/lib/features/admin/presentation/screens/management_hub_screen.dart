@@ -12,6 +12,7 @@ class ManagementHubScreen extends StatelessWidget {
     _HubItem(icon: Icons.notifications_active_rounded, label: 'التذكيرات', subtitle: 'إشعارات واتساب', path: '/reminders', color: Color(0xFFFFA726)),
     _HubItem(icon: Icons.group_rounded, label: 'المستخدمون', subtitle: 'مدراء ومشرفون', path: '/users', color: Color(0xFFAB47BC)),
     _HubItem(icon: Icons.bar_chart_rounded, label: 'التقارير', subtitle: 'إحصائيات النظام', path: '/analytics', color: Color(0xFFEF5350)),
+    _HubItem(icon: Icons.chat_bubble_outline_rounded, label: 'قوالب واتساب', subtitle: 'إدارة قوالب الرسائل', path: '/templates', color: Color(0xFF00A884)),
     _HubItem(icon: Icons.settings_rounded, label: 'إعدادات النظام', subtitle: 'الحساب والتفضيلات', path: '/settings', color: Color(0xFF78909C)),
   ];
 

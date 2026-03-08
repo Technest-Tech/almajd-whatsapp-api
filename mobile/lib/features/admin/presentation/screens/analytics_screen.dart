@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -21,26 +21,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _load() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (AuthBloc.demoMode) {
-      setState(() {
-        _loading = false;
-        _data = {
-          'total_students': 87,
-          'active_students': 72,
-          'total_teachers': 12,
-          'total_schedules': 4,
-          'active_schedules': 3,
-          'total_sessions': 248,
-          'completed_sessions': 195,
-          'cancelled_sessions': 18,
-          'pending_reminders': 14,
-          'sent_reminders': 320,
-          'open_tickets': 23,
-          'resolved_tickets': 156,
-        };
-      });
-    }
+    // TODO: fetch analytics from API
+    await Future.delayed(const Duration(milliseconds: 300));
+    setState(() {
+      _loading = false;
+      _data = {};
+    });
   }
 
   @override

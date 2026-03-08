@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 import '../../data/models/ticket_model.dart';
 import '../../data/ticket_repository.dart';
 
@@ -51,6 +51,36 @@ class TicketQuickStatusChange extends TicketListEvent {
   List<Object?> get props => [ticketId, status];
 }
 
+class TicketListSearchChanged extends TicketListEvent {
+  final String query;
+  const TicketListSearchChanged(this.query);
+
+  @override
+  List<Object?> get props => [query];
+}
+
+// Real-time: a new message arrived for a ticket in the list
+class TicketListMessageReceived extends TicketListEvent {
+  final int ticketId;
+  final String messagePreview;
+  const TicketListMessageReceived({
+    required this.ticketId,
+    required this.messagePreview,
+  });
+
+  @override
+  List<Object?> get props => [ticketId, messagePreview];
+}
+
+// Delete a ticket
+class TicketDeleteRequested extends TicketListEvent {
+  final int ticketId;
+  const TicketDeleteRequested(this.ticketId);
+
+  @override
+  List<Object?> get props => [ticketId];
+}
+
 // ── States ──────────────────────────────────────────
 
 abstract class TicketListState extends Equatable {
@@ -64,18 +94,22 @@ class TicketListInitial extends TicketListState {}
 class TicketListLoading extends TicketListState {}
 
 class TicketListLoaded extends TicketListState {
-  final List<TicketModel> tickets;
+  final List<TicketModel> tickets;      // filtered list shown in UI
+  final List<TicketModel> allTickets;  // full unfiltered list
   final String activeFilter;
+  final String searchQuery;
   final Map<String, dynamic>? stats;
 
   const TicketListLoaded({
     required this.tickets,
+    required this.allTickets,
     this.activeFilter = 'all',
+    this.searchQuery = '',
     this.stats,
   });
 
   @override
-  List<Object?> get props => [tickets, activeFilter, stats];
+  List<Object?> get props => [tickets, allTickets, activeFilter, searchQuery, stats];
 }
 
 class TicketListError extends TicketListState {
@@ -97,35 +131,20 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     on<TicketListFilterChanged>(_onFilterChanged);
     on<TicketQuickAssign>(_onQuickAssign);
     on<TicketQuickStatusChange>(_onQuickStatusChange);
+    on<TicketListSearchChanged>(_onSearch);
+    on<TicketListMessageReceived>(_onMessageReceived);
+    on<TicketDeleteRequested>(_onDelete);
   }
 
   Future<void> _onFetch(TicketListFetchRequested event, Emitter<TicketListState> emit) async {
     if (!event.refresh) emit(TicketListLoading());
     try {
-      // ── Demo Mode: return mock data without API call ──
-      if (AuthBloc.demoMode) {
-        await Future.delayed(const Duration(milliseconds: 400));
-        final allTickets = _generateMockTickets();
-        final filtered = (event.statusFilter == null || event.statusFilter == 'all')
-            ? allTickets
-            : allTickets.where((t) => t.status == event.statusFilter).toList();
-        emit(TicketListLoaded(
-          tickets: filtered,
-          activeFilter: event.statusFilter ?? 'all',
-          stats: _mockStats(allTickets),
-        ));
-        return;
-      }
-
-      final tickets = await ticketRepository.getTickets(
-        status: event.statusFilter,
-      );
+      final tickets = await ticketRepository.getTickets(status: event.statusFilter);
       Map<String, dynamic>? stats;
-      try {
-        stats = await ticketRepository.getStats();
-      } catch (_) {}
+      try { stats = await ticketRepository.getStats(); } catch (_) {}
       emit(TicketListLoaded(
         tickets: tickets,
+        allTickets: tickets,
         activeFilter: event.statusFilter ?? 'all',
         stats: stats,
       ));
@@ -146,7 +165,6 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
   }
 
   Future<void> _onQuickAssign(TicketQuickAssign event, Emitter<TicketListState> emit) async {
-    if (AuthBloc.demoMode) return;
     try {
       await ticketRepository.assignTicket(event.ticketId, event.userId);
       add(TicketListRefreshRequested());
@@ -154,132 +172,102 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
   }
 
   Future<void> _onQuickStatusChange(TicketQuickStatusChange event, Emitter<TicketListState> emit) async {
-    if (AuthBloc.demoMode) return;
     try {
       await ticketRepository.updateStatus(event.ticketId, event.status);
       add(TicketListRefreshRequested());
     } catch (_) {}
   }
 
-  // ── Mock Data Helpers ──────────────────────────────
-
-  List<TicketModel> _generateMockTickets() {
-    final now = DateTime.now();
-    return [
-      TicketModel(
-        id: 1,
-        ticketNumber: '#TK-1001',
-        status: 'open',
-        priority: 'urgent',
-        guardianName: 'فاطمة الزهراء',
-        guardianPhone: '+966501112233',
-        studentName: 'يوسف أحمد',
-        lastMessage: 'السلام عليكم، أريد الاستفسار عن موعد الاختبار',
-        unreadCount: 3,
-        assignedToName: null,
-        assignedToId: null,
-        createdAt: now.subtract(const Duration(minutes: 15)),
-        updatedAt: now.subtract(const Duration(minutes: 5)),
-        slaDeadline: now.add(const Duration(hours: 3, minutes: 45)),
-        tags: ['استفسار', 'اختبارات'],
-      ),
-      TicketModel(
-        id: 2,
-        ticketNumber: '#TK-1002',
-        status: 'assigned',
-        priority: 'high',
-        guardianName: 'محمد العلي',
-        guardianPhone: '+966502223344',
-        studentName: 'سارة محمد',
-        lastMessage: 'ابنتي لم تحضر الحصة اليوم بسبب المرض',
-        unreadCount: 1,
-        assignedToName: 'أحمد المشرف',
-        assignedToId: 1,
-        createdAt: now.subtract(const Duration(hours: 2)),
-        updatedAt: now.subtract(const Duration(minutes: 30)),
-        slaDeadline: now.add(const Duration(hours: 1, minutes: 15)),
-        tags: ['غياب', 'عذر طبي'],
-      ),
-      TicketModel(
-        id: 3,
-        ticketNumber: '#TK-1003',
-        status: 'pending',
-        priority: 'normal',
-        guardianName: 'خالد السعيد',
-        guardianPhone: '+966503334455',
-        studentName: 'عبدالله خالد',
-        lastMessage: 'هل يمكن تغيير موعد حصة الرياضيات؟',
-        unreadCount: 0,
-        assignedToName: 'أحمد المشرف',
-        assignedToId: 1,
-        createdAt: now.subtract(const Duration(days: 1)),
-        updatedAt: now.subtract(const Duration(hours: 4)),
-        slaDeadline: now.add(const Duration(minutes: 20)),
-        tags: ['جدول', 'تغيير موعد'],
-      ),
-      TicketModel(
-        id: 4,
-        ticketNumber: '#TK-1004',
-        status: 'escalated',
-        priority: 'urgent',
-        guardianName: 'نورة القحطاني',
-        guardianPhone: '+966504445566',
-        studentName: 'لمى عبدالرحمن',
-        lastMessage: 'المشكلة لم تُحل منذ أسبوع!',
-        unreadCount: 5,
-        assignedToName: 'سعد المشرف الأول',
-        assignedToId: 2,
-        createdAt: now.subtract(const Duration(days: 7)),
-        updatedAt: now.subtract(const Duration(hours: 1)),
-        slaDeadline: now.subtract(const Duration(hours: 2)),
-        tags: ['شكوى', 'متصاعد'],
-      ),
-      TicketModel(
-        id: 5,
-        ticketNumber: '#TK-1005',
-        status: 'resolved',
-        priority: 'low',
-        guardianName: 'أحمد الشمري',
-        guardianPhone: '+966505556677',
-        studentName: 'ريان أحمد',
-        lastMessage: 'شكراً لكم، تم حل المشكلة',
-        unreadCount: 0,
-        assignedToName: 'أحمد المشرف',
-        assignedToId: 1,
-        createdAt: now.subtract(const Duration(days: 3)),
-        updatedAt: now.subtract(const Duration(days: 1)),
-        slaDeadline: now.add(const Duration(days: 2)),
-        tags: ['محلول'],
-      ),
-      TicketModel(
-        id: 6,
-        ticketNumber: '#TK-1006',
-        status: 'open',
-        priority: 'high',
-        guardianName: 'هند الدوسري',
-        guardianPhone: '+966506667788',
-        studentName: 'عمر هشام',
-        lastMessage: 'أريد التسجيل في دورة القرآن الكريم',
-        unreadCount: 2,
-        assignedToName: null,
-        assignedToId: null,
-        createdAt: now.subtract(const Duration(hours: 1)),
-        updatedAt: now.subtract(const Duration(minutes: 10)),
-        slaDeadline: now.add(const Duration(hours: 5)),
-        tags: ['تسجيل', 'قرآن'],
-      ),
-    ];
+  void _onSearch(TicketListSearchChanged event, Emitter<TicketListState> emit) {
+    if (state is! TicketListLoaded) return;
+    final s = state as TicketListLoaded;
+    final q = event.query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? s.allTickets
+        : s.allTickets.where((t) {
+            return (t.guardianName?.toLowerCase().contains(q) ?? false) ||
+                (t.guardianPhone?.contains(q) ?? false) ||
+                (t.studentName?.toLowerCase().contains(q) ?? false) ||
+                (t.lastMessage?.toLowerCase().contains(q) ?? false);
+          }).toList();
+    emit(TicketListLoaded(
+      tickets: filtered,
+      allTickets: s.allTickets,
+      activeFilter: s.activeFilter,
+      searchQuery: event.query,
+      stats: s.stats,
+    ));
   }
 
-  Map<String, dynamic> _mockStats(List<TicketModel> tickets) {
-    return {
-      'open': tickets.where((t) => t.status == 'open').length,
-      'assigned': tickets.where((t) => t.status == 'assigned').length,
-      'pending': tickets.where((t) => t.status == 'pending').length,
-      'escalated': tickets.where((t) => t.status == 'escalated').length,
-      'resolved': tickets.where((t) => t.status == 'resolved').length,
-      'closed': tickets.where((t) => t.status == 'closed').length,
-      'total': tickets.length,
-    };
+  void _onMessageReceived(TicketListMessageReceived event, Emitter<TicketListState> emit) {
+    if (state is! TicketListLoaded) return;
+    final s = state as TicketListLoaded;
+    
+    // Bump the matching ticket to top with updated preview
+    final idx = s.allTickets.indexWhere((t) => t.id == event.ticketId);
+    if (idx == -1) {
+      // Unknown ticket — do a silent refresh
+      add(TicketListRefreshRequested());
+      return;
+    }
+
+    final updated = List<TicketModel>.from(s.allTickets);
+    final ticket = updated.removeAt(idx);
+    // Rebuild with incremented unread + new preview
+    final bumped = TicketModel(
+      id: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      status: ticket.status,
+      priority: ticket.priority,
+      guardianName: ticket.guardianName,
+      guardianPhone: ticket.guardianPhone,
+      studentName: ticket.studentName,
+      lastMessage: event.messagePreview,
+      unreadCount: ticket.unreadCount + 1,
+      assignedToName: ticket.assignedToName,
+      assignedToId: ticket.assignedToId,
+      createdAt: ticket.createdAt,
+      updatedAt: DateTime.now(),
+      slaDeadline: ticket.slaDeadline,
+      tags: ticket.tags,
+      messages: ticket.messages,
+    );
+    updated.insert(0, bumped);
+
+    // Apply current search filter
+    final q = s.searchQuery.toLowerCase();
+    final filtered = q.isEmpty
+        ? updated
+        : updated.where((t) {
+            return (t.guardianName?.toLowerCase().contains(q) ?? false) ||
+                (t.guardianPhone?.contains(q) ?? false) ||
+                (t.studentName?.toLowerCase().contains(q) ?? false) ||
+                (t.lastMessage?.toLowerCase().contains(q) ?? false);
+          }).toList();
+
+    emit(TicketListLoaded(
+      tickets: filtered,
+      allTickets: updated,
+      activeFilter: s.activeFilter,
+      searchQuery: s.searchQuery,
+      stats: s.stats,
+    ));
+  }
+
+  Future<void> _onDelete(TicketDeleteRequested event, Emitter<TicketListState> emit) async {
+    try {
+      await ticketRepository.deleteTicket(event.ticketId);
+      if (state is! TicketListLoaded) return;
+      final s = state as TicketListLoaded;
+      final updatedAll = s.allTickets.where((t) => t.id != event.ticketId).toList();
+      final updatedFiltered = s.tickets.where((t) => t.id != event.ticketId).toList();
+      emit(TicketListLoaded(
+        tickets: updatedFiltered,
+        allTickets: updatedAll,
+        activeFilter: s.activeFilter,
+        searchQuery: s.searchQuery,
+        stats: s.stats,
+      ));
+    } catch (_) {}
   }
 }

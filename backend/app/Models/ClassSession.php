@@ -10,8 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ClassSession extends Model
 {
     protected $fillable = [
-        'schedule_entry_id', 'student_id', 'teacher_id', 'title', 'session_date',
-        'start_time', 'end_time', 'status', 'cancellation_reason',
+        'schedule_entry_id', 'student_id', 'teacher_id', 'supervisor_id', 'title', 'session_date',
+        'start_time', 'end_time', 'status', 'attendance_status', 'cancellation_reason',
         'rescheduled_date', 'rescheduled_start_time', 'rescheduled_end_time',
     ];
 
@@ -36,5 +36,10 @@ class ClassSession extends Model
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(Teacher::class);
+    }
+
+    public function supervisor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'supervisor_id');
     }
 }

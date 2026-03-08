@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 import '../../data/models/session_model.dart';
+import '../../data/session_repository.dart';
+import '../../../../core/di/injection.dart';
 
 class SessionDetailScreen extends StatefulWidget {
   final int sessionId;
@@ -14,6 +16,7 @@ class SessionDetailScreen extends StatefulWidget {
 
 class _SessionDetailScreenState extends State<SessionDetailScreen> {
   SessionModel? _session;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -21,17 +24,29 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     _loadSession();
   }
 
-  void _loadSession() {
-    if (AuthBloc.demoMode) {
-      final mocks = _demoSessions();
-      final found = mocks.where((s) => s.id == widget.sessionId);
-      if (found.isNotEmpty) setState(() => _session = found.first);
+  void _loadSession() async {
+    try {
+      final repo = getIt<SessionRepository>();
+      final session = await repo.getSession(widget.sessionId);
+      if (mounted) {
+        setState(() {
+          _session = session;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تحميل بيانات الحصة')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_session == null) {
+    if (_isLoading || _session == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('تفاصيل الحصة')),
         body: const Center(child: CircularProgressIndicator(color: AppColors.primary)),
@@ -210,19 +225,4 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     }
   }
 
-  List<SessionModel> _demoSessions() {
-    final now = DateTime.now();
-    return [
-      SessionModel(id: 1, title: 'القرآن الكريم', teacherName: 'أ. عبدالله المحمد', sessionDate: now, startTime: '08:00', endTime: '09:00', status: 'scheduled'),
-      SessionModel(id: 2, title: 'الرياضيات', teacherName: 'أ. فاطمة الأحمد', sessionDate: now, startTime: '09:30', endTime: '10:30', status: 'scheduled'),
-      SessionModel(id: 3, title: 'القرآن الكريم', teacherName: 'أ. عبدالله المحمد', sessionDate: now.subtract(const Duration(days: 1)), startTime: '08:00', endTime: '09:00', status: 'completed'),
-      SessionModel(id: 4, title: 'اللغة العربية', teacherName: 'أ. خالد العتيبي', sessionDate: now.subtract(const Duration(days: 1)), startTime: '09:30', endTime: '10:30', status: 'completed'),
-      SessionModel(id: 5, title: 'العلوم', teacherName: 'أ. نورة السعيد', sessionDate: now.subtract(const Duration(days: 2)), startTime: '10:00', endTime: '11:00', status: 'cancelled', cancellationReason: 'غياب المعلمة'),
-      SessionModel(id: 6, title: 'حفظ القرآن', teacherName: 'أ. عبدالله المحمد', sessionDate: now.subtract(const Duration(days: 2)), startTime: '16:00', endTime: '17:30', status: 'completed'),
-      SessionModel(id: 7, title: 'التجويد', teacherName: 'أ. عبدالله المحمد', sessionDate: now.add(const Duration(days: 1)), startTime: '08:00', endTime: '09:00', status: 'scheduled'),
-      SessionModel(id: 8, title: 'تقوية رياضيات', teacherName: 'أ. فاطمة الأحمد', sessionDate: now.add(const Duration(days: 1)), startTime: '14:00', endTime: '15:30', status: 'scheduled'),
-      SessionModel(id: 9, title: 'نحو وصرف', teacherName: 'أ. خالد العتيبي', sessionDate: now.subtract(const Duration(days: 3)), startTime: '09:00', endTime: '11:00', status: 'completed'),
-      SessionModel(id: 10, title: 'مراجعة الحفظ', teacherName: 'أ. عبدالله المحمد', sessionDate: now.subtract(const Duration(days: 4)), startTime: '16:00', endTime: '17:30', status: 'cancelled', cancellationReason: 'عطلة رسمية'),
-    ];
-  }
 }

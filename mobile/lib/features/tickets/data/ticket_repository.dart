@@ -1,4 +1,7 @@
+import 'dart:io';
+import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
+import 'models/message_model.dart';
 import 'models/ticket_model.dart';
 
 class TicketRepository {
@@ -13,15 +16,15 @@ class TicketRepository {
     int page = 1,
     int perPage = 20,
   }) async {
-    final params = <String, dynamic>{
-      'page': page,
-      'per_page': perPage,
-    };
+    final params = <String, dynamic>{'page': page, 'per_page': perPage};
     if (status != null && status != 'all') params['status'] = status;
     if (priority != null) params['priority'] = priority;
     if (search != null && search.isNotEmpty) params['search'] = search;
 
-    final response = await apiClient.dio.get('/tickets', queryParameters: params);
+    final response = await apiClient.dio.get(
+      '/tickets',
+      queryParameters: params,
+    );
     final List data = response.data['data'];
     return data.map((j) => TicketModel.fromJson(j)).toList();
   }
@@ -37,26 +40,72 @@ class TicketRepository {
   }
 
   Future<void> assignTicket(int ticketId, int userId) async {
-    await apiClient.dio.put('/tickets/$ticketId/assign', data: {
-      'assigned_to': userId,
-    });
+    await apiClient.dio.put(
+      '/tickets/$ticketId/assign',
+      data: {'assigned_to': userId},
+    );
   }
 
   Future<void> updateStatus(int ticketId, String status) async {
-    await apiClient.dio.put('/tickets/$ticketId/status', data: {
-      'status': status,
-    });
+    await apiClient.dio.put(
+      '/tickets/$ticketId/status',
+      data: {'status': status},
+    );
   }
 
   Future<void> escalateTicket(int ticketId, {String? reason}) async {
-    await apiClient.dio.post('/tickets/$ticketId/escalate', data: {
-      if (reason != null) 'reason': reason,
-    });
+    await apiClient.dio.post(
+      '/tickets/$ticketId/escalate',
+      data: {if (reason != null) 'reason': reason},
+    );
   }
 
-  Future<void> replyToTicket(int ticketId, String body) async {
-    await apiClient.dio.post('/tickets/$ticketId/reply', data: {
-      'body': body,
+  Future<MessageModel> replyToTicket(
+    int ticketId,
+    String content, {
+    String? mediaUrl,
+    int? replyToMessageId,
+  }) async {
+    final response = await apiClient.dio.post(
+      '/tickets/$ticketId/reply',
+      data: {
+        'content': content,
+        if (mediaUrl != null) 'media_url': mediaUrl,
+        if (replyToMessageId != null)
+          'reply_to_message_id': replyToMessageId.toString(),
+      },
+    );
+    return MessageModel.fromJson(response.data['data']);
+  }
+
+  Future<Map<String, dynamic>> uploadTicketMedia(
+    int ticketId,
+    File file,
+  ) async {
+    final fileName = file.path.split('/').last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(file.path, filename: fileName),
     });
+
+    final response = await apiClient.dio.post(
+      '/tickets/$ticketId/upload',
+      data: formData,
+      options: Options(contentType: 'multipart/form-data'),
+    );
+    return Map<String, dynamic>.from(response.data['data']);
+  }
+
+  /// Delete a ticket permanently.
+  Future<void> deleteTicket(int ticketId) async {
+    await apiClient.dio.delete('/tickets/$ticketId');
+  }
+
+  /// Create (or find) a ticket for a student — returns the ticket data including `id`.
+  Future<int> createTicketForStudent(int studentId) async {
+    final response = await apiClient.dio.post(
+      '/tickets/create-for-student',
+      data: {'student_id': studentId},
+    );
+    return response.data['data']['id'] as int;
   }
 }

@@ -13,7 +13,7 @@ class SessionService
      */
     public function list(array $filters = [], int $perPage = 20)
     {
-        $query = ClassSession::with(['teacher', 'scheduleEntry'])
+        $query = ClassSession::with(['teacher', 'student', 'scheduleEntry'])
             ->orderBy('session_date')
             ->orderBy('start_time');
 
@@ -31,6 +31,9 @@ class SessionService
         }
         if (!empty($filters['teacher_id'])) {
             $query->where('teacher_id', $filters['teacher_id']);
+        }
+        if (!empty($filters['supervisor_id'])) {
+            $query->where('supervisor_id', $filters['supervisor_id']);
         }
 
         return $query->paginate($perPage);

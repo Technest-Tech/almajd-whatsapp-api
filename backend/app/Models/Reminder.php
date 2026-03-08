@@ -10,9 +10,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Reminder extends Model
 {
     protected $fillable = [
-        'type', 'class_session_id', 'recipient_phone', 'recipient_name',
+        'type', 'recipient_type', 'reminder_phase', 'class_session_id',
+        'recipient_phone', 'recipient_name',
         'template_name', 'message_body', 'scheduled_at', 'sent_at',
-        'status', 'failure_reason',
+        'status', 'confirmation_status', 'failure_reason',
     ];
 
     protected function casts(): array

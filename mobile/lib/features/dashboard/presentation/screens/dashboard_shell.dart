@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:async';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/api/api_client.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/data/models/user_model.dart';
+
+/// Sent by the shell AppBar when the search icon is tapped.
+/// The InboxScreen listens for this and toggles its search bar.
+class InboxSearchNotification extends Notification {}
 
 class DashboardShell extends StatefulWidget {
   final Widget child;
@@ -16,6 +23,30 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   int _currentIndex = 0;
+  int _unreadCount = 0;
+  Timer? _unreadTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUnreadCount();
+    _unreadTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchUnreadCount());
+  }
+
+  @override
+  void dispose() {
+    _unreadTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchUnreadCount() async {
+    try {
+      final api = getIt<ApiClient>();
+      final res = await api.dio.get('/tickets', queryParameters: {'status': 'open', 'per_page': 1});
+      final total = res.data['meta']?['total'] ?? res.data['total'] ?? 0;
+      if (mounted) setState(() => _unreadCount = total is int ? total : int.tryParse(total.toString()) ?? 0);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +59,14 @@ class _DashboardShellState extends State<DashboardShell> {
           appBar: AppBar(
             title: Text(navItems[_currentIndex]['label'] as String),
             actions: [
+              // Search button (only on inbox tab)
+              if (navItems[_currentIndex]['path'] == '/inbox' || navItems[_currentIndex]['path'] == '/tickets')
+                IconButton(
+                  icon: const Icon(Icons.search_rounded),
+                  onPressed: () {
+                    InboxSearchNotification().dispatch(context);
+                  },
+                ),
               // Notification bell
               IconButton(
                 icon: Stack(
@@ -77,46 +116,200 @@ class _DashboardShellState extends State<DashboardShell> {
               child: widget.child,
             ),
           ),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _currentIndex,
-            onDestinationSelected: (index) {
-              setState(() => _currentIndex = index);
-              final path = navItems[index]['path'] as String;
-              context.go(path);
-            },
-            destinations: navItems.map((item) {
-              return NavigationDestination(
-                icon: Icon(item['icon'] as IconData),
-                selectedIcon: Icon(item['selectedIcon'] as IconData, color: AppColors.primary),
-                label: item['label'] as String,
-              );
-            }).toList(),
-          ),
+          floatingActionButton: _buildCenterFAB(context, navItems),
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+          bottomNavigationBar: _buildBottomBar(context, navItems),
         );
       },
+    );
+  }
+
+  Widget _buildCenterFAB(BuildContext context, List<Map<String, dynamic>> navItems) {
+    final centerIndex = navItems.length ~/ 2;
+    final isSelected = _currentIndex == centerIndex;
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: isSelected ? 0.5 : 0.3),
+            blurRadius: isSelected ? 16 : 10,
+            spreadRadius: isSelected ? 2 : 0,
+          ),
+        ],
+      ),
+      child: FloatingActionButton(
+        elevation: 0,
+        backgroundColor: AppColors.primary,
+        onPressed: () {
+          setState(() => _currentIndex = centerIndex);
+          context.go('/classes');
+        },
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
+              color: Colors.white,
+              size: 24,
+            ),
+            const Text(
+              'التذكيرات',
+              style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context, List<Map<String, dynamic>> navItems) {
+    final centerIndex = navItems.length ~/ 2;
+    final leftItems = navItems.sublist(0, centerIndex);
+    final rightItems = navItems.sublist(centerIndex + 1);
+
+    return BottomAppBar(
+      shape: const CircularNotchedRectangle(),
+      notchMargin: 8,
+      color: AppColors.darkCard,
+      elevation: 8,
+      child: SizedBox(
+        height: 60,
+        child: Row(
+          children: [
+            // Left side items
+            ...leftItems.asMap().entries.map((e) => _buildNavItem(
+                  context,
+                  icon: e.value['icon'] as IconData,
+                  selectedIcon: e.value['selectedIcon'] as IconData,
+                  label: e.value['label'] as String,
+                  isSelected: _currentIndex == e.key,
+                  badge: (e.value['badge'] as int?) ?? 0,
+                  onTap: () {
+                    setState(() => _currentIndex = e.key);
+                    context.go(e.value['path'] as String);
+                  },
+                )),
+            // Center spacer for FAB
+            const Expanded(child: SizedBox()),
+            // Right side items
+            ...rightItems.asMap().entries.map((e) {
+              final actualIndex = centerIndex + 1 + e.key;
+              return _buildNavItem(
+                context,
+                icon: e.value['icon'] as IconData,
+                selectedIcon: e.value['selectedIcon'] as IconData,
+                label: e.value['label'] as String,
+                isSelected: _currentIndex == actualIndex,
+                badge: (e.value['badge'] as int?) ?? 0,
+                onTap: () {
+                  setState(() => _currentIndex = actualIndex);
+                  context.go(e.value['path'] as String);
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(
+    BuildContext context, {
+    required IconData icon,
+    required IconData selectedIcon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    int badge = 0,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  isSelected ? selectedIcon : icon,
+                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                  size: 22,
+                ),
+                if (badge > 0)
+                  Positioned(
+                    right: -8,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.coral,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+                      child: Text(
+                        badge > 99 ? '99+' : '$badge',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                fontSize: 10,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   List<Map<String, dynamic>> _getNavItems(UserModel? user) {
     final role = user?.primaryRole ?? 'supervisor';
 
+    // Left side items
     final items = <Map<String, dynamic>>[
       {
         'icon': Icons.inbox_outlined,
         'selectedIcon': Icons.inbox_rounded,
         'label': 'الوارد',
         'path': '/inbox',
+        'badge': _unreadCount,
       },
     ];
 
+    // ── Role-specific LEFT items (before center) ──
+    if (role == 'admin') {
+      items.add({
+        'icon': Icons.people_outline,
+        'selectedIcon': Icons.people_rounded,
+        'label': 'الطلاب',
+        'path': '/students',
+      });
+    }
+
+    // ── CENTER: التذكيرات (placeholder in list for index math) ──
+    items.add({
+      'icon': Icons.notifications_outlined,
+      'selectedIcon': Icons.notifications_active_rounded,
+      'label': 'التذكيرات',
+      'path': '/classes',
+    });
+
+    // ── Role-specific RIGHT items (after center) ──
     if (role == 'admin') {
       items.addAll([
-        {
-          'icon': Icons.people_outline,
-          'selectedIcon': Icons.people_rounded,
-          'label': 'الطلاب',
-          'path': '/students',
-        },
         {
           'icon': Icons.school_outlined,
           'selectedIcon': Icons.school_rounded,
@@ -131,13 +324,17 @@ class _DashboardShellState extends State<DashboardShell> {
         },
       ]);
     } else if (role == 'senior_supervisor') {
-      items.addAll([
+      // Add left items before center
+      items.insertAll(items.length - 1, [
         {
           'icon': Icons.group_outlined,
           'selectedIcon': Icons.group_rounded,
           'label': 'الفريق',
           'path': '/users',
         },
+      ]);
+      // Add right items after center
+      items.addAll([
         {
           'icon': Icons.bar_chart_outlined,
           'selectedIcon': Icons.bar_chart_rounded,
@@ -153,20 +350,20 @@ class _DashboardShellState extends State<DashboardShell> {
       ]);
     } else {
       // Supervisor
-      items.addAll([
+      items.insertAll(items.length - 1, [
         {
           'icon': Icons.search_outlined,
           'selectedIcon': Icons.search_rounded,
           'label': 'البحث',
           'path': '/tickets',
         },
-        {
-          'icon': Icons.settings_outlined,
-          'selectedIcon': Icons.settings_rounded,
-          'label': 'الإعدادات',
-          'path': '/settings',
-        },
       ]);
+      items.add({
+        'icon': Icons.settings_outlined,
+        'selectedIcon': Icons.settings_rounded,
+        'label': 'الإعدادات',
+        'path': '/settings',
+      });
     }
 
     return items;

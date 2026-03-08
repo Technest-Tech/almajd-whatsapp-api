@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 import '../../data/models/schedule_model.dart';
 
 class ScheduleDetailScreen extends StatefulWidget {
@@ -32,11 +32,7 @@ class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
   }
 
   void _loadSchedule() {
-    if (AuthBloc.demoMode) {
-      final mocks = _demoSchedules();
-      final found = mocks.where((s) => s.id == widget.scheduleId);
-      if (found.isNotEmpty) setState(() => _schedule = found.first);
-    }
+    // TODO: load schedule from API using widget.scheduleId
   }
 
   @override
@@ -249,29 +245,4 @@ class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
     );
   }
 
-  List<ScheduleModel> _demoSchedules() {
-    final now = DateTime.now();
-    return [
-      ScheduleModel(id: 1, name: 'جدول الفصل الدراسي الأول', description: 'الجدول الأساسي للفصل الدراسي الأول 1446هـ', startDate: DateTime(now.year, 9, 1), endDate: DateTime(now.year, 12, 30), isActive: true, entries: [
-        ScheduleEntryModel(id: 1, scheduleId: 1, teacherName: 'أ. عبدالله المحمد', title: 'القرآن الكريم', dayOfWeek: 0, startTime: '08:00', endTime: '09:00', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 2, scheduleId: 1, teacherName: 'أ. فاطمة الأحمد', title: 'الرياضيات', dayOfWeek: 0, startTime: '09:30', endTime: '10:30', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 3, scheduleId: 1, teacherName: 'أ. خالد العتيبي', title: 'اللغة العربية', dayOfWeek: 1, startTime: '08:00', endTime: '09:00', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 4, scheduleId: 1, teacherName: 'أ. نورة السعيد', title: 'العلوم', dayOfWeek: 2, startTime: '10:00', endTime: '11:00', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 5, scheduleId: 1, teacherName: 'أ. عبدالله المحمد', title: 'التجويد', dayOfWeek: 3, startTime: '08:00', endTime: '09:00', recurrence: 'weekly'),
-      ]),
-      ScheduleModel(id: 2, name: 'جدول حلقة التحفيظ المسائية', description: 'حلقة التحفيظ المسائية للطلاب المتفوقين', startDate: DateTime(now.year, 9, 15), endDate: DateTime(now.year + 1, 1, 15), isActive: true, entries: [
-        ScheduleEntryModel(id: 6, scheduleId: 2, teacherName: 'أ. عبدالله المحمد', title: 'حفظ القرآن', dayOfWeek: 0, startTime: '16:00', endTime: '17:30', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 7, scheduleId: 2, teacherName: 'أ. عبدالله المحمد', title: 'مراجعة الحفظ', dayOfWeek: 2, startTime: '16:00', endTime: '17:30', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 8, scheduleId: 2, teacherName: 'أ. عبدالله المحمد', title: 'تسميع الحفظ', dayOfWeek: 4, startTime: '16:00', endTime: '17:30', recurrence: 'weekly'),
-      ]),
-      ScheduleModel(id: 3, name: 'الدورة الصيفية المكثفة', description: 'دورة صيفية مكثفة لتأسيس الطلاب', startDate: DateTime(now.year, 6, 1), endDate: DateTime(now.year, 8, 31), isActive: false, entries: [
-        ScheduleEntryModel(id: 9, scheduleId: 3, teacherName: 'أ. خالد العتيبي', title: 'نحو وصرف', dayOfWeek: 0, startTime: '09:00', endTime: '11:00', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 10, scheduleId: 3, teacherName: 'أ. خالد العتيبي', title: 'إملاء وتعبير', dayOfWeek: 2, startTime: '09:00', endTime: '11:00', recurrence: 'weekly'),
-      ]),
-      ScheduleModel(id: 4, name: 'برنامج التقوية في الرياضيات', description: 'برنامج أسبوعي لتقوية الطلاب الضعاف', startDate: DateTime(now.year, 10, 1), endDate: DateTime(now.year, 12, 15), isActive: true, entries: [
-        ScheduleEntryModel(id: 11, scheduleId: 4, teacherName: 'أ. فاطمة الأحمد', title: 'تقوية رياضيات', dayOfWeek: 1, startTime: '14:00', endTime: '15:30', recurrence: 'weekly'),
-        ScheduleEntryModel(id: 12, scheduleId: 4, teacherName: 'أ. فاطمة الأحمد', title: 'تمارين تطبيقية', dayOfWeek: 3, startTime: '14:00', endTime: '15:30', recurrence: 'biweekly'),
-      ]),
-    ];
-  }
 }

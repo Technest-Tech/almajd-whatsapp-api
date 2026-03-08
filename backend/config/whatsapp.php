@@ -18,7 +18,7 @@ return [
     'twilio' => [
         'account_sid' => env('TWILIO_ACCOUNT_SID'),
         'auth_token'  => env('TWILIO_AUTH_TOKEN'),
-        'from_number' => env('TWILIO_WHATSAPP_NUMBER'), // whatsapp:+14155238886
+        'from_number' => env('TWILIO_WHATSAPP_NUMBER'), // e.g. +201217770240 (production sender)
     ],
 
     /*

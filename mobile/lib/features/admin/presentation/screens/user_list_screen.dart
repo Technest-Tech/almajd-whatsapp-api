@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
+
 
 class UserListScreen extends StatefulWidget {
   const UserListScreen({super.key});
@@ -13,7 +13,7 @@ class UserListScreen extends StatefulWidget {
 
 class _UserListScreenState extends State<UserListScreen> {
   bool _loading = true;
-  List<Map<String, dynamic>> _users = [];
+  final List<Map<String, dynamic>> _users = [];
   String _roleFilter = 'all';
   final _searchController = TextEditingController();
 
@@ -37,13 +37,9 @@ class _UserListScreenState extends State<UserListScreen> {
   }
 
   Future<void> _load() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (AuthBloc.demoMode) {
-      setState(() {
-        _loading = false;
-        _users = _generateMock();
-      });
-    }
+    // TODO: fetch users from API
+    await Future.delayed(const Duration(milliseconds: 300));
+    setState(() => _loading = false);
   }
 
   List<Map<String, dynamic>> get _filteredUsers {
@@ -161,16 +157,6 @@ class _UserListScreenState extends State<UserListScreen> {
     );
   }
 
-  List<Map<String, dynamic>> _generateMock() {
-    return [
-      {'id': 1, 'name': 'أحمد الإداري', 'email': 'admin@almajd.sa', 'phone': '0500000001', 'role': 'admin', 'max_open_tickets': 50},
-      {'id': 2, 'name': 'سعود المشرف', 'email': 'saud@almajd.sa', 'phone': '0500000002', 'role': 'senior_supervisor', 'max_open_tickets': 30},
-      {'id': 3, 'name': 'خالد العمري', 'email': 'khalid@almajd.sa', 'phone': '0500000003', 'role': 'supervisor', 'max_open_tickets': 15},
-      {'id': 4, 'name': 'فهد الحربي', 'email': 'fahad@almajd.sa', 'phone': '0500000004', 'role': 'supervisor', 'max_open_tickets': 15},
-      {'id': 5, 'name': 'نورة الشمري', 'email': 'noura@almajd.sa', 'phone': '0500000005', 'role': 'senior_supervisor', 'max_open_tickets': 25},
-      {'id': 6, 'name': 'عبدالرحمن السعد', 'email': 'abdulrahman@almajd.sa', 'phone': '0500000006', 'role': 'supervisor', 'max_open_tickets': 15},
-    ];
-  }
 }
 
 // ── User Card ─────────────────────────────────────────

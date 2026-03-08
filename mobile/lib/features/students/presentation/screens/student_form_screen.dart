@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection.dart';
+import '../../data/student_repository.dart';
 
 class StudentFormScreen extends StatefulWidget {
   final int? studentId; // null = create, not null = edit
@@ -75,10 +77,12 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
             // Phone
             TextFormField(
               controller: _phoneController,
+              textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
                 labelText: 'رقم الهاتف',
                 prefixIcon: Icon(Icons.phone_outlined),
                 hintText: '+966XXXXXXXXX',
+                hintTextDirection: TextDirection.ltr,
               ),
               keyboardType: TextInputType.phone,
               validator: (v) {
@@ -123,10 +127,12 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
             // Guardian Phone
             TextFormField(
               controller: _guardianPhoneController,
+              textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
                 labelText: 'هاتف ولي الأمر',
                 prefixIcon: Icon(Icons.phone_outlined),
                 hintText: '+966XXXXXXXXX',
+                hintTextDirection: TextDirection.ltr,
               ),
               keyboardType: TextInputType.phone,
               validator: (v) {
@@ -219,20 +225,47 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
 
     setState(() => _isSaving = true);
 
-    // Simulate save delay
-    await Future.delayed(const Duration(milliseconds: 800));
+    try {
+      final repo = getIt<StudentRepository>();
+      final data = {
+        'name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'status': _status,
+        'guardian_name': _guardianNameController.text.trim(),
+        'guardian_phone': _guardianPhoneController.text.trim(),
+        'notes': _notesController.text.trim(),
+        // Note: Relation is not passed yet if the backend doesn't support it directly in store, 
+        // but it can be handled via notes or an expanded API later.
+      };
 
-    if (!mounted) return;
+      if (widget.isEditing) {
+        await repo.updateStudent(widget.studentId!, data);
+      } else {
+        await repo.createStudent(data);
+      }
 
-    setState(() => _isSaving = false);
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(widget.isEditing ? 'تم تحديث بيانات الطالب' : 'تم إضافة الطالب بنجاح'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.isEditing ? 'تم تحديث بيانات الطالب' : 'تم إضافة الطالب بنجاح'),
+          backgroundColor: AppColors.success,
+        ),
+      );
 
-    Navigator.pop(context);
+      Navigator.pop(context, true); // Return true to signal success
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء الحفظ: ${e.toString()}'),
+          backgroundColor: AppColors.coral,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 }

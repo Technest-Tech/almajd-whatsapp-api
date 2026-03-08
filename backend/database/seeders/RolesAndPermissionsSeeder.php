@@ -30,6 +30,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'sessions.view', 'sessions.edit',
             // Reminders
             'reminders.view', 'reminders.manage',
+            // Templates
+            'templates.view', 'templates.manage',
             // Users (Admin)
             'users.view', 'users.create', 'users.edit', 'users.delete',
             // Admin features

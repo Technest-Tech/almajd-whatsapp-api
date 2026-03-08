@@ -11,7 +11,7 @@ interface WhatsAppServiceInterface
      *
      * @return array{message_id: string, status: string}
      */
-    public function sendText(string $to, string $message, ?string $idempotencyKey = null): array;
+    public function sendText(string $to, string $message, ?string $idempotencyKey = null, ?string $replyToMessageSid = null): array;
 
     /**
      * Send an approved template message (works outside session window).
@@ -26,7 +26,7 @@ interface WhatsAppServiceInterface
      *
      * @return array{message_id: string, status: string}
      */
-    public function sendMedia(string $to, string $mediaUrl, string $type, ?string $caption = null): array;
+    public function sendMedia(string $to, string $mediaUrl, string $type, ?string $caption = null, ?string $replyToMessageSid = null): array;
 
     /**
      * Check if the phone number is within the 24-hour session window.

@@ -27,15 +27,22 @@ class TwilioWhatsAppService implements WhatsAppServiceInterface
     /**
      * {@inheritdoc}
      */
-    public function sendText(string $to, string $message, ?string $idempotencyKey = null): array
+    public function sendText(string $to, string $message, ?string $idempotencyKey = null, ?string $replyToMessageSid = null): array
     {
+        $payload = [
+            'From'           => "whatsapp:{$this->fromNumber}",
+            'To'             => "whatsapp:{$to}",
+            'Body'           => $message,
+            'StatusCallback' => config('app.url') . '/api/webhooks/twilio/whatsapp/status',
+        ];
+
+        if ($replyToMessageSid) {
+            $payload['Context.MessageSid'] = $replyToMessageSid;
+        }
+
         $response = Http::withBasicAuth($this->accountSid, $this->authToken)
             ->asForm()
-            ->post("https://api.twilio.com/2010-04-01/Accounts/{$this->accountSid}/Messages.json", [
-                'From' => "whatsapp:{$this->fromNumber}",
-                'To'   => "whatsapp:{$to}",
-                'Body' => $message,
-            ]);
+            ->post("https://api.twilio.com/2010-04-01/Accounts/{$this->accountSid}/Messages.json", $payload);
 
         return $this->processResponse($response);
     }
@@ -54,7 +61,7 @@ class TwilioWhatsAppService implements WhatsAppServiceInterface
                 'From'       => "whatsapp:{$this->fromNumber}",
                 'To'         => "whatsapp:{$to}",
                 'ContentSid' => $templateName, // Twilio template SID
-                'ContentVariables' => json_encode($params),
+                'ContentVariables' => empty($params) ? '{}' : json_encode($params),
             ]);
 
         return $this->processResponse($response);
@@ -63,16 +70,21 @@ class TwilioWhatsAppService implements WhatsAppServiceInterface
     /**
      * {@inheritdoc}
      */
-    public function sendMedia(string $to, string $mediaUrl, string $type, ?string $caption = null): array
+    public function sendMedia(string $to, string $mediaUrl, string $type, ?string $caption = null, ?string $replyToMessageSid = null): array
     {
         $payload = [
-            'From'     => "whatsapp:{$this->fromNumber}",
-            'To'       => "whatsapp:{$to}",
-            'MediaUrl' => $mediaUrl,
+            'From'           => "whatsapp:{$this->fromNumber}",
+            'To'             => "whatsapp:{$to}",
+            'MediaUrl'       => $mediaUrl,
+            'StatusCallback' => config('app.url') . '/api/webhooks/twilio/whatsapp/status',
         ];
 
         if ($caption) {
             $payload['Body'] = $caption;
+        }
+
+        if ($replyToMessageSid) {
+            $payload['Context.MessageSid'] = $replyToMessageSid;
         }
 
         $response = Http::withBasicAuth($this->accountSid, $this->authToken)

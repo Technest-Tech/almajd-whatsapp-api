@@ -45,9 +45,11 @@ class _StudentListViewState extends State<_StudentListView> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<StudentListBloc, StudentListState>(
-      builder: (context, state) {
-        return Column(
+    return Stack(
+      children: [
+        BlocBuilder<StudentListBloc, StudentListState>(
+          builder: (context, state) {
+            return Column(
           children: [
             // ── Search Bar ──
             Padding(
@@ -111,6 +113,24 @@ class _StudentListViewState extends State<_StudentListView> {
           ],
         );
       },
+      ),
+      // ── FAB Always Visible ──
+      Positioned(
+        bottom: 16,
+        left: 16,
+        child: FloatingActionButton.extended(
+          heroTag: 'add_student',
+          onPressed: () async {
+            await context.push('/students/new');
+            if (context.mounted) {
+              context.read<StudentListBloc>().add(StudentListRefreshRequested());
+            }
+          },
+          icon: const Icon(Icons.person_add),
+          label: const Text('إضافة طالب'),
+        ),
+      ),
+    ],
     );
   }
 
@@ -151,38 +171,28 @@ class _StudentListViewState extends State<_StudentListView> {
         );
       }
 
-      return Stack(
-        children: [
-          RefreshIndicator(
-            color: AppColors.primary,
-            onRefresh: () async {
-              context.read<StudentListBloc>().add(StudentListRefreshRequested());
-              await Future.delayed(const Duration(milliseconds: 500));
-            },
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
-              itemCount: state.students.length,
-              itemBuilder: (context, index) {
-                final student = state.students[index];
-                return _StudentCard(
-                  student: student,
-                  onTap: () => context.push('/students/${student.id}'),
-                );
+      return RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: () async {
+          context.read<StudentListBloc>().add(StudentListRefreshRequested());
+          await Future.delayed(const Duration(milliseconds: 500));
+        },
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
+          itemCount: state.students.length,
+          itemBuilder: (context, index) {
+            final student = state.students[index];
+            return _StudentCard(
+              student: student,
+              onTap: () async {
+                final result = await context.push('/students/${student.id}');
+                if (result == true && context.mounted) {
+                  context.read<StudentListBloc>().add(StudentListRefreshRequested());
+                }
               },
-            ),
-          ),
-          // FAB
-          Positioned(
-            bottom: 16,
-            left: 16,
-            child: FloatingActionButton.extended(
-              heroTag: 'add_student',
-              onPressed: () => context.push('/students/new'),
-              icon: const Icon(Icons.person_add),
-              label: const Text('إضافة طالب'),
-            ),
-          ),
-        ],
+            );
+          },
+        ),
       );
     }
 

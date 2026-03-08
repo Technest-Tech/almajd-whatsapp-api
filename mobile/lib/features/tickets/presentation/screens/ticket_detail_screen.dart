@@ -1,144 +1,535 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import 'dart:ui';
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../data/models/message_model.dart';
 import '../../data/models/ticket_model.dart';
+import '../../data/ticket_repository.dart';
+import '../../../../core/di/injection.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/ticket_card.dart';
+import '../widgets/start_conversation_banner.dart';
+import '../../../../core/api/websockets_client.dart';
+import 'package:dart_pusher_channels/dart_pusher_channels.dart';
 
 class TicketDetailScreen extends StatefulWidget {
   final int ticketId;
-
   const TicketDetailScreen({super.key, required this.ticketId});
 
   @override
   State<TicketDetailScreen> createState() => _TicketDetailScreenState();
 }
 
-class _TicketDetailScreenState extends State<TicketDetailScreen> {
+class _TicketDetailScreenState extends State<TicketDetailScreen>
+    with TickerProviderStateMixin {
+  // ── Controllers ──
   final _messageController = TextEditingController();
-  final _scrollController = ScrollController();
-  late List<MessageModel> _messages;
-  late TicketModel _ticket;
+  final _itemScrollController = ItemScrollController();
+  final _positionsListener = ItemPositionsListener.create();
+  final _focusNode = FocusNode();
+
+  // ── State ──
+  final List<MessageModel> _messages = [];
+  TicketModel? _ticket;
   bool _isLoading = true;
+  bool _isAutoScrolling = false;
+  MessageModel? _replyingTo;
+  bool _showScrollToBottom = false;
+  int? _highlightedMessageId;
+
+  // ── Audio Recording ──
+  final _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
+  Duration _recordDuration = Duration.zero;
+  Timer? _recordTimer;
+  bool _isRecordLocked = false;
+
+  // ── Animation ──
+  late final AnimationController _sendBtnController;
+  late final Animation<double> _sendBtnAnimation;
 
   @override
   void initState() {
     super.initState();
+
+    _sendBtnController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _sendBtnAnimation = CurvedAnimation(
+      parent: _sendBtnController,
+      curve: Curves.easeInOut,
+    );
+
+    _messageController.addListener(() {
+      final hasText = _messageController.text.trim().isNotEmpty;
+      if (hasText && !_sendBtnController.isCompleted) {
+        _sendBtnController.forward();
+      } else if (!hasText && _sendBtnController.isCompleted) {
+        _sendBtnController.reverse();
+      }
+    });
+
+    // Track scroll position to show/hide the scroll-to-bottom FAB
+    _positionsListener.itemPositions.addListener(() {
+      if (!mounted) return;
+      final positions = _positionsListener.itemPositions.value;
+      if (positions.isEmpty) return;
+      final lastVisible = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+      final show = lastVisible < _messages.length - 1;
+      if (show != _showScrollToBottom) {
+        setState(() => _showScrollToBottom = show);
+      }
+    });
+
     _loadData();
   }
 
   @override
   void dispose() {
     _messageController.dispose();
-    _scrollController.dispose();
+    _focusNode.dispose();
+    _audioRecorder.dispose();
+    _sendBtnController.dispose();
+    _recordTimer?.cancel();
     super.dispose();
   }
 
-  void _loadData() {
-    if (AuthBloc.demoMode) {
-      _ticket = _demoTicket();
-      _messages = _demoMessages();
-      setState(() => _isLoading = false);
-      _scrollToBottom();
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // WebSocket
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  void _setupWebSocket() async {
+    final pusher = WebSocketsClient.instance.pusher;
+    if (pusher == null) return;
+
+    final token = await const FlutterSecureStorage().read(key: 'access_token');
+
+    final channel = pusher.privateChannel(
+      'private-ticket.${widget.ticketId}',
+      authorizationDelegate:
+          EndpointAuthorizableChannelTokenAuthorizationDelegate.forPrivateChannel(
+            authorizationEndpoint: Uri.parse(
+              'https://cloud.almajd.info/api/broadcasting/auth',
+            ),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            },
+          ),
+    );
+
+    channel.bind('TicketMessageCreated').listen((event) {
+      if (mounted && event.data != null) {
+        try {
+          final Map<String, dynamic> payload = event.data is String
+              ? jsonDecode(event.data)
+              : event.data;
+
+          final messageData = payload['data'] is Map<String, dynamic>
+              ? payload['data'] as Map<String, dynamic>
+              : payload;
+
+          final newMessage = MessageModel.fromJson(messageData);
+
+          if (!_messages.any((m) => m.id == newMessage.id)) {
+            setState(() => _messages.add(newMessage));
+            _scrollToBottom();
+          }
+        } catch (e) {
+          debugPrint("WebSocket Parse Error: $e");
+        }
+      }
+    });
+
+    // Listen for delivery status changes (sent → delivered → read)
+    // so tick icons update in real time without a page reload
+    channel.bind('TicketMessageStatusUpdated').listen((event) {
+      if (mounted && event.data != null) {
+        try {
+          final Map<String, dynamic> payload = event.data is String
+              ? jsonDecode(event.data)
+              : event.data;
+
+          final data = payload['data'] is Map<String, dynamic>
+              ? payload['data'] as Map<String, dynamic>
+              : payload;
+
+          final int? msgId = data['id'];
+          final String? newStatus = data['delivery_status'];
+          if (msgId == null || newStatus == null) return;
+
+          final idx = _messages.indexWhere((m) => m.id == msgId);
+          if (idx != -1) {
+            setState(() {
+              _messages[idx] = _messages[idx].copyWith(deliveryStatus: newStatus);
+            });
+          }
+        } catch (e) {
+          debugPrint("WebSocket Status Update Error: $e");
+        }
+      }
+    });
+
+    channel.subscribe();
+  }
+
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Data Loading
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  void _loadData() async {
+    try {
+      final repo = getIt<TicketRepository>();
+      final ticket = await repo.getTicket(widget.ticketId);
+      if (mounted) {
+        setState(() {
+          _ticket = ticket;
+          _messages
+            ..clear()
+            ..addAll(ticket.messages);
+        });
+        _setupWebSocket();
+
+        // Find all images to pre-cache
+        final imageUrls = ticket.messages
+            .where(
+              (m) => m.mediaUrl != null && _isImageUrl(m.mediaUrl!, m.type),
+            )
+            .map((m) => m.mediaUrl!)
+            .toList();
+
+        // Pre-cache images so they are painted instantly before we hide the loader
+        if (imageUrls.isNotEmpty) {
+          await Future.wait(
+            imageUrls.map(
+              (url) =>
+                  precacheImage(NetworkImage(url), context).catchError((_) {}),
+            ),
+          );
+        }
+
+        // Wait for rendering to complete before scrolling
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToBottom(
+            onComplete: () {
+              if (mounted) setState(() => _isLoading = false);
+            },
+          );
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تحميل بيانات التذكرة')),
+        );
+      }
     }
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+  bool _isImageUrl(String url, String? type) {
+    if (type == 'image') return true;
+    final lowerUrl = url.toLowerCase();
+    return lowerUrl.endsWith('.png') ||
+        lowerUrl.endsWith('.jpg') ||
+        lowerUrl.endsWith('.jpeg') ||
+        lowerUrl.contains('image');
+  }
+
+  void _scrollToBottom({VoidCallback? onComplete}) {
+    if (_messages.isEmpty) {
+      onComplete?.call();
+      return;
+    }
+    setState(() => _isAutoScrolling = true);
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!mounted) return;
+      if (_itemScrollController.isAttached) {
+        _itemScrollController
+            .scrollTo(
+              index: _messages.length - 1,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            )
+            .then((_) {
+              if (mounted) {
+                setState(() => _isAutoScrolling = false);
+                onComplete?.call();
+              }
+            });
+      } else {
+        if (mounted) setState(() => _isAutoScrolling = false);
+        onComplete?.call();
       }
     });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // BUILD
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-      );
-    }
-
     return Scaffold(
+      backgroundColor: const Color(0xFF0B141A),
       appBar: _buildAppBar(),
-      body: Column(
+      body: Stack(
         children: [
-          // ── Chat Messages ──
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.darkBg,
-                image: DecorationImage(
-                  image: const AssetImage('assets/chat_bg.png'),
-                  fit: BoxFit.cover,
-                  opacity: 0.03,
-                  onError: (_, __) {},
+          // Chat wallpaper
+          Positioned.fill(child: CustomPaint(painter: _ChatWallpaperPainter())),
+
+          // Main column
+          Column(
+            children: [
+              Expanded(child: _buildMessageList()),
+              _buildInputArea(),
+            ],
+          ),
+
+          // Scroll-to-bottom FAB
+          if (_showScrollToBottom && !_isLoading && !_isAutoScrolling)
+            Positioned(
+              right: 12,
+              bottom: 100,
+              child: GestureDetector(
+                onTap: _scrollToBottom,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A2C34),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.keyboard_arrow_down,
+                    color: Color(0xFF8696A0),
+                    size: 24,
+                  ),
                 ),
               ),
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  return MessageBubble(message: _messages[index]);
+            ),
+
+          // Modern Loading Overlay
+          if (_isLoading || _isAutoScrolling)
+            Positioned.fill(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 300),
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                      child: Container(
+                        color: const Color(0xFF0B141A).withValues(alpha: 0.6),
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 20,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1F2C34),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const CircularProgressIndicator(
+                                  color: Color(0xFF00A884),
+                                  strokeWidth: 3,
+                                ),
+                                const SizedBox(height: 20),
+                                Text(
+                                  'جاري التحميل...',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
-          ),
-
-          // ── Input Bar ──
-          _buildInputBar(),
         ],
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_forward_ios, size: 20),
-        onPressed: () => context.pop(),
-      ),
-      title: Column(
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
+  // ── Message List with Date Separators ──
+  Widget _buildMessageList() {
+    return ScrollablePositionedList.builder(
+      itemScrollController: _itemScrollController,
+      itemPositionsListener: _positionsListener,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      itemCount: _messages.length,
+      itemBuilder: (context, index) {
+        final msg = _messages[index];
+        final showDate =
+            index == 0 ||
+            !_isSameDay(msg.createdAt, _messages[index - 1].createdAt);
+
+        final isHighlighted = _highlightedMessageId == msg.id;
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          decoration: BoxDecoration(
+            color: isHighlighted
+                ? const Color(0xFF00A884).withValues(alpha: 0.25)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
             children: [
-              Text(
-                _ticket.ticketNumber,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              if (showDate) DateSeparator(date: msg.createdAt),
+              MessageBubble(
+                message: msg,
+                onSwipeReply: (m) {
+                  setState(() => _replyingTo = m);
+                  _focusNode.requestFocus();
+                },
+                onLongPress: (m) {},
+                onQuoteReplyTap: _scrollToMessage,
               ),
-              const SizedBox(width: 8),
-              StatusBadge(status: _ticket.status, label: _ticket.statusDisplay),
             ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            _ticket.guardianName ?? 'ولي أمر',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.white.withValues(alpha: 0.7),
-              fontWeight: FontWeight.normal,
+        );
+      },
+    );
+  }
+
+  /// Scrolls to the message with [targetId] and flashes a highlight.
+  Future<void> _scrollToMessage(int targetId) async {
+    final index = _messages.indexWhere((m) => m.id == targetId);
+    if (index == -1) return;
+
+    await _itemScrollController.scrollTo(
+      index: index,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+      alignment: 0.15,
+    );
+
+    // Flash highlight
+    setState(() => _highlightedMessageId = targetId);
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (mounted) setState(() => _highlightedMessageId = null);
+  }
+
+
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // APP BAR
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PreferredSizeWidget _buildAppBar() {
+    if (_ticket == null) {
+      return AppBar(
+        backgroundColor: const Color(0xFF1F2C34),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, size: 22),
+          onPressed: () => context.pop(),
+        ),
+        title: const Text('تفاصيل التذكرة'),
+      );
+    }
+
+    final displayName = (_ticket!.guardianName?.isNotEmpty == true && _ticket!.guardianName != 'Unknown Contact')
+        ? _ticket!.guardianName!
+        : (_ticket!.guardianPhone != null ? '\u200E${_ticket!.guardianPhone}' : 'مجهول');
+
+    final avatarChar = displayName.startsWith('\u200E') 
+        ? '#' 
+        : (displayName.isNotEmpty ? displayName[0] : 'م');
+
+    return AppBar(
+      backgroundColor: const Color(0xFF1F2C34),
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back, size: 22),
+        onPressed: () => context.pop(),
+      ),
+      titleSpacing: 0,
+      title: Row(
+        children: [
+          // Avatar
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: const Color(0xFF00A884),
+            child: Text(
+              avatarChar,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  displayName,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'اضغط للمزيد',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
       actions: [
-        // SLA timer
-        if (_ticket.slaDeadline != null)
+        if (_ticket?.slaDeadline != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: SlaTimerPill(deadline: _ticket.slaDeadline!),
+            child: SlaTimerPill(deadline: _ticket!.slaDeadline!),
           ),
-        // Actions menu
         IconButton(
           icon: const Icon(Icons.more_vert),
           onPressed: () => _showActionsSheet(context),
@@ -147,66 +538,296 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     );
   }
 
-  Widget _buildInputBar() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        8, 8, 8,
-        8 + MediaQuery.of(context).padding.bottom,
-      ),
-      decoration: const BoxDecoration(
-        color: AppColors.darkSurface,
-        border: Border(
-          top: BorderSide(color: AppColors.darkCard, width: 0.5),
-        ),
-      ),
-      child: Row(
-        children: [
-          // Attachment button
-          IconButton(
-            icon: const Icon(Icons.attach_file_rounded, color: AppColors.textSecondary),
-            onPressed: () => _showAttachmentOptions(context),
-          ),
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // INPUT AREA
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /// True when the contact has sent at least one inbound message
+  /// (meaning WhatsApp's 24h session window may be open).
+  bool get _hasInboundMessages =>
+      _messages.any((m) => m.direction == 'inbound');
 
-          // Text field
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.darkCard,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: TextField(
-                controller: _messageController,
-                maxLines: 4,
-                minLines: 1,
-                textDirection: TextDirection.rtl,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'اكتب رسالة...',
-                  hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
-                onChanged: (_) => setState(() {}),
+  Widget _buildInputArea() {
+    // If this is a new contact with no inbound messages, show template banner
+    if (!_isLoading && !_hasInboundMessages) {
+      return StartConversationBanner(
+        ticketId: widget.ticketId,
+        onTemplateSent: _loadData,
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Reply preview
+        if (_replyingTo != null) _buildReplyPreview(),
+        // Input bar
+        Container(
+          padding: EdgeInsets.fromLTRB(
+            6,
+            6,
+            6,
+            6 + MediaQuery.of(context).padding.bottom,
+          ),
+          color: const Color(0xFF1F2C34),
+          child: _isRecording && !_isRecordLocked
+              ? _buildRecordingSlider()
+              : _isRecordLocked
+              ? _buildLockedRecordingUI()
+              : _buildStandardInputRow(),
+        ),
+      ],
+    );
+  }
+
+  // ── Reply Preview ──
+  Widget _buildReplyPreview() {
+    final msg = _replyingTo!;
+    final isMe = msg.direction == 'outbound';
+    final sender = isMe ? 'أنت' : (msg.senderName ?? 'المستخدم');
+
+    String preview = msg.body;
+    if (preview.isEmpty) {
+      if (msg.type == 'image') {
+        preview = '📷 صورة';
+      } else if (msg.type == 'audio') {
+        preview = '🎵 صوت';
+      } else if (msg.type == 'document') {
+        preview = '📄 مستند';
+      } else {
+        preview = 'مرفق';
+      }
+    }
+
+    return Container(
+      color: const Color(0xFF1F2C34),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B141A),
+          borderRadius: BorderRadius.circular(8),
+          border: const Border(
+            right: BorderSide(color: Color(0xFF53BDEB), width: 3),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    sender,
+                    style: const TextStyle(
+                      color: Color(0xFF53BDEB),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    preview,
+                    style: const TextStyle(
+                      color: Color(0xFF8696A0),
+                      fontSize: 13,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-
-          // Send button
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            child: CircleAvatar(
-              radius: 22,
-              backgroundColor: _messageController.text.trim().isEmpty
-                  ? AppColors.darkCard
-                  : AppColors.primary,
-              child: IconButton(
-                icon: const Icon(Icons.send_rounded, size: 20),
-                color: Colors.white,
-                onPressed: _messageController.text.trim().isEmpty
-                    ? null
-                    : _onSendMessage,
+            GestureDetector(
+              onTap: () => setState(() => _replyingTo = null),
+              child: const Icon(
+                Icons.close,
+                size: 18,
+                color: Color(0xFF8696A0),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Standard Input Row ──
+  Widget _buildStandardInputRow() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        // Text field container
+        Expanded(
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2A3942),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Attachment
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2, left: 4),
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.attach_file_rounded,
+                      color: Color(0xFF8696A0),
+                      size: 22,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    onPressed: _showAttachmentOptions,
+                  ),
+                ),
+                // Text field
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    focusNode: _focusNode,
+                    maxLines: 6,
+                    minLines: 1,
+                    textDirection: TextDirection.rtl,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    decoration: InputDecoration(
+                      hintText: 'رسالة',
+                      hintStyle: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.35),
+                        fontSize: 15,
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 0,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        // Mic / Send button
+        _buildMicSendButton(),
+      ],
+    );
+  }
+
+  // ── Animated Mic ↔ Send Button ──
+  Widget _buildMicSendButton() {
+    return AnimatedBuilder(
+      animation: _sendBtnAnimation,
+      builder: (context, _) {
+        final showSend = _sendBtnAnimation.value > 0.5;
+        return GestureDetector(
+          onTap: showSend ? _onSendMessage : null,
+          onLongPressStart: showSend ? null : (_) => _startRecording(),
+          onLongPressMoveUpdate: showSend
+              ? null
+              : (details) {
+                  // Slide left to cancel
+                  if (details.localOffsetFromOrigin.dx < -80) {
+                    _cancelRecording();
+                  }
+                  // Slide up to lock
+                  if (details.localOffsetFromOrigin.dy < -60 && _isRecording) {
+                    setState(() => _isRecordLocked = true);
+                  }
+                },
+          onLongPressEnd: showSend
+              ? null
+              : (_) {
+                  if (_isRecording && !_isRecordLocked) _stopRecording();
+                },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: showSend
+                  ? const Color(0xFF00A884)
+                  : (_isRecording ? AppColors.coral : const Color(0xFF00A884)),
+              shape: BoxShape.circle,
+            ),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: showSend
+                  ? const Icon(
+                      Icons.send_rounded,
+                      key: ValueKey('send'),
+                      color: Colors.white,
+                      size: 20,
+                    )
+                  : const Icon(
+                      Icons.mic,
+                      key: ValueKey('mic'),
+                      color: Colors.white,
+                      size: 22,
+                    ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── WhatsApp-style Recording Bar ──
+  Widget _buildRecordingSlider() {
+    return SizedBox(
+      height: 50,
+      child: Row(
+        children: [
+          // Trash (cancel)
+          GestureDetector(
+            onTap: _cancelRecording,
+            child: const _CircleBtn(
+              color: Color(0xFF2A3942),
+              child: Icon(Icons.delete_outline_rounded,
+                  color: AppColors.coral, size: 22),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Pulsing dot + timer
+          const _PulsingDot(),
+          const SizedBox(width: 8),
+          Text(
+            _formatRecordDuration(_recordDuration),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
+            ),
+          ),
+          // Slide-to-cancel hint
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.chevron_left_rounded,
+                    color: Colors.white.withValues(alpha: 0.35), size: 20),
+                Icon(Icons.chevron_left_rounded,
+                    color: Colors.white.withValues(alpha: 0.2), size: 20),
+                Text(
+                  'اسحب للإلغاء',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.35),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Lock button
+          GestureDetector(
+            onTap: () => setState(() => _isRecordLocked = true),
+            child: const _CircleBtn(
+              color: Color(0xFF2A3942),
+              child: Icon(Icons.lock_outline_rounded,
+                  color: Color(0xFF8696A0), size: 20),
             ),
           ),
         ],
@@ -214,125 +835,426 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     );
   }
 
-  void _onSendMessage() {
-    final text = _messageController.text.trim();
+  // ── Locked Recording UI ──
+  Widget _buildLockedRecordingUI() {
+    return SizedBox(
+      height: 50,
+      child: Row(
+        children: [
+          // Trash (cancel)
+          GestureDetector(
+            onTap: _cancelRecording,
+            child: const _CircleBtn(
+              color: Color(0xFF2A3942),
+              child: Icon(Icons.delete_outline_rounded,
+                  color: AppColors.coral, size: 22),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const _PulsingDot(),
+          const SizedBox(width: 8),
+          Text(
+            _formatRecordDuration(_recordDuration),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
+            ),
+          ),
+          const Spacer(),
+          // Send
+          GestureDetector(
+            onTap: _stopRecording,
+            child: const _CircleBtn(
+              color: Color(0xFF00A884),
+              child: Icon(Icons.send_rounded, color: Colors.white, size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  String _formatRecordDuration(Duration d) {
+    final m = d.inMinutes.toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ATTACHMENTS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  void _showAttachmentOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1F2C34),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _AttachmentOption(
+                    icon: Icons.image_rounded,
+                    label: 'معرض',
+                    color: const Color(0xFF7C5BF1),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickImage();
+                    },
+                  ),
+                  _AttachmentOption(
+                    icon: Icons.insert_drive_file_rounded,
+                    label: 'مستند',
+                    color: const Color(0xFF5169E4),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickDocument();
+                    },
+                  ),
+                  _AttachmentOption(
+                    icon: Icons.headphones_rounded,
+                    label: 'صوت',
+                    color: const Color(0xFFEE7C30),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAudioFile();
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+      ),
+
+    );
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MEDIA PICKING
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Future<void> _pickImage() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (picked != null) _uploadAndSendMedia(File(picked.path));
+  }
+
+
+  Future<void> _pickDocument() async {
+    final result = await FilePicker.platform.pickFiles();
+    if (result != null && result.files.single.path != null) {
+      _uploadAndSendMedia(File(result.files.single.path!));
+    }
+  }
+
+  Future<void> _pickAudioFile() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    if (result != null && result.files.single.path != null) {
+      _uploadAndSendMedia(File(result.files.single.path!));
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // AUDIO RECORDING
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Future<void> _startRecording() async {
+    if (await _audioRecorder.hasPermission()) {
+      final dir = await getTemporaryDirectory();
+      final p =
+          '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _audioRecorder.start(const RecordConfig(), path: p);
+      setState(() {
+        _isRecording = true;
+        _recordDuration = Duration.zero;
+      });
+      HapticFeedback.heavyImpact();
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() => _recordDuration += const Duration(seconds: 1));
+        }
+      });
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    _recordTimer?.cancel();
+    final path = await _audioRecorder.stop();
+    setState(() {
+      _isRecording = false;
+      _isRecordLocked = false;
+      _recordDuration = Duration.zero;
+    });
+    HapticFeedback.lightImpact();
+    if (path != null) _uploadAndSendMedia(File(path));
+  }
+
+  void _cancelRecording() async {
+    _recordTimer?.cancel();
+    await _audioRecorder.stop();
+    setState(() {
+      _isRecording = false;
+      _isRecordLocked = false;
+      _recordDuration = Duration.zero;
+    });
+    HapticFeedback.lightImpact();
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SEND & UPLOAD
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Future<void> _uploadAndSendMedia(File file) async {
+    int? replyToId;
+    String? replyToBody;
+    String? replyToSender;
+    String? replyToType;
+
+    if (_replyingTo != null) {
+      replyToId = _replyingTo!.id;
+      replyToBody = _replyingTo!.body.isNotEmpty
+          ? _replyingTo!.body
+          : (_replyingTo!.type == 'image'
+                ? '📷 صورة'
+                : (_replyingTo!.type == 'audio' ? '🎵 صوت' : '📄 مستند'));
+      replyToSender = _replyingTo!.isInbound
+          ? (_replyingTo!.senderName ?? 'المستخدم')
+          : 'أنت';
+      replyToType = _replyingTo!.type;
+      setState(() => _replyingTo = null);
+    }
+
+    final tempId = -(DateTime.now().millisecondsSinceEpoch);
+    setState(() {
+      _messages.add(
+        MessageModel(
+          id: tempId,
+          ticketId: widget.ticketId,
+          body: '⏳ جاري الإرسال...',
+          direction: 'outbound',
+          deliveryStatus: 'sending',
+          createdAt: DateTime.now(),
+          replyToId: replyToId,
+          replyToBody: replyToBody,
+          replyToSender: replyToSender,
+          replyToType: replyToType,
+        ),
+      );
+    });
+    _scrollToBottom();
+
+    try {
+      final repo = getIt<TicketRepository>();
+      final uploadRes = await repo.uploadTicketMedia(widget.ticketId, file);
+      final mediaUrl = uploadRes['media_url'];
+      final realMessage = await repo.replyToTicket(
+        widget.ticketId,
+        '',
+        mediaUrl: mediaUrl,
+        replyToMessageId: replyToId,
+      );
+
+      if (mounted) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == tempId);
+          if (idx != -1) _messages[idx] = realMessage;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _messages.removeWhere((m) => m.id == tempId));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('فشل إرسال المرفق')));
+      }
+    }
+  }
+
+  void _onSendMessage() async {
+    String text = _messageController.text.trim();
+    if (text.isEmpty && _replyingTo == null) return;
+
+    // Build reply metadata
+    int? replyToId;
+    String? replyToBody;
+    String? replyToSender;
+    String? replyToType;
+
+    if (_replyingTo != null) {
+      replyToId = _replyingTo!.id;
+      replyToBody = _replyingTo!.body.isNotEmpty
+          ? _replyingTo!.body
+          : (_replyingTo!.type == 'image'
+                ? '📷 صورة'
+                : (_replyingTo!.type == 'audio' ? '🎵 صوت' : '📄 مستند'));
+      replyToSender = _replyingTo!.isInbound
+          ? (_replyingTo!.senderName ?? 'المستخدم')
+          : 'أنت';
+      replyToType = _replyingTo!.type;
+      setState(() => _replyingTo = null);
+    }
+
     if (text.isEmpty) return;
 
+    final tempId = -(DateTime.now().millisecondsSinceEpoch);
     setState(() {
-      _messages.add(MessageModel(
-        id: _messages.length + 100,
-        ticketId: widget.ticketId,
-        body: text,
-        direction: 'outbound',
-        deliveryStatus: 'sent',
-        createdAt: DateTime.now(),
-      ));
+      _messages.add(
+        MessageModel(
+          id: tempId,
+          ticketId: widget.ticketId,
+          body: text,
+          direction: 'outbound',
+          deliveryStatus: 'sending',
+          createdAt: DateTime.now(),
+          replyToId: replyToId,
+          replyToBody: replyToBody,
+          replyToSender: replyToSender,
+          replyToType: replyToType,
+        ),
+      );
     });
     _messageController.clear();
     _scrollToBottom();
     HapticFeedback.lightImpact();
 
-    // Simulate delivery status update
-    Future.delayed(const Duration(seconds: 1), () {
+    try {
+      final repo = getIt<TicketRepository>();
+      final realMessage = await repo.replyToTicket(
+        widget.ticketId,
+        text,
+        replyToMessageId: replyToId,
+      );
+
       if (mounted) {
         setState(() {
-          final idx = _messages.length - 1;
-          _messages[idx] = MessageModel(
-            id: _messages[idx].id,
-            ticketId: _messages[idx].ticketId,
-            body: _messages[idx].body,
-            direction: 'outbound',
-            deliveryStatus: 'delivered',
-            createdAt: _messages[idx].createdAt,
-          );
+          final idx = _messages.indexWhere((m) => m.id == tempId);
+          if (idx != -1) _messages[idx] = realMessage;
         });
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == tempId);
+          if (idx != -1) {
+            _messages[idx] = MessageModel(
+              id: tempId,
+              ticketId: widget.ticketId,
+              body: text,
+              direction: 'outbound',
+              deliveryStatus: 'failed',
+              createdAt: DateTime.now(),
+            );
+          }
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('فشل إرسال الرسالة')));
+      }
+    }
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ACTIONS SHEET
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   void _showActionsSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      backgroundColor: const Color(0xFF1F2C34),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(2),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-
-            Text(
-              'إجراءات التذكرة',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
+              Text(
+                'إجراءات التذكرة',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
-            ),
-            const SizedBox(height: 16),
-
-            _ActionTile(
-              icon: Icons.person_add_rounded,
-              label: 'تعيين مشرف',
-              subtitle: 'تعيين التذكرة لمشرف آخر',
-              color: AppColors.primary,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showSnackBar('تم التعيين بنجاح');
-              },
-            ),
-            _ActionTile(
-              icon: Icons.trending_up_rounded,
-              label: 'تصعيد',
-              subtitle: 'تصعيد التذكرة للمشرف الأول',
-              color: AppColors.coral,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showSnackBar('تم التصعيد بنجاح');
-              },
-            ),
-            _ActionTile(
-              icon: Icons.swap_horiz_rounded,
-              label: 'تغيير الحالة',
-              subtitle: 'تغيير حالة التذكرة',
-              color: AppColors.amber,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showStatusPicker();
-              },
-            ),
-            _ActionTile(
-              icon: Icons.note_add_rounded,
-              label: 'إضافة ملاحظة داخلية',
-              subtitle: 'ملاحظة مرئية فقط للموظفين',
-              color: AppColors.primaryLight,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showNoteDialog();
-              },
-            ),
-            _ActionTile(
-              icon: Icons.schedule_rounded,
-              label: 'تعيين متابعة',
-              subtitle: 'تذكير للمتابعة لاحقاً',
-              color: AppColors.statusOpen,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showSnackBar('تم تعيين المتابعة');
-              },
-            ),
-
-            SizedBox(height: MediaQuery.of(ctx).padding.bottom + 8),
-          ],
+              const SizedBox(height: 16),
+              _ActionTile(
+                icon: Icons.person_add_rounded,
+                label: 'تعيين مشرف',
+                subtitle: 'تعيين التذكرة لمشرف آخر',
+                color: AppColors.primary,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showSnackBar('تم التعيين بنجاح');
+                },
+              ),
+              _ActionTile(
+                icon: Icons.trending_up_rounded,
+                label: 'تصعيد',
+                subtitle: 'تصعيد التذكرة للمشرف الأول',
+                color: AppColors.coral,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showSnackBar('تم التصعيد بنجاح');
+                },
+              ),
+              _ActionTile(
+                icon: Icons.swap_horiz_rounded,
+                label: 'تغيير الحالة',
+                subtitle: 'تغيير حالة التذكرة',
+                color: AppColors.amber,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showStatusPicker();
+                },
+              ),
+              _ActionTile(
+                icon: Icons.note_add_rounded,
+                label: 'إضافة ملاحظة داخلية',
+                subtitle: 'ملاحظة مرئية فقط للموظفين',
+                color: AppColors.primaryLight,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showNoteDialog();
+                },
+              ),
+              _ActionTile(
+                icon: Icons.schedule_rounded,
+                label: 'تعيين متابعة',
+                subtitle: 'تذكير للمتابعة لاحقاً',
+                color: AppColors.statusOpen,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showSnackBar('تم تعيين المتابعة');
+                },
+              ),
+              SizedBox(height: MediaQuery.of(ctx).padding.bottom + 8),
+            ],
+          ),
         ),
       ),
     );
@@ -349,6 +1271,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
 
     showModalBottomSheet(
       context: context,
+      backgroundColor: const Color(0xFF1F2C34),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -366,34 +1289,42 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text('تغيير الحالة', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const Text(
+              'تغيير الحالة',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            ),
             const SizedBox(height: 16),
-            ...statuses.map((s) => ListTile(
-              leading: CircleAvatar(
-                radius: 6,
-                backgroundColor: s['color'] as Color,
+            ...statuses.map(
+              (s) => ListTile(
+                leading: CircleAvatar(
+                  radius: 6,
+                  backgroundColor: s['color'] as Color,
+                ),
+                title: Text(s['label'] as String),
+                selected: _ticket?.status == s['key'],
+                selectedTileColor: (s['color'] as Color).withValues(alpha: 0.1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    _messages.add(
+                      MessageModel(
+                        id: _messages.length + 200,
+                        ticketId: widget.ticketId,
+                        body: 'تم تغيير الحالة إلى ${s['label']}',
+                        direction: 'outbound',
+                        type: 'system',
+                        createdAt: DateTime.now(),
+                      ),
+                    );
+                  });
+                  _scrollToBottom();
+                  _showSnackBar('تم تغيير الحالة إلى ${s['label']}');
+                },
               ),
-              title: Text(s['label'] as String),
-              selected: _ticket.status == s['key'],
-              selectedTileColor: (s['color'] as Color).withValues(alpha: 0.1),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() {
-                  // Add system message about status change
-                  _messages.add(MessageModel(
-                    id: _messages.length + 200,
-                    ticketId: widget.ticketId,
-                    body: 'تم تغيير الحالة إلى ${s['label']}',
-                    direction: 'outbound',
-                    type: 'system',
-                    createdAt: DateTime.now(),
-                  ));
-                });
-                _scrollToBottom();
-                _showSnackBar('تم تغيير الحالة إلى ${s['label']}');
-              },
-            )),
+            ),
             SizedBox(height: MediaQuery.of(ctx).padding.bottom + 8),
           ],
         ),
@@ -406,7 +1337,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkCard,
+        backgroundColor: const Color(0xFF1F2C34),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
@@ -419,29 +1350,32 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
           controller: noteController,
           maxLines: 3,
           textDirection: TextDirection.rtl,
-          decoration: const InputDecoration(
-            hintText: 'اكتب ملاحظة للفريق...',
-          ),
+          decoration: const InputDecoration(hintText: 'اكتب ملاحظة للفريق...'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء', style: TextStyle(color: AppColors.textSecondary)),
+            child: const Text(
+              'إلغاء',
+              style: TextStyle(color: Color(0xFF8696A0)),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
               final note = noteController.text.trim();
               if (note.isNotEmpty) {
                 setState(() {
-                  _messages.add(MessageModel(
-                    id: _messages.length + 300,
-                    ticketId: widget.ticketId,
-                    body: note,
-                    direction: 'outbound',
-                    isInternal: true,
-                    senderName: 'أحمد المشرف',
-                    createdAt: DateTime.now(),
-                  ));
+                  _messages.add(
+                    MessageModel(
+                      id: _messages.length + 300,
+                      ticketId: widget.ticketId,
+                      body: note,
+                      direction: 'outbound',
+                      isInternal: true,
+                      senderName: 'أحمد المشرف',
+                      createdAt: DateTime.now(),
+                    ),
+                  );
                 });
                 _scrollToBottom();
               }
@@ -454,178 +1388,80 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
     );
   }
 
-  void _showAttachmentOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(24, 20, 24, MediaQuery.of(ctx).padding.bottom + 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _AttachmentOption(
-                  icon: Icons.camera_alt_rounded,
-                  label: 'كاميرا',
-                  color: AppColors.coral,
-                  onTap: () { Navigator.pop(ctx); _showSnackBar('الكاميرا غير متاحة في الوضع التجريبي'); },
-                ),
-                _AttachmentOption(
-                  icon: Icons.photo_library_rounded,
-                  label: 'معرض الصور',
-                  color: AppColors.primary,
-                  onTap: () { Navigator.pop(ctx); _showSnackBar('المعرض غير متاح في الوضع التجريبي'); },
-                ),
-                _AttachmentOption(
-                  icon: Icons.insert_drive_file_rounded,
-                  label: 'مستند',
-                  color: AppColors.amber,
-                  onTap: () { Navigator.pop(ctx); _showSnackBar('المستندات غير متاحة في الوضع التجريبي'); },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, textAlign: TextAlign.center),
-        backgroundColor: AppColors.primary,
+        backgroundColor: const Color(0xFF00A884),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 2),
       ),
     );
   }
-
-  // ── Demo Data ──────────────────────────────────────
-
-  TicketModel _demoTicket() {
-    final now = DateTime.now();
-    return TicketModel(
-      id: widget.ticketId,
-      ticketNumber: '#TK-${1000 + widget.ticketId}',
-      status: 'assigned',
-      priority: 'high',
-      guardianName: 'فاطمة الزهراء',
-      guardianPhone: '+966501112233',
-      studentName: 'يوسف أحمد',
-      lastMessage: 'السلام عليكم',
-      unreadCount: 0,
-      assignedToName: 'أحمد المشرف',
-      assignedToId: 1,
-      createdAt: now.subtract(const Duration(hours: 3)),
-      updatedAt: now.subtract(const Duration(minutes: 5)),
-      slaDeadline: now.add(const Duration(hours: 2)),
-      tags: ['استفسار'],
-    );
-  }
-
-  List<MessageModel> _demoMessages() {
-    final now = DateTime.now();
-    return [
-      MessageModel(
-        id: 1,
-        ticketId: widget.ticketId,
-        body: 'تم إنشاء التذكرة وتعيينها تلقائياً',
-        direction: 'outbound',
-        type: 'system',
-        createdAt: now.subtract(const Duration(hours: 3)),
-      ),
-      MessageModel(
-        id: 2,
-        ticketId: widget.ticketId,
-        body: 'السلام عليكم ورحمة الله وبركاته\nأريد الاستفسار عن مواعيد اختبارات نهاية الفصل لابني يوسف',
-        direction: 'inbound',
-        senderName: 'فاطمة الزهراء',
-        deliveryStatus: 'read',
-        createdAt: now.subtract(const Duration(hours: 2, minutes: 50)),
-      ),
-      MessageModel(
-        id: 3,
-        ticketId: widget.ticketId,
-        body: 'وعليكم السلام ورحمة الله\nأهلاً بكِ أم يوسف، دعيني أتحقق من جدول الاختبارات',
-        direction: 'outbound',
-        senderName: 'أحمد المشرف',
-        deliveryStatus: 'read',
-        createdAt: now.subtract(const Duration(hours: 2, minutes: 45)),
-      ),
-      MessageModel(
-        id: 4,
-        ticketId: widget.ticketId,
-        body: 'تم تغيير الحالة إلى "معين" — أحمد المشرف',
-        direction: 'outbound',
-        type: 'system',
-        createdAt: now.subtract(const Duration(hours: 2, minutes: 44)),
-      ),
-      MessageModel(
-        id: 5,
-        ticketId: widget.ticketId,
-        body: 'شكراً لكم، هل يمكن معرفة الموعد المحدد لمادة الرياضيات؟',
-        direction: 'inbound',
-        senderName: 'فاطمة الزهراء',
-        deliveryStatus: 'read',
-        createdAt: now.subtract(const Duration(hours: 2, minutes: 30)),
-      ),
-      MessageModel(
-        id: 6,
-        ticketId: widget.ticketId,
-        body: 'يجب التنسيق مع المعلم أولاً بخصوص جدول الاختبارات',
-        direction: 'outbound',
-        isInternal: true,
-        senderName: 'أحمد المشرف',
-        createdAt: now.subtract(const Duration(hours: 2, minutes: 20)),
-      ),
-      MessageModel(
-        id: 7,
-        ticketId: widget.ticketId,
-        body: 'اختبار مادة الرياضيات يوم الأحد القادم الساعة 9 صباحاً\nواختبار اللغة العربية يوم الاثنين الساعة 10 صباحاً',
-        direction: 'outbound',
-        senderName: 'أحمد المشرف',
-        deliveryStatus: 'delivered',
-        createdAt: now.subtract(const Duration(hours: 1, minutes: 45)),
-      ),
-      MessageModel(
-        id: 8,
-        ticketId: widget.ticketId,
-        body: 'جزاكم الله خيراً، هل في اختبارات تانية؟',
-        direction: 'inbound',
-        senderName: 'فاطمة الزهراء',
-        deliveryStatus: 'read',
-        createdAt: now.subtract(const Duration(hours: 1)),
-      ),
-      MessageModel(
-        id: 9,
-        ticketId: widget.ticketId,
-        body: 'نعم، سأرسل لكِ الجدول الكامل بعد تأكيده مع إدارة المدرسة',
-        direction: 'outbound',
-        senderName: 'أحمد المشرف',
-        deliveryStatus: 'delivered',
-        createdAt: now.subtract(const Duration(minutes: 30)),
-      ),
-    ];
-  }
 }
 
-// ── Reusable Action Tile ──
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Chat Wallpaper Painter
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+class _ChatWallpaperPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF0D1418)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
 
+    // Subtle doodle pattern
+    final patternPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.02)
+      ..strokeWidth = 0.5
+      ..style = PaintingStyle.stroke;
+
+    const spacing = 28.0;
+    for (double y = 0; y < size.height; y += spacing) {
+      for (double x = 0; x < size.width; x += spacing) {
+        final offset = (y ~/ spacing) % 2 == 0 ? spacing / 2 : 0.0;
+        // Small icons: circles, lines, dots
+        final idx = ((x + y) ~/ spacing) % 4;
+        final cx = x + offset;
+        switch (idx) {
+          case 0:
+            canvas.drawCircle(Offset(cx, y), 3, patternPaint);
+            break;
+          case 1:
+            canvas.drawLine(
+              Offset(cx - 3, y - 3),
+              Offset(cx + 3, y + 3),
+              patternPaint,
+            );
+            break;
+          case 2:
+            canvas.drawRect(
+              Rect.fromCenter(center: Offset(cx, y), width: 5, height: 5),
+              patternPaint,
+            );
+            break;
+          case 3:
+            canvas.drawCircle(
+              Offset(cx, y),
+              1.5,
+              patternPaint..style = PaintingStyle.fill,
+            );
+            patternPaint.style = PaintingStyle.stroke;
+            break;
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Reusable Widgets
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class _ActionTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -653,15 +1489,19 @@ class _ActionTile extends StatelessWidget {
         ),
         child: Icon(icon, color: color, size: 20),
       ),
-      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+      title: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(fontSize: 11, color: Color(0xFF8696A0)),
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onTap: onTap,
     );
   }
 }
-
-// ── Attachment Option ──
 
 class _AttachmentOption extends StatelessWidget {
   final IconData icon;
@@ -683,14 +1523,84 @@ class _AttachmentOption extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: color.withValues(alpha: 0.15),
-            child: Icon(icon, color: color, size: 26),
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(icon, color: Colors.white, size: 26),
           ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF8696A0)),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Simple circular icon button ──
+class _CircleBtn extends StatelessWidget {
+  final Color color;
+  final Widget child;
+  const _CircleBtn({required this.color, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Center(child: child),
+    );
+  }
+}
+
+// ── Animated pulsing red dot for voice recording ──
+class _PulsingDot extends StatefulWidget {
+  const _PulsingDot();
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
+    _scale = Tween(begin: 0.7, end: 1.3).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scale,
+      child: Container(
+        width: 11,
+        height: 11,
+        decoration: const BoxDecoration(
+          color: AppColors.coral,
+          shape: BoxShape.circle,
+        ),
       ),
     );
   }
