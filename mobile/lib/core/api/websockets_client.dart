@@ -35,6 +35,19 @@ class WebSocketsClient {
       
     pusher?.connect();
     _isInitialized = true;
+
+    // Wait up to 5 seconds for the connection to establish
+    try {
+      await pusher?.onConnectionEstablished.first.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('WebSocket connection timed out, will continue anyway');
+          return null;
+        },
+      );
+    } catch (_) {
+      print('WebSocket connection await error, continuing...');
+    }
   }
 
   void disconnect() {

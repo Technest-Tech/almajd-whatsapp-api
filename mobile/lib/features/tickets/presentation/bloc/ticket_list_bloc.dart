@@ -161,8 +161,9 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
 
     final pusher = WebSocketsClient.instance.pusher;
     if (pusher == null) {
-      print('[TicketListBloc] Pusher is null, skipping websocket setup');
+      print('[TicketListBloc] Pusher is null, will retry in 3s...');
       _wsInitialized = false;
+      Future.delayed(const Duration(seconds: 3), () => _setupWebsockets());
       return;
     }
 
@@ -205,8 +206,16 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
       }
     });
 
+    // Subscribe to channel — dart_pusher_channels handles pending
+    // subscriptions and subscribes once the connection is established
     channel.subscribe();
-    print('[TicketListBloc] Subscribed to private-tickets channel');
+    print('[TicketListBloc] Channel subscription requested');
+
+    // Also listen for reconnection events — re-subscribe when connection comes back
+    pusher.onConnectionEstablished.listen((_) {
+      print('[TicketListBloc] Connection (re)established, ensuring channel subscription');
+      channel.subscribe();
+    });
   }
 
   Future<void> _onFetch(TicketListFetchRequested event, Emitter<TicketListState> emit) async {
