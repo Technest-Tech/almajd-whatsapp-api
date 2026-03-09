@@ -208,7 +208,10 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
             'timestamp'           => now(),
         ]);
 
-        $ticket->update(['last_message_preview' => \Illuminate\Support\Str::limit($body ?: 'Media Message', 100)]);
+        $ticket->update([
+            'last_message_preview' => \Illuminate\Support\Str::limit($body ?: 'Media Message', 100),
+            'unread_count' => ($ticket->unread_count ?? 0) + 1,
+        ]);
 
         Log::info("Inbound Twilio message stored", [
             'id'   => $whatsappMessage->id,
