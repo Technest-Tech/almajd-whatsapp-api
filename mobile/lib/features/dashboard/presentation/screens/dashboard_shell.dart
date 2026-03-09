@@ -10,6 +10,7 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../../features/tickets/presentation/bloc/ticket_list_bloc.dart';
 import '../../../../features/tickets/data/ticket_repository.dart';
+import '../../../../features/notifications/data/notification_repository.dart';
 
 /// Sent by the shell AppBar when the search icon is tapped.
 /// The InboxScreen listens for this and toggles its search bar.
@@ -26,6 +27,7 @@ class DashboardShell extends StatefulWidget {
 class _DashboardShellState extends State<DashboardShell> {
   int _currentIndex = 0;
   int _unreadCount = 0;
+  int _notifUnreadCount = 0;
   Timer? _badgeTimer;
 
   @override
@@ -45,10 +47,17 @@ class _DashboardShellState extends State<DashboardShell> {
 
   Future<void> _fetchUnreadCount() async {
     try {
-      final repo = getIt<TicketRepository>();
-      final count = await repo.getUnreadCount();
-      if (mounted && count != _unreadCount) {
-        setState(() => _unreadCount = count);
+      final ticketRepo = getIt<TicketRepository>();
+      final notifRepo = getIt<NotificationRepository>();
+      final results = await Future.wait([
+        ticketRepo.getUnreadCount(),
+        notifRepo.getUnreadCount(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _unreadCount = results[0];
+          _notifUnreadCount = results[1];
+        });
       }
     } catch (_) {}
   }
@@ -89,20 +98,27 @@ class _DashboardShellState extends State<DashboardShell> {
               // Notification bell
               IconButton(
                 icon: Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     const Icon(Icons.notifications_outlined),
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppColors.coral,
-                          shape: BoxShape.circle,
+                    if (_notifUnreadCount > 0)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          decoration: const BoxDecoration(
+                            color: AppColors.coral,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            _notifUnreadCount > 9 ? '9+' : '$_notifUnreadCount',
+                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
                 onPressed: () => context.go('/notifications'),
@@ -165,20 +181,45 @@ class _DashboardShellState extends State<DashboardShell> {
         backgroundColor: AppColors.primary,
         onPressed: () {
           setState(() => _currentIndex = centerIndex);
-          context.go('/classes');
+          context.go('/notifications');
         },
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
           children: [
-            Icon(
-              isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
-              color: Colors.white,
-              size: 24,
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
+                  color: Colors.white,
+                  size: 24,
+                ),
+                const Text(
+                  'الإشعارات',
+                  style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
+                ),
+              ],
             ),
-            const Text(
-              'التذكيرات',
-              style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
-            ),
+            if (_notifUnreadCount > 0)
+              Positioned(
+                top: 2,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.coral,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.primary, width: 1.5),
+                  ),
+                  child: Text(
+                    _notifUnreadCount > 9 ? '9+' : '$_notifUnreadCount',
+                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
