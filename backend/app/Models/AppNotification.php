@@ -40,9 +40,11 @@ class AppNotification extends Model
      */
     public static function notifyAdmins(string $type, string $title, ?string $body = null, ?array $data = null): void
     {
-        $adminIds = User::role('admin')->pluck('id');
+        // Use all users — in a single-admin setup this notifies everyone
+        // For multi-role, filter by Spatie role with correct guard
+        $userIds = User::all()->pluck('id');
 
-        foreach ($adminIds as $userId) {
+        foreach ($userIds as $userId) {
             static::create([
                 'user_id' => $userId,
                 'type' => $type,
