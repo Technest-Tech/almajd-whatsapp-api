@@ -66,6 +66,8 @@ Route::middleware('auth:api')->group(function () {
     Route::prefix('tickets')->middleware('permission:tickets.view')->group(function () {
         Route::get('/', [TicketController::class, 'index']);
         Route::get('stats', [TicketController::class, 'stats']);
+        Route::get('unread-count', [TicketController::class, 'unreadCount'])
+            ->middleware('permission:tickets.view');
         Route::post('create-for-student', [TicketController::class, 'createForStudent'])
             ->middleware('permission:tickets.create');
         Route::get('{ticket}', [TicketController::class, 'show']);
@@ -88,8 +90,6 @@ Route::middleware('auth:api')->group(function () {
         Route::post('{ticket}/read', [TicketController::class, 'markAsRead'])
             ->middleware('permission:tickets.reply');
         Route::get('{ticket}/messages', [TicketController::class, 'messages'])
-            ->middleware('permission:tickets.view');
-        Route::get('unread-count', [TicketController::class, 'unreadCount'])
             ->middleware('permission:tickets.view');
     });
 
