@@ -387,13 +387,6 @@ class _DashboardShellState extends State<DashboardShell> {
           'path': '/teachers',
         },
         {
-          'icon': Icons.notifications_outlined,
-          'selectedIcon': Icons.notifications_active_rounded,
-          'label': 'الإشعارات',
-          'path': '/notifications',
-          'badge': _notifUnreadCount,
-        },
-        {
           'icon': Icons.dashboard_outlined,
           'selectedIcon': Icons.dashboard_rounded,
           'label': 'الإدارة',
@@ -411,11 +404,10 @@ class _DashboardShellState extends State<DashboardShell> {
       ]);
       items.addAll([
         {
-          'icon': Icons.notifications_outlined,
-          'selectedIcon': Icons.notifications_active_rounded,
-          'label': 'الإشعارات',
-          'path': '/notifications',
-          'badge': _notifUnreadCount,
+          'icon': Icons.bar_chart_outlined,
+          'selectedIcon': Icons.bar_chart_rounded,
+          'label': 'التقارير',
+          'path': '/analytics',
         },
         {
           'icon': Icons.settings_outlined,
@@ -435,11 +427,10 @@ class _DashboardShellState extends State<DashboardShell> {
         },
       ]);
       items.add({
-        'icon': Icons.notifications_outlined,
-        'selectedIcon': Icons.notifications_active_rounded,
-        'label': 'الإشعارات',
-        'path': '/notifications',
-        'badge': _notifUnreadCount,
+        'icon': Icons.settings_outlined,
+        'selectedIcon': Icons.settings_rounded,
+        'label': 'الإعدادات',
+        'path': '/settings',
       });
     }
 
