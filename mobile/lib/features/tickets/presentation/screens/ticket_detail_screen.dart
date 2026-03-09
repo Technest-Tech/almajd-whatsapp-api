@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:record/record.dart';
@@ -16,6 +17,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../data/models/message_model.dart';
 import '../../data/models/ticket_model.dart';
 import '../../data/ticket_repository.dart';
+import '../bloc/ticket_list_bloc.dart';
 import '../../../../core/di/injection.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/ticket_card.dart';
@@ -63,6 +65,8 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   void initState() {
     super.initState();
 
+    _markTicketAsRead();
+
     _sendBtnController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -93,7 +97,18 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       }
     });
 
+    _markTicketAsRead();
     _loadData();
+  }
+
+  Future<void> _markTicketAsRead() async {
+    try {
+      final repo = getIt<TicketRepository>();
+      await repo.markAsRead(widget.ticketId);
+      if (mounted) {
+        context.read<TicketListBloc>().add(TicketReadStatusUpdated(widget.ticketId));
+      }
+    } catch (_) {}
   }
 
   @override

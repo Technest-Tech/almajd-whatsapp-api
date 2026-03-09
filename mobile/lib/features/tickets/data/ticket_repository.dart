@@ -100,6 +100,11 @@ class TicketRepository {
     await apiClient.dio.delete('/tickets/$ticketId');
   }
 
+  /// Mark a ticket as read to reset unread counts
+  Future<void> markAsRead(int ticketId) async {
+    await apiClient.dio.post('/tickets/$ticketId/read');
+  }
+
   /// Create (or find) a ticket for a student — returns the ticket data including `id`.
   Future<int> createTicketForStudent(int studentId) async {
     final response = await apiClient.dio.post(

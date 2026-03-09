@@ -8,6 +8,7 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/data/models/user_model.dart';
+import '../../../../features/tickets/presentation/bloc/ticket_list_bloc.dart';
 
 /// Sent by the shell AppBar when the search icon is tapped.
 /// The InboxScreen listens for this and toggles its search bar.
@@ -23,29 +24,15 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   int _currentIndex = 0;
-  int _unreadCount = 0;
-  Timer? _unreadTimer;
 
   @override
   void initState() {
     super.initState();
-    _fetchUnreadCount();
-    _unreadTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchUnreadCount());
-  }
-
-  @override
-  void dispose() {
-    _unreadTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _fetchUnreadCount() async {
-    try {
-      final api = getIt<ApiClient>();
-      final res = await api.dio.get('/tickets', queryParameters: {'status': 'open', 'per_page': 1});
-      final total = res.data['meta']?['total'] ?? res.data['total'] ?? 0;
-      if (mounted) setState(() => _unreadCount = total is int ? total : int.tryParse(total.toString()) ?? 0);
-    } catch (_) {}
+    // Trigger initial ticket load + websocket connection from the global BLoC
+    final bloc = context.read<TicketListBloc>();
+    if (bloc.state is TicketListInitial) {
+      bloc.add(const TicketListFetchRequested());
+    }
   }
 
   @override
@@ -53,9 +40,16 @@ class _DashboardShellState extends State<DashboardShell> {
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
         final user = state is AuthAuthenticated ? state.user : null;
-        final navItems = _getNavItems(user);
 
-        return Scaffold(
+        return BlocBuilder<TicketListBloc, TicketListState>(
+          builder: (context, ticketState) {
+            int unreadCount = 0;
+            if (ticketState is TicketListLoaded) {
+              unreadCount = ticketState.allTickets.fold(0, (sum, t) => sum + t.unreadCount);
+            }
+            final navItems = _getNavItems(user, unreadCount);
+
+            return Scaffold(
           appBar: AppBar(
             title: Text(navItems[_currentIndex]['label'] as String),
             actions: [
@@ -120,6 +114,8 @@ class _DashboardShellState extends State<DashboardShell> {
           floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
           bottomNavigationBar: _buildBottomBar(context, navItems),
         );
+      },
+      );
       },
     );
   }
@@ -275,7 +271,7 @@ class _DashboardShellState extends State<DashboardShell> {
     );
   }
 
-  List<Map<String, dynamic>> _getNavItems(UserModel? user) {
+  List<Map<String, dynamic>> _getNavItems(UserModel? user, int unreadCount) {
     final role = user?.primaryRole ?? 'supervisor';
 
     // Left side items
@@ -285,7 +281,7 @@ class _DashboardShellState extends State<DashboardShell> {
         'selectedIcon': Icons.inbox_rounded,
         'label': 'الوارد',
         'path': '/inbox',
-        'badge': _unreadCount,
+        'badge': unreadCount,
       },
     ];
 

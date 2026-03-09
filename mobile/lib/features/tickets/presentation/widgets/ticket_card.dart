@@ -138,16 +138,17 @@ class TicketCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(9),
+                            borderRadius: BorderRadius.circular(10),
                           ),
+                          alignment: Alignment.center,
                           child: Text(
                             ticket.unreadCount > 99 ? '99+' : '${ticket.unreadCount}',
-                            textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
                             ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       ],

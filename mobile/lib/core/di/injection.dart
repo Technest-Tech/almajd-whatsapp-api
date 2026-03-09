@@ -60,7 +60,7 @@ Future<void> setupDependencies() async {
   getIt.registerFactory(() => AuthBloc(
     authRepository: getIt<AuthRepository>(),
   ));
-  getIt.registerFactory(() => TicketListBloc(
+  getIt.registerLazySingleton(() => TicketListBloc(
     ticketRepository: getIt<TicketRepository>(),
   ));
   getIt.registerFactory(() => StudentListBloc(

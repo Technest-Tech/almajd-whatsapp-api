@@ -25,11 +25,7 @@ class InboxScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) =>
-          getIt<TicketListBloc>()..add(const TicketListFetchRequested()),
-      child: const _InboxView(),
-    );
+    return const _InboxView();
   }
 }
 
@@ -70,7 +66,11 @@ class _InboxViewState extends State<_InboxView> {
   @override
   void initState() {
     super.initState();
-    _setupGlobalChannel();
+    // Trigger fetch from the global BLoC if not already loaded
+    final bloc = context.read<TicketListBloc>();
+    if (bloc.state is TicketListInitial) {
+      bloc.add(const TicketListFetchRequested());
+    }
   }
 
   @override
@@ -78,58 +78,6 @@ class _InboxViewState extends State<_InboxView> {
     _searchController.dispose();
     _debounce?.cancel();
     super.dispose();
-  }
-
-  // ── Global Pusher channel for real-time inbox updates ──
-  Future<void> _setupGlobalChannel() async {
-    final pusher = WebSocketsClient.instance.pusher;
-    if (pusher == null) return;
-
-    final token =
-        await const FlutterSecureStorage().read(key: 'access_token');
-    if (token == null) return;
-
-    final channel = pusher.privateChannel(
-      'private-tickets',
-      authorizationDelegate:
-          EndpointAuthorizableChannelTokenAuthorizationDelegate
-              .forPrivateChannel(
-        authorizationEndpoint:
-            Uri.parse('https://cloud.almajd.info/api/broadcasting/auth'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      ),
-    );
-
-    channel.bind('TicketMessageCreated').listen((event) {
-      if (!mounted || event.data == null) return;
-      try {
-        final Map<String, dynamic> payload = event.data is String
-            ? jsonDecode(event.data)
-            : event.data as Map<String, dynamic>;
-
-        final data = payload['data'] is Map<String, dynamic>
-            ? payload['data'] as Map<String, dynamic>
-            : payload;
-
-        final ticketId = data['ticket_id'] as int?;
-        final body = data['body'] as String? ?? data['content'] as String? ?? '';
-        if (ticketId == null) return;
-
-        if (mounted) {
-          context.read<TicketListBloc>().add(
-            TicketListMessageReceived(
-              ticketId: ticketId,
-              messagePreview: body,
-            ),
-          );
-        }
-      } catch (_) {}
-    });
-
-    channel.subscribe();
   }
 
   void _clearSearch() {

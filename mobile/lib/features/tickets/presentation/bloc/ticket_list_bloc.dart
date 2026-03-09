@@ -4,6 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/models/ticket_model.dart';
 import '../../data/ticket_repository.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../../core/api/websockets_client.dart';
+import 'package:dart_pusher_channels/dart_pusher_channels.dart';
+import '../../../../core/api/api_client.dart';
+import 'dart:convert';
 
 // ── Events ──────────────────────────────────────────
 
@@ -81,6 +86,15 @@ class TicketDeleteRequested extends TicketListEvent {
   List<Object?> get props => [ticketId];
 }
 
+// Mark ticket as read locally
+class TicketReadStatusUpdated extends TicketListEvent {
+  final int ticketId;
+  const TicketReadStatusUpdated(this.ticketId);
+
+  @override
+  List<Object?> get props => [ticketId];
+}
+
 // ── States ──────────────────────────────────────────
 
 abstract class TicketListState extends Equatable {
@@ -134,9 +148,69 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     on<TicketListSearchChanged>(_onSearch);
     on<TicketListMessageReceived>(_onMessageReceived);
     on<TicketDeleteRequested>(_onDelete);
+    on<TicketReadStatusUpdated>(_onReadStatusUpdated);
+  }
+
+  bool _wsInitialized = false;
+
+  void _setupWebsockets() async {
+    if (_wsInitialized) return;
+    _wsInitialized = true;
+
+    print('[TicketListBloc] Setting up websockets...');
+
+    final pusher = WebSocketsClient.instance.pusher;
+    if (pusher == null) {
+      print('[TicketListBloc] Pusher is null, skipping websocket setup');
+      _wsInitialized = false;
+      return;
+    }
+
+    final token = await const FlutterSecureStorage().read(key: 'access_token');
+    if (token == null) {
+      print('[TicketListBloc] No auth token, skipping websocket setup');
+      _wsInitialized = false;
+      return;
+    }
+
+    print('[TicketListBloc] Subscribing to private-tickets channel...');
+
+    final channel = pusher.privateChannel(
+      'private-tickets',
+      authorizationDelegate: EndpointAuthorizableChannelTokenAuthorizationDelegate.forPrivateChannel(
+        authorizationEndpoint: Uri.parse('https://cloud.almajd.info/api/broadcasting/auth'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ),
+    );
+
+    channel.bind('TicketMessageCreated').listen((event) {
+      print('[TicketListBloc] TicketMessageCreated event received: ${event.data}');
+      if (event.data == null) return;
+      try {
+        final Map<String, dynamic> payload = event.data is String ? jsonDecode(event.data) : event.data as Map<String, dynamic>;
+        final data = payload['data'] is Map<String, dynamic> ? payload['data'] as Map<String, dynamic> : payload;
+        final ticketId = data['ticket_id'] as int?;
+        final body = data['body'] as String? ?? data['content'] as String? ?? '';
+        
+        print('[TicketListBloc] Parsed ticketId=$ticketId, body=$body');
+        
+        if (ticketId != null) {
+          add(TicketListMessageReceived(ticketId: ticketId, messagePreview: body));
+        }
+      } catch (e) {
+        print('[TicketListBloc] Error parsing event: $e');
+      }
+    });
+
+    channel.subscribe();
+    print('[TicketListBloc] Subscribed to private-tickets channel');
   }
 
   Future<void> _onFetch(TicketListFetchRequested event, Emitter<TicketListState> emit) async {
+    _setupWebsockets();
     if (!event.refresh) emit(TicketListLoading());
     try {
       final tickets = await ticketRepository.getTickets(status: event.statusFilter);
@@ -199,39 +273,46 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     ));
   }
 
-  void _onMessageReceived(TicketListMessageReceived event, Emitter<TicketListState> emit) {
+  Future<void> _onMessageReceived(TicketListMessageReceived event, Emitter<TicketListState> emit) async {
     if (state is! TicketListLoaded) return;
     final s = state as TicketListLoaded;
     
-    // Bump the matching ticket to top with updated preview
+    // Check if the ticket already exists in our list
     final idx = s.allTickets.indexWhere((t) => t.id == event.ticketId);
-    if (idx == -1) {
-      // Unknown ticket — do a silent refresh
-      add(TicketListRefreshRequested());
-      return;
-    }
-
     final updated = List<TicketModel>.from(s.allTickets);
-    final ticket = updated.removeAt(idx);
-    // Rebuild with incremented unread + new preview
-    final bumped = TicketModel(
-      id: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      status: ticket.status,
-      priority: ticket.priority,
-      guardianName: ticket.guardianName,
-      guardianPhone: ticket.guardianPhone,
-      studentName: ticket.studentName,
-      lastMessage: event.messagePreview,
-      unreadCount: ticket.unreadCount + 1,
-      assignedToName: ticket.assignedToName,
-      assignedToId: ticket.assignedToId,
-      createdAt: ticket.createdAt,
-      updatedAt: DateTime.now(),
-      slaDeadline: ticket.slaDeadline,
-      tags: ticket.tags,
-      messages: ticket.messages,
-    );
+    
+    TicketModel bumped;
+    
+    if (idx == -1) {
+      // 1. Unknown ticket — fetch it directly from backend so it appears instantly
+      try {
+        bumped = await ticketRepository.getTicket(event.ticketId);
+      } catch (_) {
+        return; // Silently fail if we can't fetch it
+      }
+    } else {
+      // 2. Existing ticket — bump it to top
+      final ticket = updated.removeAt(idx);
+      bumped = TicketModel(
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        status: ticket.status,
+        priority: ticket.priority,
+        guardianName: ticket.guardianName,
+        guardianPhone: ticket.guardianPhone,
+        studentName: ticket.studentName,
+        lastMessage: event.messagePreview,
+        unreadCount: ticket.unreadCount + 1,
+        assignedToName: ticket.assignedToName,
+        assignedToId: ticket.assignedToId,
+        createdAt: ticket.createdAt,
+        updatedAt: DateTime.now(), // Bump sort order
+        slaDeadline: ticket.slaDeadline,
+        tags: ticket.tags,
+        messages: ticket.messages,
+      );
+    }
+    
     updated.insert(0, bumped);
 
     // Apply current search filter
@@ -255,19 +336,73 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
   }
 
   Future<void> _onDelete(TicketDeleteRequested event, Emitter<TicketListState> emit) async {
+    if (state is! TicketListLoaded) return;
+    
+    // 1. Snapshot current state for rollback if needed
+    final currentState = state as TicketListLoaded;
+    
+    // 2. Optimistically remove the ticket from UI
+    final updatedAll = currentState.allTickets.where((t) => t.id != event.ticketId).toList();
+    final updatedFiltered = currentState.tickets.where((t) => t.id != event.ticketId).toList();
+    
+    emit(TicketListLoaded(
+      tickets: updatedFiltered,
+      allTickets: updatedAll,
+      activeFilter: currentState.activeFilter,
+      searchQuery: currentState.searchQuery,
+      stats: currentState.stats,
+    ));
+
+    // 3. Perform backend deletion
     try {
       await ticketRepository.deleteTicket(event.ticketId);
-      if (state is! TicketListLoaded) return;
-      final s = state as TicketListLoaded;
-      final updatedAll = s.allTickets.where((t) => t.id != event.ticketId).toList();
-      final updatedFiltered = s.tickets.where((t) => t.id != event.ticketId).toList();
-      emit(TicketListLoaded(
-        tickets: updatedFiltered,
-        allTickets: updatedAll,
-        activeFilter: s.activeFilter,
-        searchQuery: s.searchQuery,
-        stats: s.stats,
-      ));
-    } catch (_) {}
+    } catch (_) {
+      // 4. Rollback on failure
+      emit(currentState);
+    }
+  }
+
+  void _onReadStatusUpdated(TicketReadStatusUpdated event, Emitter<TicketListState> emit) {
+    if (state is! TicketListLoaded) return;
+    final s = state as TicketListLoaded;
+    
+    final updatedAll = s.allTickets.map((t) {
+      if (t.id == event.ticketId && t.unreadCount > 0) {
+        return TicketModel(
+          id: t.id,
+          ticketNumber: t.ticketNumber,
+          status: t.status,
+          priority: t.priority,
+          guardianName: t.guardianName,
+          guardianPhone: t.guardianPhone,
+          studentName: t.studentName,
+          lastMessage: t.lastMessage,
+          unreadCount: 0,
+          assignedToName: t.assignedToName,
+          assignedToId: t.assignedToId,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+          slaDeadline: t.slaDeadline,
+          tags: t.tags,
+          messages: t.messages,
+        );
+      }
+      return t;
+    }).toList();
+
+    final updatedFiltered = s.tickets.map((t) {
+      if (t.id == event.ticketId && t.unreadCount > 0) {
+        return updatedAll.firstWhere((ut) => ut.id == event.ticketId);
+      }
+      return t;
+    }).toList();
+
+    emit(TicketListLoaded(
+      tickets: updatedFiltered,
+      allTickets: updatedAll,
+      activeFilter: s.activeFilter,
+      searchQuery: s.searchQuery,
+      stats: s.stats,
+    ));
   }
 }

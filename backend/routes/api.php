@@ -84,6 +84,8 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:tickets.reply');
         Route::delete('{ticket}', [TicketController::class, 'destroy'])
             ->middleware('permission:tickets.resolve');
+        Route::post('{ticket}/read', [TicketController::class, 'markAsRead'])
+            ->middleware('permission:tickets.reply');
     });
 
     // ── WhatsApp Templates ──────────────────────────────

@@ -251,4 +251,19 @@ class TicketController extends Controller
 
         return $this->response->success(null, 'Ticket deleted');
     }
+
+    /**
+     * POST /api/tickets/{ticket}/read
+     */
+    public function markAsRead(int $ticket): JsonResponse
+    {
+        $ticketModel = \App\Models\Ticket::findOrFail($ticket);
+        
+        if ($ticketModel->unread_count > 0) {
+            $ticketModel->unread_count = 0;
+            $ticketModel->save();
+        }
+
+        return $this->response->success(null, 'Ticket marked as read');
+    }
 }
