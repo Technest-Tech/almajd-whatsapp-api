@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\ReminderController;
 use App\Http\Controllers\Api\TemplateController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Webhook\WhatsAppWebhookController;
 use App\Http\Controllers\Webhook\TwilioWebhookController;
 
@@ -90,6 +91,14 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:tickets.view');
         Route::get('unread-count', [TicketController::class, 'unreadCount'])
             ->middleware('permission:tickets.view');
+    });
+
+    // ── Notifications ──────────────────────────────────
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('read-all', [NotificationController::class, 'markAllAsRead']);
     });
 
     // ── WhatsApp Templates ──────────────────────────────

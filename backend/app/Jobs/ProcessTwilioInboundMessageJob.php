@@ -213,6 +213,16 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
             'unread_count' => ($ticket->unread_count ?? 0) + 1,
         ]);
 
+        // Create in-app notification for all admins
+        $senderName = $ticket->guardian?->name ?? $phoneWithPlus;
+        $preview = \Illuminate\Support\Str::limit($body ?: ($msgType->value === 'image' ? '📷 صورة' : ($msgType->value === 'audio' ? '🎵 صوت' : '📄 ملف')), 80);
+        \App\Models\AppNotification::notifyAdmins(
+            type: 'message',
+            title: "رسالة جديدة من {$senderName}",
+            body: $preview,
+            data: ['ticket_id' => $ticket->id, 'guardian_name' => $senderName],
+        );
+
         Log::info("Inbound Twilio message stored", [
             'id'   => $whatsappMessage->id,
             'from' => $fromNumber,
