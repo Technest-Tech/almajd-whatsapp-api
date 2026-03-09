@@ -161,6 +161,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
             setState(() => _messages.add(newMessage));
             _scrollToBottom();
           }
+
+          // Also update the global inbox list so badges + previews update
+          context.read<TicketListBloc>().add(
+            TicketListMessageReceived(
+              ticketId: widget.ticketId,
+              messagePreview: newMessage.body ?? '',
+            ),
+          );
         } catch (e) {
           debugPrint("WebSocket Parse Error: $e");
         }

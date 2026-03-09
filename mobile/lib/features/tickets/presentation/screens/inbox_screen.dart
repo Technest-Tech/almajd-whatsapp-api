@@ -48,6 +48,7 @@ class _InboxViewState extends State<_InboxView> {
   List<StudentModel> _studentResults = [];
   bool _searchingStudents = false;
   Timer? _debounce;
+  Timer? _refreshTimer;
   int? _creatingStudentId; // which student is loading (creating ticket)
 
   // Status filter
@@ -71,12 +72,21 @@ class _InboxViewState extends State<_InboxView> {
     if (bloc.state is TicketListInitial) {
       bloc.add(const TicketListFetchRequested());
     }
+    // Silent refresh every 5 seconds so new messages always appear
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) {
+        context.read<TicketListBloc>().add(
+          TicketListFetchRequested(statusFilter: _activeFilter, refresh: true),
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _debounce?.cancel();
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
