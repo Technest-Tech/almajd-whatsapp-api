@@ -83,26 +83,54 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  // Group notifications by date
-  Map<String, List<NotificationItem>> _grouped() {
-    final map = <String, List<NotificationItem>>{};
+  // Build a flat display list with date headers and collapsed same-sender groups
+  List<_DisplayEntry> _buildDisplayList() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
 
+    // Phase 1: group all items by day label
+    final byDay = <String, List<NotificationItem>>{};
     for (final item in _items) {
       final d = DateTime(item.createdAt.year, item.createdAt.month, item.createdAt.day);
       String label;
-      if (d == today) {
-        label = 'اليوم';
-      } else if (d == yesterday) {
-        label = 'أمس';
-      } else {
-        label = '${d.day}/${d.month}/${d.year}';
-      }
-      map.putIfAbsent(label, () => []).add(item);
+      if (d == today) label = 'اليوم';
+      else if (d == yesterday) label = 'أمس';
+      else label = '${d.day}/${d.month}/${d.year}';
+      byDay.putIfAbsent(label, () => []).add(item);
     }
-    return map;
+
+    final result = <_DisplayEntry>[];
+
+    for (final dayEntry in byDay.entries) {
+      result.add(_DisplayEntry.header(dayEntry.key));
+
+      // Phase 2: collapse consecutive same-sender messages into one grouped entry
+      final items = dayEntry.value;
+      int i = 0;
+      while (i < items.length) {
+        final cur = items[i];
+        if (cur.type == 'message') {
+          final guardianName = cur.guardianName ?? cur.title;
+          // Collect all adjacent notifications from the same sender
+          final group = <NotificationItem>[cur];
+          int j = i + 1;
+          while (j < items.length &&
+              items[j].type == 'message' &&
+              (items[j].guardianName ?? items[j].title) == guardianName) {
+            group.add(items[j]);
+            j++;
+          }
+          result.add(_DisplayEntry.messageGroup(group));
+          i = j;
+        } else {
+          result.add(_DisplayEntry.single(cur));
+          i++;
+        }
+      }
+    }
+
+    return result;
   }
 
   @override
@@ -167,31 +195,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildList() {
-    final grouped = _grouped();
-    final entries = grouped.entries.toList();
+    final displayList = _buildDisplayList();
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 20),
-      itemCount: entries.fold<int>(0, (sum, e) => sum + 1 + e.value.length),
+      itemCount: displayList.length,
       itemBuilder: (context, index) {
-        // Find which section this index belongs to
-        int running = 0;
-        for (final entry in entries) {
-          if (index == running) {
-            // Section header
-            return _SectionHeader(label: entry.key);
-          }
-          running++;
-          if (index < running + entry.value.length) {
-            final item = entry.value[index - running];
-            return _NotificationTile(
-              item: item,
-              onTap: () => _onTap(item),
-            );
-          }
-          running += entry.value.length;
+        final entry = displayList[index];
+        if (entry.isHeader) return _SectionHeader(label: entry.headerLabel!);
+        if (entry.group != null && entry.group!.length > 1) {
+          return _MessageGroupTile(
+            group: entry.group!,
+            onTap: () => _onTap(entry.group!.first),
+          );
         }
-        return const SizedBox.shrink();
+        final item = entry.group?.first ?? entry.single!;
+        return _NotificationTile(item: item, onTap: () => _onTap(item));
       },
     );
   }
@@ -228,6 +247,158 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ],
     ),
   );
+}
+
+// ─────────────────────────────────────────────
+// Display Entry (flat list item)
+// ─────────────────────────────────────────────
+class _DisplayEntry {
+  final bool isHeader;
+  final String? headerLabel;
+  final List<NotificationItem>? group; // collapsed same-sender message group
+  final NotificationItem? single;      // non-message or single-message notification
+
+  const _DisplayEntry._({
+    required this.isHeader,
+    this.headerLabel,
+    this.group,
+    this.single,
+  });
+
+  factory _DisplayEntry.header(String label) =>
+      _DisplayEntry._(isHeader: true, headerLabel: label);
+
+  factory _DisplayEntry.messageGroup(List<NotificationItem> group) =>
+      _DisplayEntry._(isHeader: false, group: group);
+
+  factory _DisplayEntry.single(NotificationItem item) =>
+      _DisplayEntry._(isHeader: false, single: item);
+}
+
+// ─────────────────────────────────────────────
+// Message Group Tile (multiple messages from same sender)
+// ─────────────────────────────────────────────
+class _MessageGroupTile extends StatelessWidget {
+  final List<NotificationItem> group;
+  final VoidCallback onTap;
+  const _MessageGroupTile({required this.group, required this.onTap});
+
+  bool get _hasUnread => group.any((n) => !n.isRead);
+  int get _unreadCount => group.where((n) => !n.isRead).length;
+  NotificationItem get _latest => group.first;
+
+  String get _timeLabel {
+    final diff = DateTime.now().difference(_latest.createdAt);
+    if (diff.inMinutes < 1) return 'الآن';
+    if (diff.inMinutes < 60) return 'منذ ${diff.inMinutes} د';
+    if (diff.inHours < 24) return 'منذ ${diff.inHours} س';
+    return '${_latest.createdAt.hour.toString().padLeft(2, '0')}:${_latest.createdAt.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final senderName = _latest.guardianName ?? _latest.title.replaceAll('رسالة جديدة من ', '');
+    return InkWell(
+      onTap: onTap,
+      splashColor: AppColors.primary.withValues(alpha: 0.06),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: _hasUnread ? AppColors.primary.withValues(alpha: 0.05) : Colors.transparent,
+          border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.04))),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Icon with sender count badge
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 42, height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF53BDEB).withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF53BDEB), size: 20),
+                ),
+                if (group.length > 1)
+                  Positioned(
+                    right: -6, bottom: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.darkCard, width: 1.5),
+                      ),
+                      child: Text(
+                        '${group.length}',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            // Content
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          senderName,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: _hasUnread ? FontWeight.w700 : FontWeight.w400,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _timeLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _hasUnread ? AppColors.primary : Colors.white.withValues(alpha: 0.3),
+                          fontWeight: _hasUnread ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _unreadCount > 1
+                        ? '$_unreadCount رسائل غير مقروءة'
+                        : (_latest.body ?? ''),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.white.withValues(alpha: _hasUnread ? 0.6 : 0.35),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (_hasUnread)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 4),
+                child: Container(
+                  width: 8, height: 8,
+                  decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────

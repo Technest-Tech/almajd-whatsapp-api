@@ -189,7 +189,7 @@ class _DashboardShellState extends State<DashboardShell> {
         backgroundColor: AppColors.primary,
         onPressed: () {
           setState(() => _currentIndex = centerIndex);
-          context.go('/notifications');
+          context.go('/classes');
         },
         child: Stack(
           clipBehavior: Clip.none,
@@ -204,7 +204,7 @@ class _DashboardShellState extends State<DashboardShell> {
                   size: 24,
                 ),
                 const Text(
-                  'الإشعارات',
+                  'الحصص',
                   style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
                 ),
               ],
@@ -369,12 +369,12 @@ class _DashboardShellState extends State<DashboardShell> {
       });
     }
 
-    // ── CENTER: التذكيرات (placeholder in list for index math) ──
+    // ── CENTER: الحصص (placeholder in list for index math) ──
     items.add({
-      'icon': Icons.notifications_outlined,
-      'selectedIcon': Icons.notifications_active_rounded,
-      'label': 'الإشعارات',
-      'path': '/notifications',
+      'icon': Icons.calendar_today_outlined,
+      'selectedIcon': Icons.calendar_today_rounded,
+      'label': 'الحصص',
+      'path': '/classes',
     });
 
     // ── Role-specific RIGHT items (after center) ──
@@ -387,6 +387,13 @@ class _DashboardShellState extends State<DashboardShell> {
           'path': '/teachers',
         },
         {
+          'icon': Icons.notifications_outlined,
+          'selectedIcon': Icons.notifications_active_rounded,
+          'label': 'الإشعارات',
+          'path': '/notifications',
+          'badge': _notifUnreadCount,
+        },
+        {
           'icon': Icons.dashboard_outlined,
           'selectedIcon': Icons.dashboard_rounded,
           'label': 'الإدارة',
@@ -394,7 +401,6 @@ class _DashboardShellState extends State<DashboardShell> {
         },
       ]);
     } else if (role == 'senior_supervisor') {
-      // Add left items before center
       items.insertAll(items.length - 1, [
         {
           'icon': Icons.group_outlined,
@@ -403,13 +409,13 @@ class _DashboardShellState extends State<DashboardShell> {
           'path': '/users',
         },
       ]);
-      // Add right items after center
       items.addAll([
         {
-          'icon': Icons.bar_chart_outlined,
-          'selectedIcon': Icons.bar_chart_rounded,
-          'label': 'التقارير',
-          'path': '/analytics',
+          'icon': Icons.notifications_outlined,
+          'selectedIcon': Icons.notifications_active_rounded,
+          'label': 'الإشعارات',
+          'path': '/notifications',
+          'badge': _notifUnreadCount,
         },
         {
           'icon': Icons.settings_outlined,
@@ -429,10 +435,11 @@ class _DashboardShellState extends State<DashboardShell> {
         },
       ]);
       items.add({
-        'icon': Icons.settings_outlined,
-        'selectedIcon': Icons.settings_rounded,
-        'label': 'الإعدادات',
-        'path': '/settings',
+        'icon': Icons.notifications_outlined,
+        'selectedIcon': Icons.notifications_active_rounded,
+        'label': 'الإشعارات',
+        'path': '/notifications',
+        'badge': _notifUnreadCount,
       });
     }
 

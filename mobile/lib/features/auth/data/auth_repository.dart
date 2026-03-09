@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/services/fcm_service.dart';
 import 'models/user_model.dart';
 
 class AuthRepository {
@@ -15,11 +16,13 @@ class AuthRepository {
     String? deviceId,
     String? deviceName,
   }) async {
+    final fcmToken = FcmService.token ?? await FcmService.refreshToken();
     final response = await apiClient.dio.post('/auth/login', data: {
       'email': email,
       'password': password,
       'device_id': deviceId ?? 'mobile_${DateTime.now().millisecondsSinceEpoch}',
       'device_name': deviceName ?? 'Flutter App',
+      if (fcmToken != null) 'fcm_token': fcmToken,
     });
 
     final data = response.data['data'];

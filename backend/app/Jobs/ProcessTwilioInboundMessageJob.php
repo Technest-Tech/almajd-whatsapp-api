@@ -223,6 +223,21 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
             data: ['ticket_id' => $ticket->id, 'guardian_name' => $senderName],
         );
 
+        // Send Firebase push notification to all admin devices
+        try {
+            $fcmService = \App\Services\FcmService::getInstance();
+            $fcmService->sendToAllAdmins(
+                title: "رسالة جديدة من {$senderName}",
+                body: $preview,
+                data: [
+                    'type'      => 'message',
+                    'ticket_id' => (string) $ticket->id,
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('FCM push failed', ['error' => $e->getMessage()]);
+        }
+
         Log::info("Inbound Twilio message stored", [
             'id'   => $whatsappMessage->id,
             'from' => $fromNumber,
