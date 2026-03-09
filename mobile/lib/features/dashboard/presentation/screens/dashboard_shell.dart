@@ -191,43 +191,18 @@ class _DashboardShellState extends State<DashboardShell> {
           setState(() => _currentIndex = centerIndex);
           context.go('/classes');
         },
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
-                  color: Colors.white,
-                  size: 24,
-                ),
-                const Text(
-                  'الحصص',
-                  style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
-                ),
-              ],
+            Icon(
+              isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
+              color: Colors.white,
+              size: 24,
             ),
-            if (_notifUnreadCount > 0)
-              Positioned(
-                top: 2,
-                right: 4,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.coral,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.primary, width: 1.5),
-                  ),
-                  child: Text(
-                    _notifUnreadCount > 9 ? '9+' : '$_notifUnreadCount',
-                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
+            const Text(
+              'التذكيرات',
+              style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
+            ),
           ],
         ),
       ),
@@ -369,11 +344,11 @@ class _DashboardShellState extends State<DashboardShell> {
       });
     }
 
-    // ── CENTER: الحصص (placeholder in list for index math) ──
+    // ── CENTER: التذكيرات (placeholder in list for index math) ──
     items.add({
-      'icon': Icons.calendar_today_outlined,
-      'selectedIcon': Icons.calendar_today_rounded,
-      'label': 'الحصص',
+      'icon': Icons.notifications_outlined,
+      'selectedIcon': Icons.notifications_active_rounded,
+      'label': 'التذكيرات',
       'path': '/classes',
     });
 
