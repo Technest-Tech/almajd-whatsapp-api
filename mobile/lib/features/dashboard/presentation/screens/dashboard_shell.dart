@@ -24,6 +24,7 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   int _currentIndex = 0;
+  Timer? _badgeTimer;
 
   @override
   void initState() {
@@ -33,6 +34,20 @@ class _DashboardShellState extends State<DashboardShell> {
     if (bloc.state is TicketListInitial) {
       bloc.add(const TicketListFetchRequested());
     }
+    // Refresh ticket list every 10s so bottom bar badge stays current on all tabs
+    _badgeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) {
+        context.read<TicketListBloc>().add(
+          const TicketListFetchRequested(refresh: true),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _badgeTimer?.cancel();
+    super.dispose();
   }
 
   @override
