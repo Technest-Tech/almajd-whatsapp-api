@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -419,10 +420,23 @@ class MessageBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 280, maxWidth: 280),
-            child: Image.network(
-              url,
+            child: CachedNetworkImage(
+              imageUrl: url,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
+              placeholder: (_, __) => Container(
+                height: 180,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Color(0xFF53BDEB),
+                  ),
+                ),
+              ),
+              errorWidget: (_, __, ___) => Container(
                 height: 120,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.05),
@@ -430,26 +444,6 @@ class MessageBubble extends StatelessWidget {
                 ),
                 child: const Center(child: Icon(Icons.broken_image, color: Colors.white38, size: 40)),
               ),
-              loadingBuilder: (ctx, child, progress) {
-                if (progress == null) return child;
-                final pct = progress.expectedTotalBytes != null
-                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
-                    : null;
-                return Container(
-                  height: 180,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      value: pct,
-                      strokeWidth: 2.5,
-                      color: const Color(0xFF53BDEB),
-                    ),
-                  ),
-                );
-              },
             ),
           ),
         ),
@@ -725,14 +719,11 @@ class FullScreenImageScreen extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 5.0,
-          child: Image.network(
-            url,
+          child: CachedNetworkImage(
+            imageUrl: url,
             fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white38, size: 60),
-            loadingBuilder: (ctx, child, progress) {
-              if (progress == null) return child;
-              return const Center(child: CircularProgressIndicator(color: Color(0xFF53BDEB)));
-            },
+            placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Color(0xFF53BDEB))),
+            errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white38, size: 60),
           ),
         ),
       ),

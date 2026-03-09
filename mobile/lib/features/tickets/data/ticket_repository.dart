@@ -105,6 +105,28 @@ class TicketRepository {
     await apiClient.dio.post('/tickets/$ticketId/read');
   }
 
+  /// Get paginated messages for a ticket (newest first, reversed for display)
+  Future<Map<String, dynamic>> getMessages(int ticketId, {int page = 1, int perPage = 30}) async {
+    final response = await apiClient.dio.get(
+      '/tickets/$ticketId/messages',
+      queryParameters: {'page': page, 'per_page': perPage},
+    );
+    final List data = response.data['data'];
+    final messages = data.map((j) => MessageModel.fromJson(j)).toList();
+    final meta = response.data['meta'] ?? {};
+    return {
+      'messages': messages,
+      'current_page': meta['current_page'] ?? page,
+      'last_page': meta['last_page'] ?? 1,
+    };
+  }
+
+  /// Lightweight unread count (for bottom nav badge)
+  Future<int> getUnreadCount() async {
+    final response = await apiClient.dio.get('/tickets/unread-count');
+    return response.data['data']['unread_count'] as int? ?? 0;
+  }
+
   /// Create (or find) a ticket for a student — returns the ticket data including `id`.
   Future<int> createTicketForStudent(int studentId) async {
     final response = await apiClient.dio.post(

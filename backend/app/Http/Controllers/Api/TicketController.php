@@ -266,4 +266,37 @@ class TicketController extends Controller
 
         return $this->response->success(null, 'Ticket marked as read');
     }
+
+    /**
+     * GET /api/tickets/{ticket}/messages?page=1&per_page=30
+     * Paginated messages — newest first (reversed for chat display)
+     */
+    public function messages(Request $request, int $ticket): JsonResponse
+    {
+        $ticketModel = \App\Models\Ticket::findOrFail($ticket);
+        $perPage = min((int) $request->input('per_page', 30), 100);
+
+        $paginator = $ticketModel->messages()
+            ->orderByDesc('id')
+            ->paginate($perPage);
+
+        // Reverse items so they're in chronological order for the client
+        $paginator->setCollection($paginator->getCollection()->reverse()->values());
+
+        return $this->response->paginated($paginator, 'Messages retrieved');
+    }
+
+    /**
+     * GET /api/tickets/unread-count
+     * Lightweight endpoint that returns total unread across all tickets
+     */
+    public function unreadCount(): JsonResponse
+    {
+        $count = \App\Models\Ticket::where('unread_count', '>', 0)->sum('unread_count');
+
+        return $this->response->success(
+            ['unread_count' => (int) $count],
+            'Unread count retrieved'
+        );
+    }
 }

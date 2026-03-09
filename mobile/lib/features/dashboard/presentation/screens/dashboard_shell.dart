@@ -9,6 +9,7 @@ import '../../../../core/api/api_client.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../../features/tickets/presentation/bloc/ticket_list_bloc.dart';
+import '../../../../features/tickets/data/ticket_repository.dart';
 
 /// Sent by the shell AppBar when the search icon is tapped.
 /// The InboxScreen listens for this and toggles its search bar.
@@ -24,6 +25,7 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   int _currentIndex = 0;
+  int _unreadCount = 0;
   Timer? _badgeTimer;
 
   @override
@@ -34,14 +36,21 @@ class _DashboardShellState extends State<DashboardShell> {
     if (bloc.state is TicketListInitial) {
       bloc.add(const TicketListFetchRequested());
     }
-    // Refresh ticket list every 10s so bottom bar badge stays current on all tabs
+    // Lightweight unread count poll every 10s (just returns a number, no ticket data)
+    _fetchUnreadCount();
     _badgeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted) {
-        context.read<TicketListBloc>().add(
-          const TicketListFetchRequested(refresh: true),
-        );
-      }
+      _fetchUnreadCount();
     });
+  }
+
+  Future<void> _fetchUnreadCount() async {
+    try {
+      final repo = getIt<TicketRepository>();
+      final count = await repo.getUnreadCount();
+      if (mounted && count != _unreadCount) {
+        setState(() => _unreadCount = count);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -58,8 +67,9 @@ class _DashboardShellState extends State<DashboardShell> {
 
         return BlocBuilder<TicketListBloc, TicketListState>(
           builder: (context, ticketState) {
-            int unreadCount = 0;
-            if (ticketState is TicketListLoaded) {
+            // Use the lightweight polled unread count, or fall back to BLoC state
+            int unreadCount = _unreadCount;
+            if (unreadCount == 0 && ticketState is TicketListLoaded) {
               unreadCount = ticketState.allTickets.fold(0, (sum, t) => sum + t.unreadCount);
             }
             final navItems = _getNavItems(user, unreadCount);

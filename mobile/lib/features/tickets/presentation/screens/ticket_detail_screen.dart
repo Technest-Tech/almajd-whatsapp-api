@@ -50,6 +50,11 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   bool _showScrollToBottom = false;
   int? _highlightedMessageId;
 
+  // ── Pagination ──
+  int _currentPage = 1;
+  int _lastPage = 1;
+  bool _isLoadingMore = false;
+
   // ── Audio Recording ──
   final _audioRecorder = AudioRecorder();
   bool _isRecording = false;
@@ -86,14 +91,20 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     });
 
     // Track scroll position to show/hide the scroll-to-bottom FAB
+    // and trigger loading older messages when near top
     _positionsListener.itemPositions.addListener(() {
       if (!mounted) return;
       final positions = _positionsListener.itemPositions.value;
       if (positions.isEmpty) return;
       final lastVisible = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+      final firstVisible = positions.map((p) => p.index).reduce((a, b) => a < b ? a : b);
       final show = lastVisible < _messages.length - 1;
       if (show != _showScrollToBottom) {
         setState(() => _showScrollToBottom = show);
+      }
+      // Load older messages when scrolling near the top
+      if (firstVisible <= 3 && !_isLoadingMore && _currentPage < _lastPage) {
+        _loadOlderMessages();
       }
     });
 
@@ -214,35 +225,24 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   void _loadData() async {
     try {
       final repo = getIt<TicketRepository>();
+      // Load ticket metadata (for app bar: name, phone, status)
       final ticket = await repo.getTicket(widget.ticketId);
+      // Load first page of messages (newest 30)
+      final result = await repo.getMessages(widget.ticketId, page: 1, perPage: 30);
+      final messages = result['messages'] as List<MessageModel>;
+
       if (mounted) {
         setState(() {
           _ticket = ticket;
           _messages
             ..clear()
-            ..addAll(ticket.messages);
+            ..addAll(messages);
+          _currentPage = result['current_page'] as int;
+          _lastPage = result['last_page'] as int;
         });
         _setupWebSocket();
 
-        // Find all images to pre-cache
-        final imageUrls = ticket.messages
-            .where(
-              (m) => m.mediaUrl != null && _isImageUrl(m.mediaUrl!, m.type),
-            )
-            .map((m) => m.mediaUrl!)
-            .toList();
-
-        // Pre-cache images so they are painted instantly before we hide the loader
-        if (imageUrls.isNotEmpty) {
-          await Future.wait(
-            imageUrls.map(
-              (url) =>
-                  precacheImage(NetworkImage(url), context).catchError((_) {}),
-            ),
-          );
-        }
-
-        // Wait for rendering to complete before scrolling
+        // Show content immediately, scroll to bottom, then hide loader
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _scrollToBottom(
             onComplete: () {
@@ -258,6 +258,36 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           const SnackBar(content: Text('فشل تحميل بيانات التذكرة')),
         );
       }
+    }
+  }
+
+  /// Load older messages when scrolling up (infinite scroll)
+  Future<void> _loadOlderMessages() async {
+    if (_isLoadingMore || _currentPage >= _lastPage) return;
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final repo = getIt<TicketRepository>();
+      final result = await repo.getMessages(
+        widget.ticketId,
+        page: _currentPage + 1,
+        perPage: 30,
+      );
+      final olderMessages = result['messages'] as List<MessageModel>;
+
+      if (mounted && olderMessages.isNotEmpty) {
+        setState(() {
+          // Prepend older messages at the beginning
+          _messages.insertAll(0, olderMessages);
+          _currentPage = result['current_page'] as int;
+          _lastPage = result['last_page'] as int;
+          _isLoadingMore = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoadingMore = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 

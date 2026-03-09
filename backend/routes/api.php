@@ -86,6 +86,10 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:tickets.resolve');
         Route::post('{ticket}/read', [TicketController::class, 'markAsRead'])
             ->middleware('permission:tickets.reply');
+        Route::get('{ticket}/messages', [TicketController::class, 'messages'])
+            ->middleware('permission:tickets.view');
+        Route::get('unread-count', [TicketController::class, 'unreadCount'])
+            ->middleware('permission:tickets.view');
     });
 
     // ── WhatsApp Templates ──────────────────────────────
