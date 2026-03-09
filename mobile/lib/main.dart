@@ -32,7 +32,7 @@ class AlmajdApp extends StatelessWidget {
       child: BlocBuilder<AuthBloc, AuthState>(
         builder: (context, state) {
           return MaterialApp.router(
-            title: 'أكاديمية المجد',
+            title: 'Almajd Academy',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
