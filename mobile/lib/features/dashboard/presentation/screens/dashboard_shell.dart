@@ -105,7 +105,7 @@ class _DashboardShellState extends State<DashboardShell> {
                     ),
                   ],
                 ),
-                onPressed: () {},
+                onPressed: () => context.go('/notifications'),
               ),
               // Avatar
               Padding(
@@ -324,8 +324,8 @@ class _DashboardShellState extends State<DashboardShell> {
     items.add({
       'icon': Icons.notifications_outlined,
       'selectedIcon': Icons.notifications_active_rounded,
-      'label': 'التذكيرات',
-      'path': '/classes',
+      'label': 'الإشعارات',
+      'path': '/notifications',
     });
 
     // ── Role-specific RIGHT items (after center) ──

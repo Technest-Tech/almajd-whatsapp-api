@@ -22,6 +22,7 @@ import '../../features/admin/presentation/screens/management_hub_screen.dart';
 import '../../features/timetable/presentation/screens/timetable_screen.dart';
 import '../../features/templates/presentation/screens/templates_screen.dart';
 import '../../features/reminders/presentation/screens/classes_tracker_screen.dart';
+import '../../features/notifications/presentation/screens/notifications_screen.dart';
 
 class AppRouter {
   static final GoRouter router = GoRouter(
@@ -101,6 +102,10 @@ class AppRouter {
           GoRoute(
             path: '/tickets',
             builder: (_, __) => const InboxScreen(),
+          ),
+          GoRoute(
+            path: '/notifications',
+            builder: (_, __) => const NotificationsScreen(),
           ),
           GoRoute(
             path: '/students',
