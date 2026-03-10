@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:ui' show FontFeature;
 
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/ticket_model.dart';
+import '../../auth/presentation/bloc/auth_bloc.dart';
 
 // ─────────────────────────────────────────────────────────────
 // Compact WhatsApp-style chat row
@@ -17,6 +19,9 @@ class TicketCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authState = context.read<AuthBloc>().state;
+    final isAdmin = authState is AuthAuthenticated && authState.user.role == 'admin';
+
     final hasGuardianName = ticket.guardianName?.isNotEmpty == true && ticket.guardianName != 'Unknown Contact';
     final hasStudentName  = ticket.studentName?.isNotEmpty == true;
 
@@ -24,7 +29,7 @@ class TicketCard extends StatelessWidget {
         ? ticket.guardianName!
         : hasStudentName
             ? ticket.studentName!
-            : (ticket.guardianPhone != null ? '\u200E${ticket.guardianPhone}' : 'مجهول');
+            : (isAdmin && ticket.guardianPhone != null ? '\u200E${ticket.guardianPhone}' : 'جهة اتصال غير معروفة');
 
     final sub = (hasGuardianName && hasStudentName) ? ticket.studentName! : null;
     final preview = _buildPreview();
@@ -213,32 +218,9 @@ class TicketCard extends StatelessWidget {
 // Compact avatar with online-style ring for unread
 // ─────────────────────────────────────────────────────────────
 class _Avatar extends StatelessWidget {
-  final String name;
   final bool isUnread;
 
-  const _Avatar({required this.name, this.isUnread = false});
-
-  static const _palette = [
-    Color(0xFF1E88E5), Color(0xFF00897B), Color(0xFF8E24AA),
-    Color(0xFFE53935), Color(0xFFF4511E), Color(0xFF43A047),
-    Color(0xFF00ACC1), Color(0xFF6D4C41), Color(0xFF546E7A),
-  ];
-
-  Color get _color {
-    int hash = 0;
-    for (final c in name.codeUnits) {
-      hash = (hash * 31 + c) & 0x7fffffff;
-    }
-    return _palette[hash % _palette.length];
-  }
-
-  String get _initials {
-    final parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return name.isNotEmpty ? name[0].toUpperCase() : '?';
-  }
+  const _Avatar({required this.isUnread});
 
   @override
   Widget build(BuildContext context) {
@@ -249,19 +231,12 @@ class _Avatar extends StatelessWidget {
         shape: BoxShape.circle,
         border: isUnread
             ? Border.all(color: AppColors.primary, width: 2)
-            : null,
+            : Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1),
       ),
-      child: CircleAvatar(
+      child: const CircleAvatar(
         radius: 22,
-        backgroundColor: _color.withValues(alpha: 0.2),
-        child: Text(
-          _initials,
-          style: TextStyle(
-            color: _color,
-            fontWeight: FontWeight.w700,
-            fontSize: 15,
-          ),
-        ),
+        backgroundColor: Color(0xFF2A3942), // WhatsApp dark grey fallback
+        backgroundImage: AssetImage('assets/images/default_avatar.png'),
       ),
     );
   }

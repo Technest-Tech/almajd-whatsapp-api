@@ -458,27 +458,31 @@ class _StudentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authState = context.read<AuthBloc>().state;
+    final isAdmin = authState is AuthAuthenticated && authState.user.role == 'admin';
+
+    final displayName = student.name.isNotEmpty && student.name != 'Unknown Contact'
+        ? student.name
+        : (isAdmin && student.phone != null ? '\u200E${student.phone}' : 'جهة اتصال غير معروفة');
+
     return InkWell(
       onTap: isLoading ? null : onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
-            CircleAvatar(
+            const CircleAvatar(
               radius: 22,
-              backgroundColor: const Color(0xFF00A884).withValues(alpha: 0.2),
-              child: Text(
-                student.name.isNotEmpty ? student.name[0].toUpperCase() : '?',
-                style: const TextStyle(color: Color(0xFF00A884), fontWeight: FontWeight.bold, fontSize: 16),
-              ),
+              backgroundColor: Color(0xFF2A3942),
+              backgroundImage: AssetImage('assets/images/default_avatar.png'),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(student.name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                  if (student.phone != null && student.phone!.isNotEmpty)
+                  Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  if (isAdmin && student.phone != null && student.phone!.isNotEmpty && displayName != '\u200E${student.phone}')
                     Text(
                       '\u200E${student.phone}',
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),

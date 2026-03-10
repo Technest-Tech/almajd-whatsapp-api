@@ -551,13 +551,12 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       );
     }
 
+    final authState = context.read<AuthBloc>().state;
+    final isAdmin = authState is AuthAuthenticated && authState.user.role == 'admin';
+
     final displayName = (_ticket!.guardianName?.isNotEmpty == true && _ticket!.guardianName != 'Unknown Contact')
         ? _ticket!.guardianName!
-        : (_ticket!.guardianPhone != null ? '\u200E${_ticket!.guardianPhone}' : 'مجهول');
-
-    final avatarChar = displayName.startsWith('\u200E') 
-        ? '#' 
-        : (displayName.isNotEmpty ? displayName[0] : 'م');
+        : (isAdmin && _ticket!.guardianPhone != null ? '\u200E${_ticket!.guardianPhone}' : 'جهة اتصال غير معروفة');
 
     return AppBar(
       backgroundColor: const Color(0xFF1F2C34),
@@ -572,12 +571,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           // Avatar
           CircleAvatar(
             radius: 18,
-            backgroundColor: const Color(0xFF00A884),
-            child: Text(
-              avatarChar,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
+            backgroundColor: const Color(0xFF2A3942),
+            backgroundImage: const AssetImage('assets/images/default_avatar.png'),
+          ),
+          const SizedBox(width: 10),
                 fontWeight: FontWeight.w600,
               ),
             ),
