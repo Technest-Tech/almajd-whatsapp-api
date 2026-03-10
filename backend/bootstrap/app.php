@@ -31,7 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'idempotency'       => \App\Http\Middleware\IdempotencyMiddleware::class,
         ]);
 
-        $middleware->throttleApi('60,1');
+        $middleware->throttleApi('200,1');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
 

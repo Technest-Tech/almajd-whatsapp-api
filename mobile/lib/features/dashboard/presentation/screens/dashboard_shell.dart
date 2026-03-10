@@ -29,6 +29,7 @@ class _DashboardShellState extends State<DashboardShell> {
   int _unreadCount = 0;
   int _notifUnreadCount = 0;
   Timer? _badgeTimer;
+  Timer? _debounce;
   late final StreamSubscription _blocSub;
 
   @override
@@ -39,15 +40,18 @@ class _DashboardShellState extends State<DashboardShell> {
     if (bloc.state is TicketListInitial) {
       bloc.add(const TicketListFetchRequested());
     }
-    // Lightweight unread count poll every 10s (just returns a number, no ticket data)
+    // Lightweight unread count poll every 30s
     _fetchUnreadCount();
-    _badgeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _badgeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _fetchUnreadCount();
     });
-    // Also refresh notification count immediately when BLoC updates (new message via WebSocket)
+    // Debounced refresh on WebSocket updates (wait 3s after last event)
     _blocSub = bloc.stream.listen((state) {
       if (state is TicketListLoaded && mounted) {
-        _fetchUnreadCount();
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(seconds: 3), () {
+          if (mounted) _fetchUnreadCount();
+        });
       }
     });
   }
@@ -72,6 +76,7 @@ class _DashboardShellState extends State<DashboardShell> {
   @override
   void dispose() {
     _badgeTimer?.cancel();
+    _debounce?.cancel();
     _blocSub.cancel();
     super.dispose();
   }
