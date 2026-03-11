@@ -515,7 +515,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
       context: context,
       isScrollControlled: true,
       builder: (_) => StudentScheduleForm(
-        studentName: widget.studentName,
+        studentName: _student?.name,
         onSave: (scheduleName, entriesData) async {
           try {
             final repo = getIt<ScheduleRepository>();
