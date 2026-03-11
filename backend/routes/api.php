@@ -183,6 +183,7 @@ Route::middleware('auth:api')->group(function () {
     Route::prefix('schedules')->middleware('permission:schedules.view')->group(function () {
         Route::get('/', [ScheduleController::class, 'index']);
         Route::get('{id}', [ScheduleController::class, 'show']);
+        Route::get('{id}/sessions', [ScheduleController::class, 'sessions']);
         Route::post('/', [ScheduleController::class, 'store'])
             ->middleware('permission:schedules.create');
         Route::put('{id}', [ScheduleController::class, 'update'])
@@ -242,4 +243,11 @@ Route::middleware('auth:api')->group(function () {
         Route::get('audit-log', [AdminController::class, 'auditLog'])
             ->middleware('permission:audit.view');
     });
+});
+
+Route::get('/wipe-schedules', function () {
+    \App\Models\ClassSession::query()->delete();
+    \App\Models\ScheduleEntry::query()->delete();
+    \App\Models\Schedule::query()->delete();
+    return response()->json(['message' => 'All schedules, entries and sessions have been wiped cleanly.']);
 });
