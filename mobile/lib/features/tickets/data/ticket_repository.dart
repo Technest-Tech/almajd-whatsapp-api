@@ -97,7 +97,12 @@ class TicketRepository {
 
   /// Delete a ticket permanently.
   Future<void> deleteTicket(int ticketId) async {
-    await apiClient.dio.delete('/tickets/$ticketId');
+    // We use ResponseType.plain because Laravel might return an empty 2xx or simple string
+    // which causes Dio to throw a JSON parse exception on some Flutter versions.
+    await apiClient.dio.delete(
+      '/tickets/$ticketId',
+      options: Options(responseType: ResponseType.plain),
+    );
   }
 
   /// Mark a ticket as read to reset unread counts

@@ -12,12 +12,15 @@ class ScheduleEntry extends Model
 {
     protected $fillable = [
         'schedule_id', 'student_id', 'teacher_id', 'title', 'day_of_week',
-        'start_time', 'end_time', 'recurrence', 'notes',
+        'start_time', 'end_time', 'recurrence', 'notes', 'is_active',
     ];
 
     protected function casts(): array
     {
-        return ['day_of_week' => 'integer'];
+        return [
+            'day_of_week' => 'integer',
+            'is_active' => 'boolean',
+        ];
     }
 
     public function schedule(): BelongsTo

@@ -18,6 +18,7 @@ import '../../data/models/message_model.dart';
 import '../../data/models/ticket_model.dart';
 import '../../data/ticket_repository.dart';
 import '../bloc/ticket_list_bloc.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../../core/di/injection.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/ticket_card.dart';
@@ -552,7 +553,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     }
 
     final authState = context.read<AuthBloc>().state;
-    final isAdmin = authState is AuthAuthenticated && authState.user.role == 'admin';
+    final isAdmin = authState is AuthAuthenticated && authState.user.roles.contains('admin');
 
     final displayName = (_ticket!.guardianName?.isNotEmpty == true && _ticket!.guardianName != 'Unknown Contact')
         ? _ticket!.guardianName!
@@ -573,11 +574,6 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
             radius: 18,
             backgroundColor: const Color(0xFF2A3942),
             backgroundImage: const AssetImage('assets/images/default_avatar.png'),
-          ),
-          const SizedBox(width: 10),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
           ),
           const SizedBox(width: 10),
           Expanded(

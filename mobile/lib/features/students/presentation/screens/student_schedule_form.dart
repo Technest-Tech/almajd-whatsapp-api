@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 
 class StudentScheduleForm extends StatefulWidget {
-  final void Function(List<Map<String, dynamic>> entries) onSave;
+  final String? studentName;
+  final void Function(String scheduleName, List<Map<String, dynamic>> entries) onSave;
 
-  const StudentScheduleForm({super.key, required this.onSave});
+  const StudentScheduleForm({super.key, this.studentName, required this.onSave});
 
   @override
   State<StudentScheduleForm> createState() => _StudentScheduleFormState();
@@ -28,6 +29,7 @@ class _StudentScheduleFormState extends State<StudentScheduleForm> {
   final Map<int, TimeOfDay> _perDayEnd = {};
 
   String? _selectedTeacher;
+  String _recurrence = 'weekly';
 
   static const _days = [
     'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت',
@@ -117,10 +119,12 @@ class _StudentScheduleFormState extends State<StudentScheduleForm> {
         'start_time': _formatTime(startTime),
         'end_time': _formatTime(endTime),
         'teacher_name': _selectedTeacher,
+        'recurrence': _recurrence,
       });
     }
 
-    widget.onSave(entries);
+    final fallbackName = widget.studentName != null ? 'جدول ${widget.studentName}' : 'جدول جديد';
+    widget.onSave(fallbackName, entries);
     Navigator.pop(context);
   }
 
@@ -140,13 +144,13 @@ class _StudentScheduleFormState extends State<StudentScheduleForm> {
                 children: [
                   Icon(Icons.calendar_month, color: AppColors.primary),
                   SizedBox(width: 8),
-                  Text('إضافة حصة جديدة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text('إضافة حصة جديدة / جدول', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 ],
               ),
               const SizedBox(height: 20),
 
               // Subject
-              const Text('المادة / العنوان', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary, fontSize: 13)),
+              const Text('المادة / العنوان (للحصص)', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary, fontSize: 13)),
               const SizedBox(height: 6),
               TextFormField(
                 controller: _titleController,
@@ -227,20 +231,40 @@ class _StudentScheduleFormState extends State<StudentScheduleForm> {
 
               const SizedBox(height: 16),
 
-              // Teacher Dropdown
+              // Teacher Dropdown (Searchable)
               const Text('المعلم (اختياري)', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary, fontSize: 13)),
               const SizedBox(height: 6),
+              DropdownMenu<String>(
+                width: MediaQuery.of(context).size.width - 48,
+                initialSelection: _selectedTeacher,
+                hintText: 'ابحث واختر المعلم',
+                inputDecorationTheme: InputDecorationTheme(
+                  filled: true,
+                  fillColor: AppColors.darkCard,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+                dropdownMenuEntries: _teachers.map((t) => DropdownMenuEntry(value: t, label: t)).toList(),
+                onSelected: (v) => setState(() => _selectedTeacher = v),
+              ),
+              const SizedBox(height: 16),
+
+              // Recurrence
+              const Text('تكرار الحصة', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary, fontSize: 13)),
+              const SizedBox(height: 6),
               DropdownButtonFormField<String>(
-                initialValue: _selectedTeacher,
+                value: _recurrence,
                 decoration: InputDecoration(
-                  hintText: 'اختر المعلم',
                   filled: true,
                   fillColor: AppColors.darkCard,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 ),
                 dropdownColor: AppColors.darkCard,
-                items: _teachers.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                onChanged: (v) => setState(() => _selectedTeacher = v),
+                items: const [
+                  DropdownMenuItem(value: 'weekly', child: Text('أسبوعياً')),
+                  DropdownMenuItem(value: 'biweekly', child: Text('كل أسبوعين')),
+                  DropdownMenuItem(value: 'once', child: Text('مرة واحدة')),
+                ],
+                onChanged: (v) => setState(() => _recurrence = v!),
               ),
               const SizedBox(height: 24),
 

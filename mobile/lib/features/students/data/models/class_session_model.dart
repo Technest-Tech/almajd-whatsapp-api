@@ -61,6 +61,26 @@ class ClassSessionModel {
   bool get isCancelled => status == 'cancelled';
   bool get isRescheduled => status == 'rescheduled';
 
+  /// Converts "HH:mm" or "HH:mm:ss" to 12-hour Arabic AM/PM format
+  static String _to12hr(String hhmm) {
+    try {
+      final parts = hhmm.split(':');
+      int hour = int.parse(parts[0]);
+      final minute = parts[1].padLeft(2, '0');
+      final period = hour < 12 ? 'ص' : 'م';
+      hour = hour % 12;
+      if (hour == 0) hour = 12;
+      return '$hour:$minute $period';
+    } catch (_) {
+      return hhmm;
+    }
+  }
+
+  String get startTime12h => _to12hr(startTime);
+  String get endTime12h   => _to12hr(endTime);
+  String get effectiveStartTime12h => _to12hr(effectiveStartTime);
+  String get effectiveEndTime12h   => _to12hr(effectiveEndTime);
+
   String get statusDisplay {
     switch (status) {
       case 'scheduled': return 'مجدولة';

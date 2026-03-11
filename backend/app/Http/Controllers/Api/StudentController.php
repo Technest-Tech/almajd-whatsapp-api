@@ -9,6 +9,8 @@ use App\Models\ScheduleEntry;
 use App\Models\ClassSession;
 use App\Services\ApiResponseService;
 use App\Services\StudentService;
+use App\Console\Commands\GenerateSessionsCommand;
+use App\Jobs\PropagateScheduleEntryChangesJob;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,35 +25,32 @@ class StudentController extends CrudController
     protected function storeRules(): array
     {
         return [
-            'name'           => 'required|string|max:255',
-            'guardian_id'    => 'nullable|exists:guardians,id',
-            'phone'          => 'nullable|string|max:20',
-            'student_code'   => 'nullable|string|max:50',
-            'notes'          => 'nullable|string|max:2000',
-            'status'         => 'nullable|string|max:50',
-            'guardian_name'  => 'nullable|string|max:255',
-            'guardian_phone' => 'nullable|string|max:20',
+            'name'            => 'required|string|max:255',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country'         => 'nullable|string|max:100',
+            'currency'        => 'nullable|string|max:10',
+            'student_code'    => 'nullable|string|max:50',
+            'notes'           => 'nullable|string|max:2000',
+            'status'          => 'nullable|string|max:50',
         ];
     }
 
     protected function updateRules(): array
     {
         return [
-            'name'           => 'sometimes|string|max:255',
-            'guardian_id'    => 'nullable|exists:guardians,id',
-            'phone'          => 'nullable|string|max:20',
-            'student_code'   => 'nullable|string|max:50',
-            'notes'          => 'nullable|string|max:2000',
-            'status'         => 'nullable|string|max:50',
-            'guardian_name'  => 'nullable|string|max:255',
-            'guardian_phone' => 'nullable|string|max:20',
+            'name'            => 'sometimes|string|max:255',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country'         => 'nullable|string|max:100',
+            'currency'        => 'nullable|string|max:10',
+            'student_code'    => 'nullable|string|max:50',
+            'notes'           => 'nullable|string|max:2000',
+            'status'          => 'nullable|string|max:50',
         ];
     }
 
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate($this->storeRules());
-        $data = $this->handleGuardianData($data);
         
         $record = $this->service->create($data);
         return $this->response->success($record, 'Created', code: 201);
@@ -60,34 +59,11 @@ class StudentController extends CrudController
     public function update(Request $request, int $id): JsonResponse
     {
         $data = $request->validate($this->updateRules());
-        $data = $this->handleGuardianData($data);
         
         $record = $this->service->update($id, $data);
         return $this->response->success($record, 'Updated');
     }
 
-    private function handleGuardianData(array $data): array
-    {
-        if (!empty($data['guardian_phone'])) {
-            $phone = str_starts_with($data['guardian_phone'], '+') 
-                ? $data['guardian_phone'] 
-                : '+' . ltrim($data['guardian_phone'], '0');
-                
-            $guardian = \App\Models\Guardian::firstOrCreate(
-                ['phone' => $phone],
-                ['name' => !empty($data['guardian_name']) ? $data['guardian_name'] : 'Unknown Contact']
-            );
-            
-            if ($guardian->name === 'Unknown Contact' && !empty($data['guardian_name'])) {
-                $guardian->update(['name' => $data['guardian_name']]);
-            }
-            
-            $data['guardian_id'] = $guardian->id;
-        }
-        
-        unset($data['guardian_name'], $data['guardian_phone']);
-        return $data;
-    }
 
 
     // ── Per-Student Schedule Entries ─────────────────────
@@ -112,10 +88,16 @@ class StudentController extends CrudController
             'teacher_id'  => 'nullable|exists:teachers,id',
             'recurrence'  => 'nullable|in:weekly,biweekly,once',
             'notes'       => 'nullable|string|max:2000',
+            'is_active'   => 'nullable|boolean',
         ]);
 
         $entry = $student->scheduleEntries()->create($validated);
         $entry->load('teacher:id,name');
+
+        // Auto-generate 3 months of sessions in the background
+        dispatch(function () use ($student) {
+            app(GenerateSessionsCommand::class)->generateForStudent($student, months: 3, force: false);
+        })->afterResponse();
 
         return $this->response->success($entry, 'تم إضافة الحصة بنجاح', 201);
     }
@@ -132,10 +114,20 @@ class StudentController extends CrudController
             'teacher_id'  => 'nullable|exists:teachers,id',
             'recurrence'  => 'nullable|in:weekly,biweekly,once',
             'notes'       => 'nullable|string|max:2000',
+            'is_active'   => 'nullable|boolean',
         ]);
 
         $entry->update($validated);
         $entry->load('teacher:id,name');
+
+        // Propagate relevant changes to all future 'scheduled' sessions
+        PropagateScheduleEntryChangesJob::dispatch(
+            scheduleEntryId: $entry->id,
+            title:           $entry->title,
+            startTime:       $entry->start_time,
+            endTime:         $entry->end_time,
+            teacherId:       $entry->teacher_id,
+        );
 
         return $this->response->success($entry, 'تم تحديث الحصة بنجاح');
     }

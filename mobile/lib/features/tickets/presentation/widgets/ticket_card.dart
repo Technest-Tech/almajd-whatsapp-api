@@ -5,7 +5,7 @@ import 'dart:ui' show FontFeature;
 
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/ticket_model.dart';
-import '../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 
 // ─────────────────────────────────────────────────────────────
 // Compact WhatsApp-style chat row
@@ -20,7 +20,7 @@ class TicketCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authState = context.read<AuthBloc>().state;
-    final isAdmin = authState is AuthAuthenticated && authState.user.role == 'admin';
+    final isAdmin = authState is AuthAuthenticated && authState.user.roles.contains('admin');
 
     final hasGuardianName = ticket.guardianName?.isNotEmpty == true && ticket.guardianName != 'Unknown Contact';
     final hasStudentName  = ticket.studentName?.isNotEmpty == true;
@@ -46,7 +46,7 @@ class TicketCard extends StatelessWidget {
         child: Row(
           children: [
             // ── Avatar ──
-            _Avatar(name: displayName, isUnread: isUnread),
+            _Avatar(isUnread: isUnread),
             const SizedBox(width: 12),
 
             // ── Content ──

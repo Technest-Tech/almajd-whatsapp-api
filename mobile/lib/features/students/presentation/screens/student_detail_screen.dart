@@ -5,10 +5,12 @@ import '../../../../core/theme/app_theme.dart';
 import '../../data/models/student_model.dart';
 import '../../data/models/class_session_model.dart';
 import '../../data/student_repository.dart';
+import '../../../schedules/data/schedule_repository.dart'; // Added import
 import '../../../schedules/data/models/schedule_model.dart';
 import '../../../../core/di/injection.dart';
 import '../widgets/student_classes_tab.dart';
-import 'single_class_session_form.dart';
+import 'student_schedule_form.dart';
+import 'package:go_router/go_router.dart';
 
 class StudentDetailScreen extends StatefulWidget {
   final int studentId;
@@ -24,6 +26,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   final List<ScheduleEntryModel> _scheduleEntries = [];
   final List<ClassSessionModel> _classSessions = [];
   bool _isLoading = true;
+  bool _sessionsLoaded = false; // tracks whether sessions fetch has completed
 
   @override
   void initState() {
@@ -35,12 +38,20 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   void _loadStudent() async {
     try {
       final repo = getIt<StudentRepository>();
-      final student = await repo.getStudent(widget.studentId);
+      final results = await Future.wait([
+        repo.getStudent(widget.studentId),
+        repo.getScheduleEntries(widget.studentId),
+      ]);
       if (mounted) {
         setState(() {
-          _student = student;
+          _student = results[0] as StudentModel;
+          _scheduleEntries
+            ..clear()
+            ..addAll(results[1] as List<ScheduleEntryModel>);
           _isLoading = false;
         });
+        // Auto-generate class sessions for this month in the background
+        _autoGenerateSessions(repo);
       }
     } catch (e) {
       if (mounted) {
@@ -48,6 +59,38 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('فشل تحميل بيانات الطالب')),
         );
+      }
+    }
+  }
+
+  Future<void> _autoGenerateSessions(StudentRepository repo) async {
+    try {
+      await repo.generateClassSessions(widget.studentId);
+      final sessions = await repo.getClassSessions(widget.studentId);
+      if (mounted) {
+        setState(() {
+          _classSessions.clear();
+          for (final s in sessions) {
+            try { _classSessions.add(ClassSessionModel.fromJson(s as Map<String, dynamic>)); } catch (_) {}
+          }
+          _sessionsLoaded = true;
+        });
+      }
+    } catch (e) {
+      // Even if generate fails, try to fetch existing sessions
+      try {
+        final sessions = await repo.getClassSessions(widget.studentId);
+        if (mounted) {
+          setState(() {
+            _classSessions.clear();
+            for (final s in sessions) {
+              try { _classSessions.add(ClassSessionModel.fromJson(s as Map<String, dynamic>)); } catch (_) {}
+            }
+            _sessionsLoaded = true;
+          });
+        }
+      } catch (_) {
+        if (mounted) setState(() => _sessionsLoaded = true); // stop spinner even on failure
       }
     }
   }
@@ -75,8 +118,11 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
-            onPressed: () {
-              // Navigate to edit form
+            onPressed: () async {
+              final result = await context.push('/students/${student.id}/edit');
+              if (result == true && mounted) {
+                _loadStudent();
+              }
             },
           ),
           IconButton(
@@ -89,9 +135,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
         children: [
           // ── Profile Header ──
           _buildProfileHeader(student),
-
-          // ── Guardian Info ──
-          if (student.guardianName != null) _buildGuardianSection(student),
 
           // ── Tabs ──
           Container(
@@ -168,10 +211,16 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    if (student.phone != null) ...[
-                      const Icon(Icons.phone_outlined, size: 14, color: AppColors.textSecondary),
+                    if (student.country != null) ...[
+                      const Icon(Icons.public_outlined, size: 14, color: AppColors.textSecondary),
                       const SizedBox(width: 3),
-                      Text(student.phone!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                      Text(student.country!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                      const SizedBox(width: 12),
+                    ],
+                    if (student.whatsappNumber != null) ...[
+                      const Icon(Icons.chat_outlined, size: 14, color: AppColors.textSecondary),
+                      const SizedBox(width: 3),
+                      Text(student.whatsappNumber!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                       const SizedBox(width: 12),
                     ],
                     const Icon(Icons.calendar_today_outlined, size: 14, color: AppColors.textSecondary),
@@ -187,59 +236,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
     );
   }
 
-  Widget _buildGuardianSection(StudentModel student) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.darkCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkCardElevated),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.family_restroom, size: 18, color: AppColors.primary),
-              const SizedBox(width: 8),
-              const Text('ولي الأمر', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary, fontSize: 14)),
-              if (student.guardianRelation != null) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(student.guardianRelation!, style: const TextStyle(fontSize: 11, color: AppColors.primary)),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.person_outline, size: 16, color: AppColors.textSecondary),
-              const SizedBox(width: 6),
-              Text(student.guardianName!, style: const TextStyle(color: AppColors.textPrimary, fontSize: 14)),
-            ],
-          ),
-          if (student.guardianPhone != null) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.phone_outlined, size: 16, color: AppColors.textSecondary),
-                const SizedBox(width: 6),
-                Text(student.guardianPhone!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildTimelineTab() {
     if (_scheduleEntries.isEmpty) {
@@ -249,12 +246,20 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
           children: [
             Icon(Icons.event_busy, size: 64, color: Colors.white.withValues(alpha: 0.15)),
             const SizedBox(height: 12),
-            const Text('الطالب غير مسجل في أي حصة', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
-            const SizedBox(height: 16),
+            const Text(
+              'لا يوجد جدول زمني لهذا الطالب',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'اضغط + لإضافة حصة للجدول',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: _openScheduleForm,
               icon: const Icon(Icons.add),
-              label: const Text('إضافة حصة'),
+              label: const Text('إضافة حصة للجدول'),
             ),
           ],
         ),
@@ -351,7 +356,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
             heroTag: 'add_entry',
             onPressed: _openScheduleForm,
             icon: const Icon(Icons.add),
-            label: const Text('إضافة حصة'),
+            label: const Text('إضافة للجدول'),
           ),
         ),
       ],
@@ -372,103 +377,204 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
         ),
         child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
-      onDismissed: (_) {
+      onDismissed: (_) async {
         setState(() => _scheduleEntries.remove(entry));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم حذف "${entry.title}"'), backgroundColor: AppColors.coral),
-        );
+        try {
+          await getIt<StudentRepository>().deleteScheduleEntry(widget.studentId, entry.id);
+        } catch (_) {
+          // Restore on error
+          if (mounted) setState(() => _scheduleEntries.add(entry));
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تم حذف "${entry.title}"'), backgroundColor: AppColors.coral),
+          );
+        }
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(0),
         decoration: BoxDecoration(
           color: AppColors.darkCard,
-          borderRadius: BorderRadius.circular(10),
-          border: Border(right: BorderSide(color: dayColor, width: 3)),
-        ),
-        child: Row(
-          children: [
-            Column(
-              children: [
-                Text(entry.startTime, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
-                Container(width: 1, height: 12, color: AppColors.darkCardElevated),
-                Text(entry.endTime, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-              ],
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(entry.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textPrimary)),
-                  if (entry.teacherName != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.person_outline, size: 13, color: AppColors.textSecondary),
-                          const SizedBox(width: 4),
-                          Text(entry.teacherName!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            // Recurrence badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: dayColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
-              child: Text(entry.recurrenceDisplay, style: TextStyle(color: dayColor, fontSize: 10, fontWeight: FontWeight.w600)),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Colored left bar
+                Container(width: 6, color: entry.isActive ? dayColor : AppColors.textSecondary),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                    child: Row(
+                      children: [
+                         // Time Column
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(entry.startTime12h, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: entry.isActive ? AppColors.textPrimary : AppColors.textSecondary)),
+                            Container(width: 1, height: 16, color: AppColors.darkCardElevated, margin: const EdgeInsets.symmetric(vertical: 4)),
+                            Text(entry.endTime12h, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                          ],
+                        ),
+                        const SizedBox(width: 16),
+                        // Details Column
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(entry.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: entry.isActive ? AppColors.textPrimary : AppColors.textSecondary)),
+                                  ),
+                                  // Recurrence badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(color: dayColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                                    child: Text(entry.recurrenceDisplay, style: TextStyle(color: dayColor, fontSize: 11, fontWeight: FontWeight.w600)),
+                                  ),
+                                ],
+                              ),
+                              if (entry.teacherName != null) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.person, size: 14, color: AppColors.primary),
+                                    const SizedBox(width: 5),
+                                    Text(entry.teacherName!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        // Switch (isActive)
+                        Switch(
+                          value: entry.isActive,
+                          activeColor: AppColors.primary,
+                          onChanged: (val) {
+                             _toggleScheduleEntryStatus(entry, val);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
+  }
+
+  void _toggleScheduleEntryStatus(ScheduleEntryModel entry, bool isActive) async {
+    try {
+      // Optimistic UI update
+      setState(() {
+         final index = _scheduleEntries.indexOf(entry);
+         if (index != -1) {
+            _scheduleEntries[index] = ScheduleEntryModel(
+              id: entry.id,
+              title: entry.title,
+              dayOfWeek: entry.dayOfWeek,
+              startTime: entry.startTime,
+              endTime: entry.endTime,
+              teacherId: entry.teacherId,
+              teacherName: entry.teacherName,
+              recurrence: entry.recurrence,
+              notes: entry.notes,
+              isActive: isActive,
+            );
+         }
+      });
+      // Call backend
+      await getIt<StudentRepository>().updateScheduleEntry(widget.studentId, entry.id, {'is_active': isActive});
+    } catch (e) {
+      if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل تحديث حالة الحصة'), backgroundColor: AppColors.coral));
+         _loadStudent(); // reload to revert
+      }
+    }
   }
 
   void _openScheduleForm() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (_) => SingleClassSessionForm(
-        onSave: (data) {
-          setState(() {
-            _classSessions.add(ClassSessionModel(
-              id: DateTime.now().millisecondsSinceEpoch,
-              scheduleEntryId: null, // Custom single session, no weekly link
-              studentId: widget.studentId,
-              teacherName: data['teacher_name'] as String?,
-              title: data['title'] as String,
-              sessionDate: data['session_date'] as DateTime,
-              startTime: data['start_time'] as String,
-              endTime: data['end_time'] as String,
-              status: 'scheduled',
-            ));
-            // Sort sessions to keep timeline ordered
-            _classSessions.sort((a, b) => a.sessionDate.compareTo(b.sessionDate));
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تم إضافة الحصة بنجاح'),
-              backgroundColor: AppColors.success,
-            ),
-          );
+      builder: (_) => StudentScheduleForm(
+        studentName: widget.studentName,
+        onSave: (scheduleName, entriesData) async {
+          try {
+            final repo = getIt<ScheduleRepository>();
+            final schedule = await repo.createSchedule({
+              'student_id': widget.studentId,
+              'name': scheduleName,
+            });
+            for (var data in entriesData) {
+              final newEntry = await repo.addEntry(schedule.id, data);
+              setState(() {
+                 _scheduleEntries.add(newEntry);
+              });
+            }
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم إنشاء الجدول وإضافة ${entriesData.length} حصص بنجاح'), backgroundColor: AppColors.success));
+              _loadStudent(); // Refresh the whole student to pick up changes
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل حفظ الجدول'), backgroundColor: AppColors.coral));
+            }
+          }
         },
       ),
     );
   }
 
   Widget _buildSessionsTab() {
+    if (!_sessionsLoaded) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+            SizedBox(height: 14),
+            Text('جارٍ تحميل الحصص...', style: TextStyle(color: AppColors.textSecondary)),
+          ],
+        ),
+      );
+    }
+    if (_classSessions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.class_outlined, size: 64, color: Colors.white.withValues(alpha: 0.15)),
+            const SizedBox(height: 12),
+            const Text('لا توجد حصص لهذا الشهر', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+            const SizedBox(height: 6),
+            const Text('غير موجود جدول زمني أو لم يتم التوليد بعد', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          ],
+        ),
+      );
+    }
     return StudentClassesTab(
       sessions: _classSessions,
-      onGenerate: () {
-        setState(() {
-          _classSessions.clear();
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('يرجى مزامنة البيانات من الخادم'), backgroundColor: AppColors.success),
-        );
+      onGenerate: () async {
+        final repo = getIt<StudentRepository>();
+        await _autoGenerateSessions(repo);
       },
       onAction: (sessionId, action, {reason, newDate, newStart, newEnd}) {
         setState(() {

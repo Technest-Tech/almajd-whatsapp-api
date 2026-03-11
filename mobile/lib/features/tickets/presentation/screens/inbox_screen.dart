@@ -15,6 +15,7 @@ import '../../../students/data/models/student_model.dart';
 import '../../data/ticket_repository.dart';
 import '../../data/models/ticket_model.dart';
 import '../bloc/ticket_list_bloc.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../widgets/ticket_card.dart';
 
 // ─────────────────────────────────────────────────────────────
@@ -459,11 +460,11 @@ class _StudentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authState = context.read<AuthBloc>().state;
-    final isAdmin = authState is AuthAuthenticated && authState.user.role == 'admin';
+    final isAdmin = authState is AuthAuthenticated && authState.user.roles.contains('admin');
 
     final displayName = student.name.isNotEmpty && student.name != 'Unknown Contact'
         ? student.name
-        : (isAdmin && student.phone != null ? '\u200E${student.phone}' : 'جهة اتصال غير معروفة');
+        : (isAdmin && student.whatsappNumber != null ? '\u200E${student.whatsappNumber}' : 'جهة اتصال غير معروفة');
 
     return InkWell(
       onTap: isLoading ? null : onTap,
@@ -482,9 +483,9 @@ class _StudentRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                  if (isAdmin && student.phone != null && student.phone!.isNotEmpty && displayName != '\u200E${student.phone}')
+                  if (isAdmin && student.whatsappNumber != null && student.whatsappNumber!.isNotEmpty && displayName != '\u200E${student.whatsappNumber}')
                     Text(
-                      '\u200E${student.phone}',
+                      '\u200E${student.whatsappNumber}',
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
                     ),
                 ],

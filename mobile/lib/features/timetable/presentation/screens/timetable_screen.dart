@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
-
+import '../../../../core/di/injection.dart';
+import '../../../students/data/models/student_model.dart';
+import '../../../students/data/student_repository.dart';
+import '../../../schedules/data/schedule_repository.dart';
 import '../../../schedules/data/models/schedule_model.dart';
 import '../../../students/presentation/screens/student_schedule_form.dart';
 
-/// Shows ALL timetable entries grouped by student.
-/// Includes search + add timetable for specific student.
+/// Shows ALL student timetable templates fetched from the real API.
 class TimetableScreen extends StatefulWidget {
   const TimetableScreen({super.key});
 
@@ -16,214 +17,340 @@ class TimetableScreen extends StatefulWidget {
 }
 
 class _TimetableScreenState extends State<TimetableScreen> {
-  late List<_TimetableRow> _entries;
+  List<ScheduleModel> _schedules = [];
+  bool _isLoading = true;
   String _searchQuery = '';
 
-  // Demo student list for the add dropdown
-  static const _allStudents = [
-    _StudentOption(1, 'أحمد محمد الأنصاري'),
-    _StudentOption(2, 'فاطمة علي السعدي'),
-    _StudentOption(3, 'محمد خالد العتيبي'),
-    _StudentOption(4, 'سارة أحمد النعيمي'),
-    _StudentOption(5, 'عبدالله سعيد المهري'),
-    _StudentOption(6, 'مريم يوسف الكبيسي'),
+  static const _dayNames = [
+    'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت',
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    _entries = [];
-  }
-
-  static const _dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
   static const _dayColors = [
     Color(0xFF26A69A), Color(0xFF42A5F5), Color(0xFFAB47BC), Color(0xFFEF5350),
     Color(0xFFFF7043), Color(0xFF66BB6A), Color(0xFFFFA726),
   ];
 
-  List<_TimetableRow> get _filteredEntries {
-    if (_searchQuery.isEmpty) return _entries;
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    setState(() => _isLoading = true);
+    try {
+      final repo = getIt<ScheduleRepository>();
+      final schedules = await repo.getSchedules(perPage: 100);
+      if (mounted) {
+        setState(() {
+          _schedules = schedules;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تحميل الجداول')),
+        );
+      }
+    }
+  }
+
+  List<ScheduleModel> get _filtered {
+    if (_searchQuery.isEmpty) return _schedules;
     final q = _searchQuery.toLowerCase();
-    return _entries.where((e) =>
-        e.studentName.toLowerCase().contains(q) ||
-        e.entry.title.toLowerCase().contains(q) ||
-        (e.entry.teacherName?.toLowerCase().contains(q) ?? false)
-    ).toList();
+    return _schedules.where((t) {
+      if (t.studentName?.toLowerCase().contains(q) ?? false) return true;
+      if (t.name.toLowerCase().contains(q)) return true;
+      return t.entries.any((e) =>
+          e.title.toLowerCase().contains(q) ||
+          (e.teacherName?.toLowerCase().contains(q) ?? false));
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredEntries;
+    final filtered = _filtered;
+    final totalEntries = filtered.fold<int>(0, (s, t) => s + t.entryCount);
 
-    // Group by student
-    final byStudent = <int, List<_TimetableRow>>{};
-    final studentNames = <int, String>{};
-    for (final e in filtered) {
-      byStudent.putIfAbsent(e.studentId, () => []).add(e);
-      studentNames[e.studentId] = e.studentName;
-    }
-    final studentIds = byStudent.keys.toList();
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('الجداول الزمنية'), centerTitle: true),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'add_timetable',
-        onPressed: _showAddTimetable,
-        icon: const Icon(Icons.add),
-        label: const Text('إضافة جدول'),
-      ),
-      body: Column(
-        children: [
-          // Search bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: TextField(
-              onChanged: (v) => setState(() => _searchQuery = v),
-              decoration: InputDecoration(
-                hintText: 'بحث عن طالب أو مادة...',
-                prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _searchQuery = ''))
-                    : null,
-                filled: true,
-                fillColor: AppColors.darkCard,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+    return Column(
+      children: [
+        // ── Search Bar ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: TextField(
+            onChanged: (v) => setState(() => _searchQuery = v),
+            decoration: InputDecoration(
+              hintText: 'بحث عن طالب أو جدول...',
+              prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () => setState(() => _searchQuery = ''),
+                    )
+                  : null,
+              filled: true,
+              fillColor: AppColors.darkCard,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
               ),
             ),
           ),
+        ),
 
-          // Content
-          Expanded(
-            child: filtered.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _searchQuery.isNotEmpty ? Icons.search_off : Icons.calendar_month,
-                          size: 64,
-                          color: Colors.white.withValues(alpha: 0.15),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _searchQuery.isNotEmpty ? 'لا توجد نتائج لـ "$_searchQuery"' : 'لا يوجد حصص مسجلة',
-                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                    children: [
-                      // Summary bar
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [AppColors.primary.withValues(alpha: 0.15), AppColors.primary.withValues(alpha: 0.05)],
-                            begin: Alignment.topRight,
-                            end: Alignment.bottomLeft,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
+        // ── Body ──
+        Expanded(
+          child: Stack(
+            children: [
+              _isLoading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                : filtered.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.calendar_month, color: AppColors.primary, size: 24),
-                            const SizedBox(width: 10),
-                            Text('${studentIds.length} طالب', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.primary)),
-                            const SizedBox(width: 6),
-                            Text('• ${filtered.length} حصة', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                            Icon(
+                              _searchQuery.isNotEmpty
+                                  ? Icons.search_off
+                                  : Icons.calendar_month,
+                              size: 64,
+                              color: Colors.white.withValues(alpha: 0.15),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _searchQuery.isNotEmpty
+                                  ? 'لا توجد نتائج لـ "$_searchQuery"'
+                                  : 'لا يوجد جداول مسجلة بعد',
+                              style: const TextStyle(
+                                  color: AppColors.textSecondary, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        color: AppColors.primary,
+                        onRefresh: _loadAll,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                          children: [
+                            // Summary badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              margin: const EdgeInsets.only(bottom: 14),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    AppColors.primary.withValues(alpha: 0.15),
+                                    AppColors.primary.withValues(alpha: 0.05),
+                                  ],
+                                  begin: Alignment.topRight,
+                                  end: Alignment.bottomLeft,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.calendar_month,
+                                      color: AppColors.primary, size: 22),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    '${filtered.length} قالب',
+                                    style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.primary),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '• $totalEntries حصة أسبوعية',
+                                    style: const TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Schedule sections
+                            ...filtered.map((t) => _buildScheduleCard(t)),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-
-                      // Student sections
-                      ...studentIds.map((sid) => _buildStudentSection(sid, byStudent[sid]!, studentNames[sid]!)),
-                    ],
-                  ),
+              // FAB overlay
+              Positioned(
+                bottom: 16,
+                left: 16,
+                child: FloatingActionButton.extended(
+                  heroTag: 'add_timetable',
+                  onPressed: _showAddTimetable,
+                  icon: const Icon(Icons.add),
+                  label: const Text('إضافة جدول'),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildStudentSection(int sid, List<_TimetableRow> rows, String name) {
-    rows.sort((a, b) {
-      final d = a.entry.dayOfWeek.compareTo(b.entry.dayOfWeek);
-      return d != 0 ? d : a.entry.startTime.compareTo(b.entry.startTime);
-    });
+  // ─── Schedule Card ────────────────────────────────────────────────
 
-    final byDay = <int, List<_TimetableRow>>{};
-    for (final r in rows) {
-      byDay.putIfAbsent(r.entry.dayOfWeek, () => []).add(r);
+  Widget _buildScheduleCard(ScheduleModel t) {
+    final entries = List<ScheduleEntryModel>.from(t.entries)
+      ..sort((a, b) {
+        final d = a.dayOfWeek.compareTo(b.dayOfWeek);
+        return d != 0 ? d : a.startTime.compareTo(b.startTime);
+      });
+
+    // Group by day
+    final byDay = <int, List<ScheduleEntryModel>>{};
+    for (final e in entries) {
+      byDay.putIfAbsent(e.dayOfWeek, () => []).add(e);
     }
     final sortedDays = byDay.keys.toList()..sort();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(color: AppColors.darkCard, borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Student header
+          // ── Header ──
           InkWell(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-            onTap: () => context.push('/students/$sid'),
+            onTap: t.studentId != null ? () => _showStudentEntries(t.studentId!) : null,
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 20,
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                    child: Text(name.isNotEmpty ? name[0] : '?', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 14)),
+                    radius: 22,
+                    backgroundColor: AppColors.primary,
+                    child: Text(
+                      t.studentName != null && t.studentName!.isNotEmpty
+                          ? t.studentName![0]
+                          : '؟',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                        const SizedBox(height: 2),
-                        Text('${rows.length} حصة • ${sortedDays.length} أيام', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        Text(
+                          t.name, // Template name
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15),
+                        ),
+                        if (t.studentName != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'للطالب: ${t.studentName}',
+                            style: const TextStyle(
+                                color: AppColors.primary, fontSize: 12),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time,
+                                size: 12, color: AppColors.textSecondary),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${t.entryCount} حصة • ${sortedDays.length} أيام أسبوعياً',
+                              style: const TextStyle(
+                                  color: AppColors.textSecondary, fontSize: 12),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_left, color: AppColors.textSecondary, size: 20),
+                  // Delete Schedule button
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline,
+                        color: AppColors.coral, size: 22),
+                    tooltip: 'حذف التمبلت بالكامل',
+                    onPressed: () => _deleteSchedule(t),
+                  ),
                 ],
               ),
             ),
           ),
+
           Container(height: 1, color: AppColors.darkCardElevated),
 
-          // Entries by day
+          // ── Weekly Calendar Grid ──
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: sortedDays.map((day) {
-                final dayRows = byDay[day]!;
-                final dayName = (day >= 0 && day < _dayNames.length) ? _dayNames[day] : '';
-                final dayColor = (day >= 0 && day < _dayColors.length) ? _dayColors[day] : AppColors.primary;
+                final dayEntries = byDay[day]!;
+                final dayName = _dayNames[day.clamp(0, 6)];
+                final dayColor = _dayColors[day.clamp(0, 6)];
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Column(
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(width: 8, height: 8, decoration: BoxDecoration(color: dayColor, shape: BoxShape.circle)),
-                          const SizedBox(width: 6),
-                          Text(dayName, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: dayColor)),
-                          const SizedBox(width: 6),
-                          Expanded(child: Container(height: 1, color: dayColor.withValues(alpha: 0.12))),
-                        ],
+                      // Day label column
+                      Container(
+                        width: 64,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: dayColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                  color: dayColor, shape: BoxShape.circle),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              dayName,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: dayColor),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 6),
-                      ...dayRows.map((row) => _buildEntryRow(row, dayColor)),
+                      const SizedBox(width: 10),
+
+                      // Entries
+                      Expanded(
+                        child: Column(
+                          children: dayEntries
+                              .map((e) => _buildEntryTile(e, dayColor, t))
+                              .toList(),
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -235,337 +362,658 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  Widget _buildEntryRow(_TimetableRow row, Color dayColor) {
-    return InkWell(
-      onTap: () => _openDetail(row),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 85,
-              child: Text('${row.entry.startTime} - ${row.entry.endTime}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
-            ),
-            Expanded(child: Text(row.entry.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
-            if (row.entry.teacherName != null)
-              Text(row.entry.teacherName!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
-            const SizedBox(width: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(color: dayColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-              child: Text(row.entry.recurrenceDisplay, style: TextStyle(color: dayColor, fontSize: 9, fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
+  Widget _buildEntryTile(
+      ScheduleEntryModel entry, Color color, ScheduleModel schedule) {
+    final isActive = entry.isActive;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isActive
+            ? color.withValues(alpha: 0.08)
+            : AppColors.darkCardElevated.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+            left: BorderSide(color: isActive ? color : AppColors.textSecondary, width: 3)),
       ),
-    );
-  }
-
-  void _openDetail(_TimetableRow row) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _TimetableDetailSheet(
-        row: row,
-        onDelete: () {
-          setState(() => _entries.remove(row));
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('تم حذف "${row.entry.title}" لـ ${row.studentName}'), backgroundColor: AppColors.coral),
-          );
-        },
-      ),
-    );
-  }
-
-  // ── Add Timetable for a specific student ──
-  void _showAddTimetable() {
-    int? selectedStudentId;
-    String? selectedStudentName;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.person_add_alt_1, color: AppColors.primary),
-                  SizedBox(width: 8),
-                  Text('إضافة جدول لطالب', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Searchable student dropdown
-              const Text('اختر الطالب', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary, fontSize: 13)),
-              const SizedBox(height: 6),
-              Autocomplete<_StudentOption>(
-                optionsBuilder: (textEditingValue) {
-                  if (textEditingValue.text.isEmpty) return _allStudents;
-                  final q = textEditingValue.text.toLowerCase();
-                  return _allStudents.where((s) => s.name.toLowerCase().contains(q));
-                },
-                displayStringForOption: (s) => s.name,
-                fieldViewBuilder: (ctx, controller, focusNode, onFieldSubmitted) => TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  decoration: InputDecoration(
-                    hintText: 'ابحث عن طالب...',
-                    prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textSecondary),
-                    filled: true,
-                    fillColor: AppColors.darkCard,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: isActive
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
                   ),
                 ),
-                optionsViewBuilder: (ctx, onSelected, options) => Align(
-                  alignment: Alignment.topRight,
-                  child: Material(
-                    color: AppColors.darkCard,
-                    elevation: 4,
-                    borderRadius: BorderRadius.circular(10),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 200),
-                      child: ListView.builder(
-                        padding: EdgeInsets.zero,
-                        shrinkWrap: true,
-                        itemCount: options.length,
-                        itemBuilder: (_, i) {
-                          final opt = options.elementAt(i);
-                          return ListTile(
-                            dense: true,
-                            leading: CircleAvatar(
-                              radius: 16,
-                              backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                              child: Text(opt.name[0], style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700)),
-                            ),
-                            title: Text(opt.name, style: const TextStyle(fontSize: 14)),
-                            onTap: () {
-                              onSelected(opt);
-                              setSheetState(() {
-                                selectedStudentId = opt.id;
-                                selectedStudentName = opt.name;
-                              });
-                            },
-                          );
-                        },
-                      ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Icon(Icons.access_time, size: 11, color: AppColors.textSecondary.withValues(alpha: 0.7)),
+                    const SizedBox(width: 3),
+                    Text(
+                      '${entry.startTime12h} - ${entry.endTime12h}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textSecondary),
                     ),
-                  ),
-                ),
-                onSelected: (s) => setSheetState(() {
-                  selectedStudentId = s.id;
-                  selectedStudentName = s.name;
-                }),
-              ),
-              const SizedBox(height: 16),
-
-              if (selectedStudentId != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle, size: 16, color: AppColors.primary),
+                    if (entry.teacherName != null) ...[
                       const SizedBox(width: 8),
-                      Text('تم اختيار: $selectedStudentName', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+                      Icon(Icons.person_outline, size: 11, color: AppColors.textSecondary.withValues(alpha: 0.7)),
+                      const SizedBox(width: 2),
+                      Flexible(
+                        child: Text(
+                          entry.teacherName!,
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 16),
               ],
-
-              // Next button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: selectedStudentId == null
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          _openScheduleFormForStudent(selectedStudentId!, selectedStudentName!);
-                        },
-                  icon: const Icon(Icons.arrow_back, size: 16),
-                  label: const Text('التالي: إضافة الحصص'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          // Active indicator
+          if (!isActive)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.textSecondary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text('موقوف',
+                  style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700)),
+            ),
+          // Edit button
+          IconButton(
+            icon: Icon(Icons.edit_outlined,
+                size: 16,
+                color: isActive ? color : AppColors.textSecondary),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => _editEntry(entry, schedule),
+          ),
+        ],
       ),
     );
   }
 
-  void _openScheduleFormForStudent(int studentId, String studentName) {
+  // ─── Actions ──────────────────────────────────────────────────────────────
+
+  void _showStudentEntries(int studentId) {
+    Navigator.of(context).pushNamed('/students/$studentId');
+  }
+
+  void _addEntryForStudent(StudentModel student) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: AppColors.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => StudentScheduleForm(
-        onSave: (entries) {
-          setState(() {
-            for (final data in entries) {
-              _entries.add(_TimetableRow(
-                studentName,
-                studentId,
-                ScheduleEntryModel(
-                  id: DateTime.now().millisecondsSinceEpoch + (data['day_of_week'] as int),
-                  scheduleId: null,
-                  teacherName: data['teacher_name'] as String?,
-                  title: data['title'] as String,
-                  dayOfWeek: data['day_of_week'] as int,
-                  startTime: data['start_time'] as String,
-                  endTime: data['end_time'] as String,
-                  recurrence: 'weekly',
-                ),
-              ));
-            }
+        studentName: student.name,
+        onSave: (scheduleName, entries) async {
+          final repo = getIt<ScheduleRepository>();
+          // Create the parent schedule first
+          final schedule = await repo.createSchedule({
+            'student_id': student.id,
+            'name': scheduleName,
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('تم إضافة ${entries.length} حصة لـ $studentName'),
-              backgroundColor: AppColors.success,
-            ),
-          );
+          // Add all entries
+          for (final data in entries) {
+            await repo.addEntry(schedule.id, data);
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('تم إنشاء الجدول وإضافة ${entries.length} حصة لـ ${student.name}'),
+                backgroundColor: AppColors.success,
+              ),
+            );
+            _loadAll(); // Refresh
+          }
         },
       ),
     );
   }
 
+  void _editEntry(ScheduleEntryModel entry, ScheduleModel schedule) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _EditEntrySheet(
+        entry: entry,
+        scheduleId: schedule.id,
+        onSaved: () {
+          _loadAll();
+        },
+        onDeleted: () {
+          Navigator.pop(context);
+          _loadAll();
+        },
+      ),
+    );
+  }
+
+  void _deleteSchedule(ScheduleModel schedule) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        title: const Text('حذف الجدول بالكامل'),
+        content: Text('هل أنت متأكد من حذف الجدول "${schedule.name}"؟ سيتم إلغاء جميع الحصص المستقبلية المرتبطة به.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.coral),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await getIt<ScheduleRepository>().deleteSchedule(schedule.id);
+      if (mounted) _loadAll();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('فشل حذف الجدول'),
+              backgroundColor: AppColors.coral),
+        );
+      }
+    }
+  }
+
+  void _showAddTimetable() {
+    // Show student picker then schedule form
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _StudentPickerSheet(
+        onStudentSelected: (student) {
+          Navigator.pop(context);
+          _addEntryForStudent(student);
+        },
+      ),
+    );
+  }
 }
 
-class _TimetableRow {
-  final String studentName;
-  final int studentId;
-  final ScheduleEntryModel entry;
+// ─── Student Picker Sheet ─────────────────────────────────────────────────────
 
-  const _TimetableRow(this.studentName, this.studentId, this.entry);
+class _StudentPickerSheet extends StatefulWidget {
+  final void Function(StudentModel) onStudentSelected;
+
+  const _StudentPickerSheet({
+    required this.onStudentSelected,
+  });
+
+  @override
+  State<_StudentPickerSheet> createState() => _StudentPickerSheetState();
 }
 
-class _StudentOption {
-  final int id;
-  final String name;
+class _StudentPickerSheetState extends State<_StudentPickerSheet> {
+  List<StudentModel> _students = [];
+  bool _loading = true;
+  String _query = '';
 
-  const _StudentOption(this.id, this.name);
-}
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-/// Detail sheet with full entry info + controls
-class _TimetableDetailSheet extends StatelessWidget {
-  final _TimetableRow row;
-  final VoidCallback onDelete;
+  Future<void> _load() async {
+    try {
+      final repo = getIt<StudentRepository>();
+      final list = await repo.getStudents(perPage: 100);
+      if (mounted) setState(() { _students = list; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
-  const _TimetableDetailSheet({required this.row, required this.onDelete});
+  List<StudentModel> get _filtered {
+    if (_query.isEmpty) return _students;
+    final q = _query.toLowerCase();
+    return _students.where((s) => s.name.toLowerCase().contains(q)).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final entry = row.entry;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.person_add_alt_1, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text('اختر طالباً لإنشاء جدول',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            autofocus: true,
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              hintText: 'ابحث عن طالب...',
+              prefixIcon: const Icon(Icons.search,
+                  size: 18, color: AppColors.textSecondary),
+              filled: true,
+              fillColor: AppColors.darkBg,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_loading)
+            const Center(
+                child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(
+                  color: AppColors.primary, strokeWidth: 2),
+            ))
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 260),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _filtered.length,
+                itemBuilder: (_, i) {
+                  final s = _filtered[i];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: AppColors.primary,
+                      radius: 18,
+                      child: Text(s.initials,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                    title: Text(s.name),
+                    subtitle: s.whatsappNumber != null
+                        ? Text(s.whatsappNumber!,
+                            style: const TextStyle(
+                                color: AppColors.textSecondary, fontSize: 11))
+                        : null,
+                    onTap: () => widget.onStudentSelected(s),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
-    const dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-    const dayColors = [
-      Color(0xFF26A69A), Color(0xFF42A5F5), Color(0xFFAB47BC), Color(0xFFEF5350),
-      Color(0xFFFF7043), Color(0xFF66BB6A), Color(0xFFFFA726),
-    ];
-    final dayColor = (entry.dayOfWeek >= 0 && entry.dayOfWeek < dayColors.length) ? dayColors[entry.dayOfWeek] : AppColors.primary;
-    final dayName = (entry.dayOfWeek >= 0 && entry.dayOfWeek < dayNames.length) ? dayNames[entry.dayOfWeek] : '';
+// ─── Edit Entry Sheet ─────────────────────────────────────────────────────────
+
+class _EditEntrySheet extends StatefulWidget {
+  final ScheduleEntryModel entry;
+  final int scheduleId;
+  final VoidCallback onSaved;
+  final VoidCallback onDeleted;
+
+  const _EditEntrySheet({
+    required this.entry,
+    required this.scheduleId,
+    required this.onSaved,
+    required this.onDeleted,
+  });
+
+  @override
+  State<_EditEntrySheet> createState() => _EditEntrySheetState();
+}
+
+class _EditEntrySheetState extends State<_EditEntrySheet> {
+  late TextEditingController _titleCtrl;
+  late bool _isActive;
+  late TimeOfDay _start;
+  late TimeOfDay _end;
+  bool _saving = false;
+
+  static const _dayNames = [
+    'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت',
+  ];
+  static const _dayColors = [
+    Color(0xFF26A69A), Color(0xFF42A5F5), Color(0xFFAB47BC), Color(0xFFEF5350),
+    Color(0xFFFF7043), Color(0xFF66BB6A), Color(0xFFFFA726),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _titleCtrl = TextEditingController(text: widget.entry.title);
+    _isActive = widget.entry.isActive;
+    final sp = widget.entry.startTime.split(':');
+    final ep = widget.entry.endTime.split(':');
+    _start = TimeOfDay(hour: int.parse(sp[0]), minute: int.parse(sp[1]));
+    _end = TimeOfDay(hour: int.parse(ep[0]), minute: int.parse(ep[1]));
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    super.dispose();
+  }
+
+  String _fmtTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickTime(bool isStart) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: isStart ? _start : _end,
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: AppColors.primary,
+            surface: AppColors.darkCard,
+            onSurface: AppColors.textPrimary,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => isStart ? _start = picked : _end = picked);
+  }
+
+  Future<void> _save() async {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      await getIt<ScheduleRepository>().updateEntry(
+        widget.scheduleId,
+        widget.entry.id,
+        {
+          'title': _titleCtrl.text.trim(),
+          'start_time': _fmtTime(_start),
+          'end_time': _fmtTime(_end),
+          'is_active': _isActive,
+        },
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onSaved();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('تم تحديث الحصة بنجاح'),
+              backgroundColor: AppColors.success),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('فشل تحديث الحصة'),
+              backgroundColor: AppColors.coral),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        title: const Text('حذف الحصة'),
+        content: Text('حذف "${widget.entry.title}" من هذا الجدول؟'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.coral),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await getIt<ScheduleRepository>()
+          .deleteEntry(widget.scheduleId, widget.entry.id);
+      if (mounted) widget.onDeleted();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('فشل الحذف'),
+              backgroundColor: AppColors.coral),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final day = widget.entry.dayOfWeek.clamp(0, 6);
+    final dayColor = _dayColors[day];
+    final dayName = _dayNames[day];
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.fromLTRB(
+          20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              Icon(Icons.edit_calendar, color: dayColor),
+              const SizedBox(width: 8),
+              const Text('تعديل الحصة',
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Spacer(),
               Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: dayColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
-                child: Icon(Icons.calendar_month, color: dayColor, size: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: dayColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(dayName,
+                    style: TextStyle(
+                        color: dayColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Text('المادة / العنوان',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  fontSize: 13)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _titleCtrl,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: AppColors.darkBg,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('من',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                            fontSize: 12)),
+                    const SizedBox(height: 4),
+                    InkWell(
+                      onTap: () => _pickTime(true),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(10)),
+                        child: Row(children: [
+                          Icon(Icons.access_time,
+                              size: 16, color: dayColor),
+                          const SizedBox(width: 6),
+                          Text(_fmtTime(_start),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600)),
+                        ]),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(entry.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 2),
-                    Text(dayName, style: TextStyle(color: dayColor, fontWeight: FontWeight.w600, fontSize: 13)),
+                    const Text('إلى',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                            fontSize: 12)),
+                    const SizedBox(height: 4),
+                    InkWell(
+                      onTap: () => _pickTime(false),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(10)),
+                        child: Row(children: [
+                          Icon(Icons.access_time,
+                              size: 16, color: dayColor),
+                          const SizedBox(width: 6),
+                          Text(_fmtTime(_end),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600)),
+                        ]),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 20),
-
-          _infoRow(Icons.school_outlined, 'الطالب', row.studentName, AppColors.primary),
-          _infoRow(Icons.access_time, 'الوقت', '${entry.startTime} — ${entry.endTime}', dayColor),
-          if (entry.teacherName != null)
-            _infoRow(Icons.person_outline, 'المعلم', entry.teacherName!, AppColors.textSecondary),
-          _infoRow(Icons.repeat, 'التكرار', entry.recurrenceDisplay, AppColors.textSecondary),
-          if (entry.notes != null && entry.notes!.isNotEmpty)
-            _infoRow(Icons.note_outlined, 'ملاحظات', entry.notes!, AppColors.textSecondary),
-
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('حالة الحصة',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                Row(
+                  children: [
+                    Text(_isActive ? 'نشطة' : 'موقوفة',
+                        style: TextStyle(
+                            color: _isActive
+                                ? AppColors.success
+                                : AppColors.textSecondary,
+                            fontSize: 13)),
+                    const SizedBox(width: 8),
+                    Switch(
+                      value: _isActive,
+                      activeColor: AppColors.success,
+                      onChanged: (v) => setState(() => _isActive = v),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
-
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    context.push('/students/${row.studentId}');
-                  },
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('فتح الطالب'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    side: BorderSide(color: AppColors.primary.withValues(alpha: 0.3)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: dayColor,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
+                  child: _saving
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
+                      : const Text('حفظ التعديلات',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline, size: 16),
-                  label: const Text('حذف الحصة'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.coral,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.delete_outline,
+                    color: AppColors.coral),
+                onPressed: _delete,
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.coral.withValues(alpha: 0.1),
+                  padding: const EdgeInsets.all(12),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow(IconData icon, String label, String value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 10),
-          SizedBox(width: 60, child: Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12))),
-          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
         ],
       ),
     );

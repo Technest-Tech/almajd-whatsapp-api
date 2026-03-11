@@ -1,4 +1,5 @@
 import '../../../core/api/api_client.dart';
+import '../../students/data/models/class_session_model.dart';
 import 'models/schedule_model.dart';
 
 class ScheduleRepository {
@@ -58,4 +59,17 @@ class ScheduleRepository {
   Future<void> deleteEntry(int scheduleId, int entryId) async {
     await apiClient.dio.delete('/schedules/$scheduleId/entries/$entryId');
   }
+
+  // ── Sessions ──
+  
+  Future<List<ClassSessionModel>> getScheduleSessions(int scheduleId, {int? month, int? year}) async {
+    final params = <String, dynamic>{};
+    if (month != null) params['month'] = month;
+    if (year != null) params['year'] = year;
+
+    final response = await apiClient.dio.get('/schedules/$scheduleId/sessions', queryParameters: params);
+    final List data = response.data['data'];
+    return data.map((j) => ClassSessionModel.fromJson(j)).toList();
+  }
 }
+

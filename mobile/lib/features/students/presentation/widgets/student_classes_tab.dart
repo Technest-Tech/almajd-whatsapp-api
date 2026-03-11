@@ -70,13 +70,11 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
     final completed = widget.sessions.where((s) => s.isCompleted).length;
     final cancelled = widget.sessions.where((s) => s.isCancelled).length;
 
-    return Stack(
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       children: [
-        ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-          children: [
-            // Stats header
-            Container(
+        // Stats header
+        Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: AppColors.primary.withValues(alpha: 0.1),
@@ -91,22 +89,10 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+        const SizedBox(height: 16),
 
-            // Session cards
-            ...widget.sessions.map(_buildSessionCard),
-          ],
-        ),
-        Positioned(
-          bottom: 16,
-          left: 16,
-          child: FloatingActionButton.extended(
-            heroTag: 'generate_sessions',
-            onPressed: widget.onGenerate,
-            icon: const Icon(Icons.auto_awesome),
-            label: const Text('توليد الشهر'),
-          ),
-        ),
+        // Session cards
+        ...widget.sessions.map(_buildSessionCard),
       ],
     );
   }
@@ -167,7 +153,7 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
               Expanded(
                 child: Text(session.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
               ),
-              Text('${session.effectiveStartTime} - ${session.effectiveEndTime}',
+              Text('${session.effectiveStartTime12h} - ${session.effectiveEndTime12h}',
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
             ],
           ),
@@ -194,7 +180,7 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                'نُقلت إلى: ${session.effectiveDateDisplay} (${session.effectiveStartTime})',
+                'نُقلت إلى: ${session.effectiveDateDisplay} (${session.effectiveStartTime12h})',
                 style: const TextStyle(color: Color(0xFFFFA726), fontSize: 11),
               ),
             ),

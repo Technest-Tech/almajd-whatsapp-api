@@ -1,11 +1,10 @@
 class StudentModel {
   final int id;
   final String name;
-  final String? phone;
+  final String? whatsappNumber;
   final String status; // active, inactive, suspended
-  final String? guardianName;
-  final String? guardianPhone;
-  final String? guardianRelation;
+  final String? country;
+  final String? currency;
   final DateTime? enrollmentDate;
   final String? notes;
   final DateTime createdAt;
@@ -14,11 +13,10 @@ class StudentModel {
   const StudentModel({
     required this.id,
     required this.name,
-    this.phone,
+    this.whatsappNumber,
     this.status = 'active',
-    this.guardianName,
-    this.guardianPhone,
-    this.guardianRelation,
+    this.country,
+    this.currency,
     this.enrollmentDate,
     this.notes,
     required this.createdAt,
@@ -29,11 +27,10 @@ class StudentModel {
     return StudentModel(
       id: json['id'],
       name: json['name'] ?? '',
-      phone: json['phone'],
+      whatsappNumber: json['whatsapp_number'],
       status: json['status'] ?? 'active',
-      guardianName: json['guardian']?['name'] ?? json['guardian_name'],
-      guardianPhone: json['guardian']?['phone'] ?? json['guardian_phone'],
-      guardianRelation: json['guardian']?['relation'] ?? json['guardian_relation'],
+      country: json['country'],
+      currency: json['currency'],
       enrollmentDate: json['enrollment_date'] != null
           ? DateTime.parse(json['enrollment_date'])
           : null,
@@ -46,11 +43,10 @@ class StudentModel {
   Map<String, dynamic> toJson() {
     return {
       'name': name,
-      if (phone != null) 'phone': phone,
+      if (whatsappNumber != null) 'whatsapp_number': whatsappNumber,
       'status': status,
-      if (guardianName != null) 'guardian_name': guardianName,
-      if (guardianPhone != null) 'guardian_phone': guardianPhone,
-      if (guardianRelation != null) 'guardian_relation': guardianRelation,
+      if (country != null) 'country': country,
+      if (currency != null) 'currency': currency,
       if (notes != null) 'notes': notes,
     };
   }

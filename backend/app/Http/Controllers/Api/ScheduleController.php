@@ -20,8 +20,8 @@ class ScheduleController extends Controller
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->scheduleService->list(
-            filters: $request->only(['is_active', 'search']),
-            perPage: (int) $request->input('per_page', 20),
+            filters: $request->only(['is_active', 'search', 'student_id']),
+            perPage: (int) $request->input('per_page', 50),
         );
         return $this->response->paginated($paginator);
     }
@@ -34,13 +34,14 @@ class ScheduleController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'student_id'  => 'nullable|exists:students,id',
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
-            'start_date'  => 'required|date',
-            'end_date'    => 'required|date|after_or_equal:start_date',
+            'start_date'  => 'nullable|date',
+            'end_date'    => 'nullable|date|after_or_equal:start_date',
             'is_active'   => 'boolean',
         ]);
-        return $this->response->success($this->scheduleService->create($data), 'Created', code: 201);
+        return $this->response->success($this->scheduleService->create($data), 'تم إنشاء الجدول بنجاح', code: 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -48,17 +49,29 @@ class ScheduleController extends Controller
         $data = $request->validate([
             'name'        => 'sometimes|string|max:255',
             'description' => 'nullable|string|max:2000',
-            'start_date'  => 'sometimes|date',
-            'end_date'    => 'sometimes|date',
+            'start_date'  => 'nullable|date',
+            'end_date'    => 'nullable|date',
             'is_active'   => 'boolean',
         ]);
-        return $this->response->success($this->scheduleService->update($id, $data), 'Updated');
+        return $this->response->success($this->scheduleService->update($id, $data), 'تم تحديث الجدول بنجاح');
     }
 
     public function destroy(int $id): JsonResponse
     {
         $this->scheduleService->delete($id);
-        return $this->response->success(message: 'Deleted');
+        return $this->response->success(message: 'تم حذف الجدول بنجاح');
+    }
+
+    // ── Schedule Sessions ────────────────────────────────
+
+    public function sessions(Request $request, int $id): JsonResponse
+    {
+        $sessions = $this->scheduleService->getSessions(
+            $id,
+            month: $request->integer('month') ?: null,
+            year:  $request->integer('year') ?: null,
+        );
+        return $this->response->success($sessions);
     }
 
     // ── Schedule Entries ────────────────────────────────
@@ -72,9 +85,10 @@ class ScheduleController extends Controller
             'start_time'  => 'required|date_format:H:i',
             'end_time'    => 'required|date_format:H:i|after:start_time',
             'recurrence'  => 'in:weekly,biweekly,once',
+            'is_active'   => 'boolean',
             'notes'       => 'nullable|string|max:2000',
         ]);
-        return $this->response->success($this->scheduleService->addEntry($scheduleId, $data), 'Entry added', code: 201);
+        return $this->response->success($this->scheduleService->addEntry($scheduleId, $data), 'تم إضافة الحصة بنجاح', code: 201);
     }
 
     public function updateEntry(Request $request, int $scheduleId, int $entryId): JsonResponse
@@ -86,14 +100,15 @@ class ScheduleController extends Controller
             'start_time'  => 'sometimes|date_format:H:i',
             'end_time'    => 'sometimes|date_format:H:i',
             'recurrence'  => 'in:weekly,biweekly,once',
+            'is_active'   => 'boolean',
             'notes'       => 'nullable|string|max:2000',
         ]);
-        return $this->response->success($this->scheduleService->updateEntry($entryId, $data), 'Entry updated');
+        return $this->response->success($this->scheduleService->updateEntry($entryId, $data), 'تم تحديث الحصة بنجاح');
     }
 
     public function deleteEntry(int $scheduleId, int $entryId): JsonResponse
     {
         $this->scheduleService->deleteEntry($entryId);
-        return $this->response->success(message: 'Entry deleted');
+        return $this->response->success(message: 'تم حذف الحصة بنجاح');
     }
 }

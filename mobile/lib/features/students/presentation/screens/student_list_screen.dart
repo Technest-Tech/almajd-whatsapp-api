@@ -185,8 +185,9 @@ class _StudentListViewState extends State<_StudentListView> {
             return _StudentCard(
               student: student,
               onTap: () async {
-                final result = await context.push('/students/${student.id}');
-                if (result == true && context.mounted) {
+                await context.push('/students/${student.id}');
+                // Always refresh when returning from detail (edit may have occurred)
+                if (context.mounted) {
                   context.read<StudentListBloc>().add(StudentListRefreshRequested());
                 }
               },
@@ -305,26 +306,34 @@ class _StudentCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    if (student.guardianName != null)
-                      Row(
-                        children: [
-                          Icon(Icons.person_outline, size: 14, color: AppColors.textSecondary.withValues(alpha: 0.7)),
-                          const SizedBox(width: 4),
-                          Text(
-                            'ولي الأمر: ${student.guardianName}',
-                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    if (student.phone != null)
+                    if (student.whatsappNumber != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Row(
                           children: [
-                            Icon(Icons.phone_outlined, size: 14, color: AppColors.textSecondary.withValues(alpha: 0.7)),
+                            Icon(Icons.message_outlined, size: 14, color: AppColors.textSecondary.withValues(alpha: 0.7)),
                             const SizedBox(width: 4),
                             Text(
-                              student.phone!,
+                              student.whatsappNumber!,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                                fontFamily: 'monospace',
+                              ),
+                              textDirection: TextDirection.ltr,
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (student.country != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          children: [
+                            Icon(Icons.public_outlined, size: 14, color: AppColors.textSecondary.withValues(alpha: 0.7)),
+                            const SizedBox(width: 4),
+                            Text(
+                              student.country!,
                               style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                             ),
                           ],
