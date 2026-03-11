@@ -15,7 +15,7 @@ class StudentService extends BaseCrudService
 
     protected function searchableColumns(): array
     {
-        return ['name', 'phone', 'student_code'];
+        return ['name', 'whatsapp_number', 'student_code'];
     }
 
     protected function applyFilters($query, array $filters): void
