@@ -24,7 +24,7 @@ class TicketController extends Controller
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->ticketService->list(
-            filters: $request->only(['status', 'priority', 'assigned_to', 'sla_breached', 'search', 'tag_id']),
+            filters: $request->only(['status', 'priority', 'assigned_to', 'sla_breached', 'search', 'tag_id', 'type']),
             perPage: (int) $request->input('per_page', 20),
         );
 
@@ -188,18 +188,21 @@ class TicketController extends Controller
 
         $student = \App\Models\Student::findOrFail($data['student_id']);
 
-        if (!$student->phone) {
-            return $this->response->error('Student has no phone number', code: 422);
+        $phone = $student->whatsapp_number !== null && $student->whatsapp_number !== ''
+            ? trim((string) $student->whatsapp_number)
+            : '';
+        if ($phone === '') {
+            return $this->response->error('Student has no WhatsApp number', code: 422);
         }
 
         // Resolve or create Guardian
         $guardian = $student->guardian;
         if (!$guardian) {
-            $guardian = \App\Models\Guardian::where('phone', $student->phone)->first();
+            $guardian = \App\Models\Guardian::where('phone', $phone)->first();
             if (!$guardian) {
                 $guardian = \App\Models\Guardian::create([
                     'name'  => $student->name,
-                    'phone' => $student->phone,
+                    'phone' => $phone,
                 ]);
             }
             $student->update(['guardian_id' => $guardian->id]);

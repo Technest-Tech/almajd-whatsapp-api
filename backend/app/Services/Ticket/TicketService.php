@@ -54,6 +54,39 @@ class TicketService
         if (!empty($filters['tag_id'])) {
             $query->whereHas('tags', fn ($q) => $q->where('tags.id', $filters['tag_id']));
         }
+        
+        if (!empty($filters['type'])) {
+            $type = $filters['type'];
+            if ($type === 'students') {
+                $query->whereHas('guardian', function ($q) {
+                    $q->whereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('students')
+                            ->whereColumn('students.whatsapp_number', 'guardians.phone');
+                    });
+                });
+            } elseif ($type === 'teachers') {
+                $query->whereHas('guardian', function ($q) {
+                    $q->whereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('teachers')
+                            ->whereColumn('teachers.phone', 'guardians.phone');
+                    });
+                });
+            } elseif ($type === 'unknown') {
+                $query->whereHas('guardian', function ($q) {
+                    $q->whereNotExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('students')
+                            ->whereColumn('students.whatsapp_number', 'guardians.phone');
+                    })->whereNotExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('teachers')
+                            ->whereColumn('teachers.phone', 'guardians.phone');
+                    });
+                });
+            }
+        }
 
         return $query->paginate($perPage);
     }
