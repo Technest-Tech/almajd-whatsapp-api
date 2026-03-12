@@ -205,7 +205,6 @@ class TicketController extends Controller
                     'phone' => $phone,
                 ]);
             }
-            $student->update(['guardian_id' => $guardian->id]);
         }
 
         // Update guardian name if still Unknown Contact

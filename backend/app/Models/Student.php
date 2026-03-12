@@ -19,7 +19,7 @@ class Student extends Model
 
     public function guardian(): BelongsTo
     {
-        return $this->belongsTo(Guardian::class);
+        return $this->belongsTo(Guardian::class, 'whatsapp_number', 'phone');
     }
 
     public function scheduleEntries(): HasMany

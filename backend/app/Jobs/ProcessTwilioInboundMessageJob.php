@@ -166,17 +166,14 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
         // Auto-link student and update guardian name if still 'Unknown Contact'
         if ($guardian->name === 'Unknown Contact') {
             $firstStudent = $guardian->students()->first()
-                ?? \App\Models\Student::where('phone', $guardian->phone)->first();
+                ?? \App\Models\Student::where('whatsapp_number', $guardian->phone)->first();
             if ($firstStudent) {
                 $guardian->update(['name' => $firstStudent->name]);
-                if (!$firstStudent->guardian_id) {
-                    $firstStudent->update(['guardian_id' => $guardian->id]);
-                }
             }
         }
         if (!$ticket->student_id) {
             $firstStudent = $guardian->students()->first()
-                ?? \App\Models\Student::where('phone', $guardian->phone)->first();
+                ?? \App\Models\Student::where('whatsapp_number', $guardian->phone)->first();
             if ($firstStudent) {
                 $ticket->update(['student_id' => $firstStudent->id]);
             }

@@ -16,7 +16,7 @@ class Guardian extends Model
 
     public function students(): HasMany
     {
-        return $this->hasMany(Student::class);
+        return $this->hasMany(Student::class, 'whatsapp_number', 'phone');
     }
 
     public function tickets(): HasMany
