@@ -17,20 +17,18 @@ class TeacherController extends CrudController
     protected function storeRules(): array
     {
         return [
-            'name'  => 'required|string|max:255',
-            'phone' => 'nullable|string|max:20',
-            'email' => 'nullable|email|max:255',
-            'notes' => 'nullable|string|max:2000',
+            'name'            => 'required|string|max:255',
+            'whatsapp_number' => 'required|string|max:20',
+            'zoom_link'       => 'nullable|url|max:255',
         ];
     }
 
     protected function updateRules(): array
     {
         return [
-            'name'  => 'sometimes|string|max:255',
-            'phone' => 'nullable|string|max:20',
-            'email' => 'nullable|email|max:255',
-            'notes' => 'nullable|string|max:2000',
+            'name'            => 'sometimes|string|max:255',
+            'whatsapp_number' => 'sometimes|string|max:20',
+            'zoom_link'       => 'nullable|url|max:255',
         ];
     }
 }

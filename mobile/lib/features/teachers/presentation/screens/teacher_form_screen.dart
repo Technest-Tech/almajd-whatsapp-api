@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection.dart';
+import '../../data/teacher_repository.dart';
+import '../../data/models/teacher_model.dart';
+import 'package:dio/dio.dart';
 
 class TeacherFormScreen extends StatefulWidget {
-  final int? teacherId; // null = create, not null = edit
+  final int? teacherId;
 
   const TeacherFormScreen({super.key, this.teacherId});
 
@@ -16,42 +20,47 @@ class TeacherFormScreen extends StatefulWidget {
 class _TeacherFormScreenState extends State<TeacherFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _notesController = TextEditingController();
-  final _subjectInputController = TextEditingController();
-  final List<String> _subjects = [];
-  String _availability = 'available';
+  final _whatsappController = TextEditingController();
+  final _zoomLinkController = TextEditingController();
   bool _isSaving = false;
 
-  static const _availabilityOptions = [
-    {'key': 'available', 'label': 'متاح'},
-    {'key': 'busy', 'label': 'مشغول'},
-    {'key': 'offline', 'label': 'غير متصل'},
-  ];
+  bool _isLoading = false;
 
-  static const _suggestedSubjects = [
-    'القرآن الكريم',
-    'التجويد',
-    'الرياضيات',
-    'العلوم',
-    'اللغة العربية',
-    'النحو والصرف',
-    'اللغة الإنجليزية',
-    'الحاسب الآلي',
-    'البرمجة',
-    'التربية الإسلامية',
-    'الفيزياء',
-    'الكيمياء',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isEditing) {
+      _loadTeacher();
+    }
+  }
+
+  Future<void> _loadTeacher() async {
+    setState(() => _isLoading = true);
+    try {
+      final teacher = await getIt<TeacherRepository>().getTeacher(widget.teacherId!);
+      if (mounted) {
+        setState(() {
+          _nameController.text = teacher.name;
+          _whatsappController.text = teacher.whatsappNumber ?? '';
+          _zoomLinkController.text = teacher.zoomLink ?? '';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تحميل بيانات المعلم')),
+        );
+      }
+    }
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _phoneController.dispose();
-    _emailController.dispose();
-    _notesController.dispose();
-    _subjectInputController.dispose();
+    _whatsappController.dispose();
+    _zoomLinkController.dispose();
     super.dispose();
   }
 
@@ -61,9 +70,11 @@ class _TeacherFormScreenState extends State<TeacherFormScreen> {
       appBar: AppBar(
         title: Text(widget.isEditing ? 'تعديل المعلم' : 'إضافة معلم'),
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
+      body: _isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : Form(
+              key: _formKey,
+              child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             // ── Section: Teacher Info ──
@@ -85,141 +96,47 @@ class _TeacherFormScreenState extends State<TeacherFormScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Phone
+            // Whatsapp Number
             TextFormField(
-              controller: _phoneController,
+              controller: _whatsappController,
+              textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
-                labelText: 'رقم الهاتف',
+                labelText: 'رقم الواتساب *',
                 prefixIcon: Icon(Icons.phone_outlined),
                 hintText: '+966XXXXXXXXX',
               ),
               keyboardType: TextInputType.phone,
               validator: (v) {
-                if (v != null && v.isNotEmpty && v.length < 10) {
-                  return 'رقم الهاتف غير صالح';
+                if (v == null || v.trim().isEmpty) {
+                  return 'رقم الواتساب مطلوب';
+                }
+                if (v.length < 10) {
+                  return 'رقم الواتساب غير صالح';
                 }
                 return null;
               },
             ),
             const SizedBox(height: 12),
 
-            // Email
+            // Zoom Link
             TextFormField(
-              controller: _emailController,
+              controller: _zoomLinkController,
+              textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
-                labelText: 'البريد الإلكتروني',
-                prefixIcon: Icon(Icons.email_outlined),
+                labelText: 'رابط الزوم (اختياري)',
+                prefixIcon: Icon(Icons.video_call_outlined),
+                hintText: 'https://zoom.us/j/1234567890',
               ),
-              keyboardType: TextInputType.emailAddress,
+              keyboardType: TextInputType.url,
               validator: (v) {
-                if (v != null && v.isNotEmpty && !v.contains('@')) {
-                  return 'البريد الإلكتروني غير صالح';
+                if (v != null && v.trim().isNotEmpty) {
+                  final uri = Uri.tryParse(v.trim());
+                  if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https'))) {
+                    return 'رابط غير صالح';
+                  }
                 }
                 return null;
               },
-            ),
-            const SizedBox(height: 12),
-
-            // Availability
-            DropdownButtonFormField<String>(
-              initialValue: _availability,
-              decoration: const InputDecoration(
-                labelText: 'الحالة',
-                prefixIcon: Icon(Icons.circle_outlined),
-              ),
-              dropdownColor: AppColors.darkCard,
-              items: _availabilityOptions.map((opt) {
-                return DropdownMenuItem(value: opt['key'], child: Text(opt['label']!));
-              }).toList(),
-              onChanged: (v) => setState(() => _availability = v!),
-            ),
-
-            const SizedBox(height: 28),
-
-            // ── Section: Subjects ──
-            _buildSectionHeader('المواد الدراسية', Icons.menu_book),
-            const SizedBox(height: 12),
-
-            // Current subjects
-            if (_subjects.isNotEmpty) ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: _subjects.map((subject) {
-                  return Chip(
-                    label: Text(subject),
-                    deleteIcon: const Icon(Icons.close, size: 16),
-                    onDeleted: () => setState(() => _subjects.remove(subject)),
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                    labelStyle: const TextStyle(color: AppColors.primaryLight, fontSize: 13),
-                    deleteIconColor: AppColors.primaryLight,
-                    side: BorderSide.none,
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 12),
-            ],
-
-            // Subject input
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _subjectInputController,
-                    decoration: const InputDecoration(
-                      hintText: 'أضف مادة...',
-                      prefixIcon: Icon(Icons.add_circle_outline),
-                    ),
-                    onSubmitted: _addSubject,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: () => _addSubject(_subjectInputController.text),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(48, 48),
-                    padding: EdgeInsets.zero,
-                  ),
-                  child: const Icon(Icons.add),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // Suggested subjects
-            const Text('اقتراحات:', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: _suggestedSubjects
-                  .where((s) => !_subjects.contains(s))
-                  .take(6)
-                  .map((subject) {
-                return ActionChip(
-                  label: Text(subject, style: const TextStyle(fontSize: 12)),
-                  onPressed: () => setState(() => _subjects.add(subject)),
-                  backgroundColor: AppColors.darkCardElevated,
-                  side: BorderSide.none,
-                );
-              }).toList(),
-            ),
-
-            const SizedBox(height: 28),
-
-            // ── Section: Notes ──
-            _buildSectionHeader('ملاحظات', Icons.note_alt_outlined),
-            const SizedBox(height: 12),
-
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'ملاحظات',
-                prefixIcon: Icon(Icons.note_outlined),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 3,
             ),
 
             const SizedBox(height: 32),
@@ -239,8 +156,6 @@ class _TeacherFormScreenState extends State<TeacherFormScreen> {
                 label: Text(widget.isEditing ? 'حفظ التعديلات' : 'إضافة المعلم'),
               ),
             ),
-
-            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -268,35 +183,45 @@ class _TeacherFormScreenState extends State<TeacherFormScreen> {
     );
   }
 
-  void _addSubject(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isNotEmpty && !_subjects.contains(trimmed)) {
-      setState(() {
-        _subjects.add(trimmed);
-        _subjectInputController.clear();
-      });
-    }
-  }
-
   Future<void> _onSave() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSaving = true);
 
-    // Simulate save delay
-    await Future.delayed(const Duration(milliseconds: 800));
+    try {
+      final repo = getIt<TeacherRepository>();
+      final payload = {
+        'name': _nameController.text.trim(),
+        'whatsapp_number': _whatsappController.text.trim(),
+        if (_zoomLinkController.text.trim().isNotEmpty)
+          'zoom_link': _zoomLinkController.text.trim(),
+      };
 
-    if (!mounted) return;
+      if (widget.isEditing) {
+        await repo.updateTeacher(widget.teacherId!, payload);
+      } else {
+        await repo.createTeacher(payload);
+      }
 
-    setState(() => _isSaving = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.isEditing ? 'تم تحديث بيانات المعلم' : 'تم إضافة المعلم بنجاح'),
+          backgroundColor: AppColors.success,
+        ),
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(widget.isEditing ? 'تم تحديث بيانات المعلم' : 'تم إضافة المعلم بنجاح'),
-        backgroundColor: AppColors.success,
-      ),
-    );
-
-    Navigator.pop(context);
+      Navigator.pop(context, true); // Return true to signal a refresh is needed
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('حدث خطأ أثناء حفظ بيانات المعلم'),
+          backgroundColor: AppColors.coral,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 }

@@ -11,8 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Teacher extends Model
 {
     use SoftDeletes;
-
-    protected $fillable = ['name', 'phone', 'email', 'notes'];
+    protected $fillable = ['name', 'whatsapp_number', 'zoom_link'];
 
     public function sessions(): HasMany
     {
