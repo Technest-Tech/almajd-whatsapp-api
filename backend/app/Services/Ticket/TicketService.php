@@ -28,7 +28,8 @@ class TicketService
     public function list(array $filters = [], int $perPage = 20): LengthAwarePaginator
     {
         $query = Ticket::with(['guardian', 'student', 'assignedTo', 'tags'])
-            ->latest();
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('created_at');
 
         if (!empty($filters['status'])) {
             $query->where('status', $filters['status']);
@@ -70,7 +71,7 @@ class TicketService
                     $q->whereExists(function ($sub) {
                         $sub->select(DB::raw(1))
                             ->from('teachers')
-                            ->whereColumn('teachers.phone', 'guardians.phone');
+                            ->whereColumn('teachers.whatsapp_number', 'guardians.phone');
                     });
                 });
             } elseif ($type === 'unknown') {
@@ -82,7 +83,7 @@ class TicketService
                     })->whereNotExists(function ($sub) {
                         $sub->select(DB::raw(1))
                             ->from('teachers')
-                            ->whereColumn('teachers.phone', 'guardians.phone');
+                            ->whereColumn('teachers.whatsapp_number', 'guardians.phone');
                     });
                 });
             }
@@ -133,7 +134,8 @@ class TicketService
         // Update ticket
         $ticket->update([
             'last_message_preview' => Str::limit($content ?? 'Media Message', 100),
-            'status' => TicketStatus::Pending,
+            'last_message_at'      => now(),
+            'status'               => TicketStatus::Pending,
         ]);
 
         // Track first response time
@@ -193,7 +195,8 @@ class TicketService
 
         $ticket->update([
             'last_message_preview' => Str::limit($bodyPreview, 100),
-            'status' => TicketStatus::Pending,
+            'last_message_at'      => now(),
+            'status'               => TicketStatus::Pending,
         ]);
 
         if (!$ticket->first_response_at) {
@@ -314,11 +317,33 @@ class TicketService
         if ($userId) {
             $query->where('assigned_to', $userId);
         }
+        $studentsCount = (clone $query)->whereHas('guardian', function ($q) {
+            $q->whereExists(function ($sub) {
+                $sub->select(DB::raw(1))->from('students')->whereColumn('students.whatsapp_number', 'guardians.phone');
+            });
+        })->count();
+
+        $teachersCount = (clone $query)->whereHas('guardian', function ($q) {
+            $q->whereExists(function ($sub) {
+                $sub->select(DB::raw(1))->from('teachers')->whereColumn('teachers.whatsapp_number', 'guardians.phone');
+            });
+        })->count();
+
+        $unknownCount = (clone $query)->whereHas('guardian', function ($q) {
+            $q->whereNotExists(function ($sub) {
+                $sub->select(DB::raw(1))->from('students')->whereColumn('students.whatsapp_number', 'guardians.phone');
+            })->whereNotExists(function ($sub) {
+                $sub->select(DB::raw(1))->from('teachers')->whereColumn('teachers.whatsapp_number', 'guardians.phone');
+            });
+        })->count();
 
         return [
             'open'         => (clone $query)->where('status', TicketStatus::Open)->count(),
             'pending'      => (clone $query)->where('status', TicketStatus::Pending)->count(),
             'resolved'     => (clone $query)->where('status', TicketStatus::Resolved)->count(),
+            'students'     => $studentsCount,
+            'teachers'     => $teachersCount,
+            'unknown'      => $unknownCount,
             'sla_breached' => (clone $query)->where('sla_breached', true)
                                            ->whereNotIn('status', [TicketStatus::Closed])->count(),
             'today_total'  => Ticket::whereDate('created_at', today())->count(),

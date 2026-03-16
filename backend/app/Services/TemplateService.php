@@ -187,6 +187,15 @@ class TemplateService
 
     private function createOnTwilio(WhatsappTemplate $template): string
     {
+        // Meta API explicitly requires an example list of fake data strings for every "{{1}}" parameter schema requested.
+        $variablesMap = [];
+        if (!empty($template->variables_schema) && is_array($template->variables_schema)) {
+            foreach ($template->variables_schema as $key => $type) {
+                // Supply a simulated placeholder string
+                $variablesMap[(string)$key] = "Sample_Value_$key";
+            }
+        }
+
         $body = [
             'friendly_name' => $template->name,
             'language'      => $template->language ?? 'ar',
@@ -196,6 +205,11 @@ class TemplateService
                 ],
             ],
         ];
+
+        // Explicitly inject the 'variables' example block at the ROOT of the JSON
+        if (!empty($variablesMap)) {
+            $body['variables'] = $variablesMap;
+        }
 
         $response = Http::withBasicAuth($this->accountSid, $this->authToken)
             ->asJson()

@@ -43,16 +43,33 @@ class SendSessionRemindersJob implements ShouldQueue
 
         foreach ($dueReminders as $reminder) {
             try {
-                // Send via WhatsApp
-                $whatsAppService->sendText(
-                    to: $reminder->recipient_phone,
-                    message: $reminder->message_body ?? '',
-                );
+                // Send via WhatsApp Template API if SID exists, else fallback to text
+                if (!empty($reminder->template_sid)) {
+                    $whatsAppService->sendTemplate(
+                        to: $reminder->recipient_phone,
+                        templateName: $reminder->template_sid,
+                        params: $reminder->template_params ?? [],
+                        language: 'ar'
+                    );
+                } else {
+                    $whatsAppService->sendText(
+                        to: $reminder->recipient_phone,
+                        message: $reminder->message_body ?? '',
+                    );
+                }
 
                 $reminder->update([
                     'status'  => 'sent',
                     'sent_at' => now(),
                 ]);
+                
+                // If this is the "at_start" reminder, strictly transition the class to pending
+                if ($reminder->reminder_phase === 'at_start') {
+                    $session = clone $reminder->classSession;
+                    if ($session && in_array($session->status, ['scheduled', 'rescheduled'])) {
+                        $session->update(['status' => 'pending']);
+                    }
+                }
 
                 // Create a WhatsApp message record so it appears in inbox
                 $this->createInboxMessage($reminder);

@@ -87,7 +87,7 @@ class SendWhatsAppMessageJob implements ShouldQueue
                 $result = $whatsAppService->sendTemplate(
                     to: $message->to_number,
                     templateName: $message->template_name,
-                    params: [], // Template params would be stored or passed
+                    params: $message->template_variables ?? [],
                 );
             } else {
                 // Fallback: attempt text send even outside window (BSP will reject with error)

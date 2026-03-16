@@ -18,7 +18,7 @@ class WhatsappMessage extends Model
     protected $fillable = [
         'wa_message_id', 'ticket_id', 'direction', 'from_number', 'to_number',
         'message_type', 'content', 'media_url', 'media_mime_type',
-        'template_name', 'delivery_status', 'failure_reason', 'retry_count',
+        'template_name', 'template_variables', 'delivery_status', 'failure_reason', 'retry_count',
         'idempotency_key', 'sent_by_id', 'timestamp', 'reply_to_message_id',
     ];
 
@@ -29,12 +29,13 @@ class WhatsappMessage extends Model
     protected function casts(): array
     {
         return [
-            'direction'       => MessageDirection::class,
-            'message_type'    => MessageType::class,
-            'delivery_status' => DeliveryStatus::class,
-            'timestamp'       => 'datetime',
-            'created_at'      => 'datetime',
-            'retry_count'     => 'integer',
+            'direction'          => MessageDirection::class,
+            'message_type'       => MessageType::class,
+            'delivery_status'    => DeliveryStatus::class,
+            'timestamp'          => 'datetime',
+            'created_at'         => 'datetime',
+            'retry_count'        => 'integer',
+            'template_variables' => 'array',
         ];
     }
 

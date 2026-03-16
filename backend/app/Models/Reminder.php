@@ -12,15 +12,16 @@ class Reminder extends Model
     protected $fillable = [
         'type', 'recipient_type', 'reminder_phase', 'class_session_id',
         'recipient_phone', 'recipient_name',
-        'template_name', 'message_body', 'scheduled_at', 'sent_at',
+        'template_name', 'template_sid', 'template_params', 'message_body', 'scheduled_at', 'sent_at',
         'status', 'confirmation_status', 'failure_reason',
     ];
 
     protected function casts(): array
     {
         return [
-            'scheduled_at' => 'datetime',
-            'sent_at'      => 'datetime',
+            'scheduled_at'    => 'datetime',
+            'sent_at'         => 'datetime',
+            'template_params' => 'array',
         ];
     }
 

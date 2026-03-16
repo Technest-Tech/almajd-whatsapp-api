@@ -15,6 +15,6 @@ class TeacherService extends BaseCrudService
 
     protected function searchableColumns(): array
     {
-        return ['name', 'phone', 'email'];
+        return ['name', 'whatsapp_number'];
     }
 }

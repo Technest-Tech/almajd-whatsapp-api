@@ -29,5 +29,8 @@ class DatabaseSeeder extends Seeder
             'password' => bcrypt('password'),
         ]);
         $supervisor->assignRole('supervisor');
+
+        // 4. Seed WhatsApp Templates
+        $this->call(WhatsappTemplateSeeder::class);
     }
 }

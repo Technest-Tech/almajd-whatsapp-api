@@ -52,11 +52,24 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
         $cleanFrom = str_replace('whatsapp:', '', $fromNumber);
         $phoneWithPlus = str_starts_with($cleanFrom, '+') ? $cleanFrom : '+' . $cleanFrom;
 
-        // ── Teacher Confirmation Check ──
-        if (in_array($body, ['1', '2'])) {
-            $handled = $this->handleTeacherConfirmation($phoneWithPlus, $body);
+        // ── Teacher Confirmation Check (Support Text & Quick Replies) ──
+        $buttonPayload = $this->payload['ButtonPayload'] ?? null;
+        $yesPhrases = ['1', 'yes', 'yes, joined', 'yes, completed', 'نعم', 'نعم، انضم', 'نعم انضم', 'نعم، اكتملت', 'نعم اكتملت', 'yes_joined', 'yes_completed'];
+        $noPhrases  = ['2', 'no', 'no, didn\'t join', 'no, didn\'t complete', 'لا', 'لا، لم ينضم', 'لا لم ينضم', 'لا، لم تكتمل', 'لا لم تكتمل', 'no_joined', 'no_completed'];
+        
+        $normalizedReply = null;
+        $checkString = mb_strtolower($buttonPayload ?: $body);
+
+        if (in_array($checkString, $yesPhrases)) {
+            $normalizedReply = '1';
+        } elseif (in_array($checkString, $noPhrases)) {
+            $normalizedReply = '2';
+        }
+
+        if ($normalizedReply !== null) {
+            $handled = $this->handleTeacherConfirmation($phoneWithPlus, $normalizedReply);
             if ($handled) {
-                Log::info("Teacher confirmation handled from {$phoneWithPlus}: {$body}");
+                Log::info("Teacher confirmation handled from {$phoneWithPlus}: Payload/Body: {$checkString} (Normalized: {$normalizedReply})");
                 // Continue processing to also store the message in inbox
             }
         }
@@ -207,7 +220,8 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
 
         $ticket->update([
             'last_message_preview' => \Illuminate\Support\Str::limit($body ?: 'Media Message', 100),
-            'unread_count' => ($ticket->unread_count ?? 0) + 1,
+            'last_message_at'      => now(),
+            'unread_count'         => ($ticket->unread_count ?? 0) + 1,
         ]);
 
         // Create in-app notification for all admins
@@ -293,8 +307,9 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
                     'attendance_status' => 'teacher_joined',
                 ]);
             } else {
-                // Teacher didn't enter class
+                // Teacher says student didn't join
                 $session->update([
+                    'status' => 'pending',
                     'attendance_status' => 'no_show',
                 ]);
             }
