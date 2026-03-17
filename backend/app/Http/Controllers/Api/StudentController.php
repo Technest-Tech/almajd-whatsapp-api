@@ -170,6 +170,19 @@ class StudentController extends CrudController
 
         $entries = $student->scheduleEntries()->get();
         $created = 0;
+        $inserts = [];
+        $now = now();
+
+        // Pre-fetch all existing sessions for this student in this month range to memory
+        $existingDates = ClassSession::where('student_id', $id)
+            ->whereBetween('session_date', [
+                $startOfMonth->toDateString(), 
+                $endOfMonth->toDateString()
+            ])
+            ->get(['schedule_entry_id', 'session_date'])
+            ->mapWithKeys(function ($session) {
+                return [$session->schedule_entry_id . '_' . $session->session_date => true];
+            })->toArray();
 
         foreach ($entries as $entry) {
             $current = $startOfMonth->copy();
@@ -181,14 +194,10 @@ class StudentController extends CrudController
 
             // Generate sessions for each matching day
             while ($current->lte($endOfMonth)) {
-                // Skip if session already exists for this date + entry
-                $exists = ClassSession::where('student_id', $id)
-                    ->where('schedule_entry_id', $entry->id)
-                    ->where('session_date', $current->toDateString())
-                    ->exists();
+                $key = $entry->id . '_' . $current->toDateString();
 
-                if (!$exists) {
-                    ClassSession::create([
+                if (!isset($existingDates[$key])) {
+                    $inserts[] = [
                         'schedule_entry_id' => $entry->id,
                         'student_id'        => $id,
                         'teacher_id'        => $entry->teacher_id,
@@ -197,8 +206,11 @@ class StudentController extends CrudController
                         'start_time'        => $entry->start_time,
                         'end_time'          => $entry->end_time,
                         'status'            => 'scheduled',
-                    ]);
+                        'created_at'        => $now,
+                        'updated_at'        => $now,
+                    ];
                     $created++;
+                    $existingDates[$key] = true; // Mark as added to avoid internal duplicates
                 }
 
                 // Next occurrence
@@ -208,6 +220,10 @@ class StudentController extends CrudController
                     $current->addWeek();
                 }
             }
+        }
+
+        if (!empty($inserts)) {
+            ClassSession::insert($inserts);
         }
 
         return $this->response->success(

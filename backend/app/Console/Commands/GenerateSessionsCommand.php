@@ -78,7 +78,20 @@ class GenerateSessionsCommand extends Command
             }
         }
 
+        // Pre-fetch existing future sessions within the window into a hashed map
+        $existingSessions = ClassSession::where('student_id', $student->id)
+            ->whereBetween('session_date', [
+                $today->toDateString(),
+                $windowEnd->toDateString()
+            ])
+            ->get(['schedule_entry_id', 'session_date'])
+            ->mapWithKeys(function ($s) {
+                return [$s->schedule_entry_id . '_' . $s->session_date => true];
+            })->toArray();
+
         $created = 0;
+        $inserts = [];
+        $now = now();
 
         foreach ($entries as $entry) {
             // Start from today (or start of current month — whichever is earlier)
@@ -96,14 +109,10 @@ class GenerateSessionsCommand extends Command
                     continue;
                 }
 
-                // Skip if session already exists for this entry + date
-                $exists = ClassSession::where('student_id', $student->id)
-                    ->where('schedule_entry_id', $entry->id)
-                    ->where('session_date', $current->toDateString())
-                    ->exists();
+                $key = $entry->id . '_' . $current->toDateString();
 
-                if (!$exists) {
-                    ClassSession::create([
+                if (!isset($existingSessions[$key])) {
+                    $inserts[] = [
                         'schedule_entry_id' => $entry->id,
                         'student_id'        => $student->id,
                         'teacher_id'        => $entry->teacher_id,
@@ -112,12 +121,19 @@ class GenerateSessionsCommand extends Command
                         'start_time'        => $entry->start_time,
                         'end_time'          => $entry->end_time,
                         'status'            => 'scheduled',
-                    ]);
+                        'created_at'        => $now,
+                        'updated_at'        => $now,
+                    ];
                     $created++;
+                    $existingSessions[$key] = true; // Mark to avoid duplicate generation internally
                 }
 
                 $this->advance($current, $entry->recurrence);
             }
+        }
+
+        if (!empty($inserts)) {
+            ClassSession::insert($inserts);
         }
 
         return $created;
