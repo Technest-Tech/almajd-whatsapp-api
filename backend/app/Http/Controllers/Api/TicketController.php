@@ -301,4 +301,53 @@ class TicketController extends Controller
             'Unread count retrieved'
         );
     }
+
+    /**
+     * POST /api/tickets/create-for-contact
+     * Create (or find) a ticket for any phone number (e.g. a teacher).
+     */
+    public function createForContact(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone' => 'required|string|max:30',
+            'name'  => 'nullable|string|max:255',
+        ]);
+
+        $phone = trim((string) $data['phone']);
+
+        // Resolve or create Guardian
+        $guardian = \App\Models\Guardian::where('phone', $phone)->first();
+        if (!$guardian) {
+            $guardian = \App\Models\Guardian::create([
+                'name'  => $data['name'] ?? $phone,
+                'phone' => $phone,
+            ]);
+        } elseif (!empty($data['name']) && $guardian->name === 'Unknown Contact') {
+            $guardian->update(['name' => $data['name']]);
+        }
+
+        // Find existing open/pending ticket or create one
+        $ticket = \App\Models\Ticket::where('guardian_id', $guardian->id)
+            ->whereIn('status', [
+                \App\Enums\TicketStatus::Open,
+                \App\Enums\TicketStatus::Pending,
+            ])
+            ->latest()
+            ->first();
+
+        if (!$ticket) {
+            $ticket = \App\Models\Ticket::create([
+                'ticket_number' => \App\Models\Ticket::generateTicketNumber(),
+                'guardian_id'   => $guardian->id,
+                'status'        => \App\Enums\TicketStatus::Open,
+                'priority'      => \App\Enums\TicketPriority::Normal,
+                'channel'       => 'whatsapp',
+                'subject'       => 'New conversation with ' . $guardian->name,
+            ]);
+        }
+
+        $ticket->load(['guardian', 'student', 'assignedTo']);
+
+        return $this->response->success($ticket, 'Ticket ready', code: 201);
+    }
 }

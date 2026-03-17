@@ -70,6 +70,8 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:tickets.view');
         Route::post('create-for-student', [TicketController::class, 'createForStudent'])
             ->middleware('permission:tickets.create');
+        Route::post('create-for-contact', [TicketController::class, 'createForContact'])
+            ->middleware('permission:tickets.create');
         Route::get('{ticket}', [TicketController::class, 'show']);
         Route::post('{ticket}/reply', [TicketController::class, 'reply'])
             ->middleware('permission:tickets.reply');

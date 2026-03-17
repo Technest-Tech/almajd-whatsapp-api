@@ -10,14 +10,14 @@ class TicketRepository {
   TicketRepository({required this.apiClient});
 
   Future<List<TicketModel>> getTickets({
-    String? status,
+    String? type,
     String? priority,
     String? search,
     int page = 1,
     int perPage = 20,
   }) async {
     final params = <String, dynamic>{'page': page, 'per_page': perPage};
-    if (status != null && status != 'all') params['status'] = status;
+    if (type != null && type != 'all') params['type'] = type;
     if (priority != null) params['priority'] = priority;
     if (search != null && search.isNotEmpty) params['search'] = search;
 
@@ -137,6 +137,15 @@ class TicketRepository {
     final response = await apiClient.dio.post(
       '/tickets/create-for-student',
       data: {'student_id': studentId},
+    );
+    return response.data['data']['id'] as int;
+  }
+
+  /// Create (or find) a ticket for a teacher by whatsapp number — returns ticket id.
+  Future<int> createTicketForTeacher(String whatsappNumber) async {
+    final response = await apiClient.dio.post(
+      '/tickets/create-for-contact',
+      data: {'phone': whatsappNumber},
     );
     return response.data['data']['id'] as int;
   }
