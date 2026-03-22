@@ -204,6 +204,7 @@ Route::middleware('auth:api')->group(function () {
 
     // ── Sessions ────────────────────────────────────────
     Route::prefix('sessions')->middleware('permission:sessions.view')->group(function () {
+        Route::get('pending-count', [SessionController::class, 'pendingCount']);
         Route::get('/', [SessionController::class, 'index']);
         Route::get('{id}', [SessionController::class, 'show']);
         Route::put('{id}/status', [SessionController::class, 'updateStatus'])
