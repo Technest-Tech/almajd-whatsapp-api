@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class AuthTest extends TestCase
@@ -21,7 +22,7 @@ class AuthTest extends TestCase
     public function test_login_with_valid_credentials(): void
     {
         $user = User::factory()->create(['password' => bcrypt('password123')]);
-        $user->assignRole('supervisor');
+        $user->assignRole(Role::findByName('supervisor', 'api'));
 
         $response = $this->postJson('/api/auth/login', [
             'email'       => $user->email,
@@ -34,7 +35,8 @@ class AuthTest extends TestCase
             ->assertJsonStructure([
                 'success',
                 'data' => ['access_token', 'refresh_token', 'token_type', 'user'],
-            ]);
+            ])
+            ->assertJsonPath('data.user.availability', 'unavailable');
     }
 
     public function test_login_with_invalid_credentials(): void
@@ -49,6 +51,25 @@ class AuthTest extends TestCase
         $response->assertStatus(401);
     }
 
+    public function test_login_admin_does_not_change_availability(): void
+    {
+        $user = User::factory()->create([
+            'password'     => bcrypt('password123'),
+            'availability' => 'available',
+        ]);
+        $user->assignRole(Role::findByName('admin', 'api'));
+
+        $response = $this->postJson('/api/auth/login', [
+            'email'       => $user->email,
+            'password'    => 'password123',
+            'device_id'   => 'test-device-admin',
+            'device_name' => 'PHPUnit',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.user.availability', 'available');
+    }
+
     public function test_me_requires_auth(): void
     {
         $response = $this->getJson('/api/auth/me');
@@ -58,7 +79,7 @@ class AuthTest extends TestCase
     public function test_me_returns_user_profile(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('admin');
+        $user->assignRole(Role::findByName('admin', 'api'));
 
         $response = $this->actingAs($user, 'api')
             ->getJson('/api/auth/me');
@@ -70,7 +91,7 @@ class AuthTest extends TestCase
     public function test_update_availability(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('supervisor');
+        $user->assignRole(Role::findByName('supervisor', 'api'));
 
         $response = $this->actingAs($user, 'api')
             ->putJson('/api/auth/me/availability', [

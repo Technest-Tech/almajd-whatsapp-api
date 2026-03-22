@@ -7,12 +7,16 @@ namespace App\Services\Auth;
 use App\Enums\UserAvailability;
 use App\Models\DeviceSession;
 use App\Models\User;
+use App\Services\SessionLoadBalancerService;
 use Illuminate\Support\Str;
-use Carbon\Carbon;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 
 class AuthService
 {
+    public function __construct(
+        private readonly SessionLoadBalancerService $sessionLoadBalancer,
+    ) {}
+
     /**
      * Authenticate user with email/password, create device session, and return tokens.
      *
@@ -42,6 +46,12 @@ class AuthService
                 'expires_at'     => now()->addDays(7),
             ]
         );
+
+        if ($user->hasAnyRole(['supervisor', 'senior_supervisor'], 'api')) {
+            $user->update(['availability' => UserAvailability::Unavailable]);
+            $this->sessionLoadBalancer->releaseSessionsFromSupervisor($user->id);
+            $user->refresh();
+        }
 
         $user->load('roles', 'permissions', 'shifts');
 
@@ -114,6 +124,16 @@ class AuthService
     public function updateAvailability(User $user, UserAvailability $availability): User
     {
         $user->update(['availability' => $availability]);
-        return $user->refresh();
+        $user->refresh();
+
+        if ($user->hasAnyRole(['supervisor', 'senior_supervisor'], 'api')) {
+            if ($availability === UserAvailability::Available) {
+                $this->sessionLoadBalancer->distributeUnassignedGlobally();
+            } elseif (in_array($availability, [UserAvailability::Busy, UserAvailability::Unavailable], true)) {
+                $this->sessionLoadBalancer->releaseSessionsFromSupervisor($user->id);
+            }
+        }
+
+        return $user;
     }
 }

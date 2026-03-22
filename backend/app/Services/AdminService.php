@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Enums\UserAvailability;
+use App\Models\Role;
 use App\Models\Ticket;
 use App\Models\TicketLog;
 use App\Models\User;
@@ -15,19 +16,16 @@ use Illuminate\Support\Facades\DB;
 class AdminService
 {
     /**
-     * List all users (supervisors/admins) with pagination.
+     * List all supervisors with pagination.
      */
-    public function listUsers(array $filters = [], int $perPage = 20)
+    public function listSupervisors(array $filters = [], int $perPage = 20)
     {
         $query = User::with('roles')
+            ->role('supervisor', 'api')
             ->withCount(['tickets as open_ticket_count' => function ($q) {
                 $q->whereIn('status', [TicketStatus::Open, TicketStatus::Pending]);
             }])
             ->latest();
-
-        if (!empty($filters['role'])) {
-            $query->role($filters['role']);
-        }
 
         if (!empty($filters['availability'])) {
             $query->where('availability', $filters['availability']);
@@ -46,27 +44,28 @@ class AdminService
     }
 
     /**
-     * Create a new supervisor/admin user.
+     * Create a new supervisor user.
      */
-    public function createUser(array $data): User
+    public function createSupervisor(array $data): User
     {
         $user = User::create([
             'name'             => $data['name'],
             'email'            => $data['email'],
             'phone'            => $data['phone'] ?? null,
-            'password'         => bcrypt($data['password']),
+            'password'         => $data['password'],
             'max_open_tickets' => $data['max_open_tickets'] ?? 10,
+            'availability'     => UserAvailability::Unavailable,
         ]);
 
-        $user->assignRole($data['role'] ?? 'supervisor');
+        $user->assignRole(Role::findByName('supervisor', 'api') ?? 'supervisor');
 
         return $user->load('roles');
     }
 
     /**
-     * Update user details.
+     * Update supervisor details.
      */
-    public function updateUser(int $id, array $data): User
+    public function updateSupervisor(int $id, array $data): User
     {
         $user = User::findOrFail($id);
 
@@ -78,22 +77,18 @@ class AdminService
         ], fn ($v) => $v !== null);
 
         if (!empty($data['password'])) {
-            $updateData['password'] = bcrypt($data['password']);
+            $updateData['password'] = $data['password'];
         }
 
         $user->update($updateData);
-
-        if (!empty($data['role'])) {
-            $user->syncRoles([$data['role']]);
-        }
 
         return $user->refresh()->load('roles');
     }
 
     /**
-     * Soft-delete a user.
+     * Soft-delete a supervisor.
      */
-    public function deleteUser(int $id): void
+    public function deleteSupervisor(int $id): void
     {
         $user = User::findOrFail($id);
         $user->delete();

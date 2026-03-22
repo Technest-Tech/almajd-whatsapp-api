@@ -89,6 +89,7 @@ class SessionListBloc extends Bloc<SessionListEvent, SessionListState> {
     try {
       final sessions = await sessionRepository.getSessions(
         status: _currentFilter != 'all' ? _currentFilter : null,
+        perPage: 200,
       );
       emit(SessionListLoaded(sessions: sessions, activeFilter: _currentFilter));
     } catch (e) {

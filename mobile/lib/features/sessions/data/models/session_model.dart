@@ -3,6 +3,8 @@ class SessionModel {
   final int? scheduleEntryId;
   final int? teacherId;
   final String? teacherName;
+  final int? supervisorId;
+  final String? supervisorName;
   final String title;
   final DateTime? sessionDate;
   final String? startTime;
@@ -17,6 +19,8 @@ class SessionModel {
     this.scheduleEntryId,
     this.teacherId,
     this.teacherName,
+    this.supervisorId,
+    this.supervisorName,
     required this.title,
     this.sessionDate,
     this.startTime,
@@ -33,6 +37,8 @@ class SessionModel {
       scheduleEntryId: json['schedule_entry_id'],
       teacherId: json['teacher_id'],
       teacherName: json['teacher'] != null ? json['teacher']['name'] : null,
+      supervisorId: json['supervisor_id'],
+      supervisorName: json['supervisor'] != null ? json['supervisor']['name'] as String? : null,
       title: json['title'] ?? '',
       sessionDate: json['session_date'] != null ? DateTime.tryParse(json['session_date']) : null,
       startTime: json['start_time'],

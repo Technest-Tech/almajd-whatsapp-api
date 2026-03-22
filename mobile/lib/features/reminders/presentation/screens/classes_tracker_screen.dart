@@ -7,6 +7,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../students/data/models/class_session_model.dart';
+import 'package:go_router/go_router.dart';
 
 /// A premium classes-tracker screen for supervisors.
 /// Shows today's classes grouped by time status: Current → Upcoming → Passed.
@@ -24,12 +25,27 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   bool _loading = true;
   String? _error;
   DateTime _selectedDate = DateTime.now();
-  bool _showMineOnly = false;
+  bool _showMineOnly = true;
+  int _allCount = 0;
+  int _mineCount = 0;
+  _TimeCategory? _selectedCategory;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final authState = context.read<AuthBloc>().state;
+      if (authState is AuthAuthenticated && authState.user.primaryRole == 'admin') {
+        setState(() => _showMineOnly = false);
+      }
+      _load();
+    });
+  }
+
+  bool _isSessionAdmin() {
+    final authState = context.read<AuthBloc>().state;
+    return authState is AuthAuthenticated && authState.user.primaryRole == 'admin';
   }
 
   Future<void> _load() async {
@@ -40,26 +56,109 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
     try {
       final dateStr =
           '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      final params = <String, dynamic>{'date': dateStr, 'per_page': 100};
 
-      if (_showMineOnly) {
-        // Get current user ID from stored auth
-        try {
-          final authState = context.read<AuthBloc>().state;
-          if (authState is AuthAuthenticated && authState.user.id != null) {
-            params['supervisor_id'] = authState.user.id;
-          }
-        } catch (_) {}
+      // Read supervisor id for the "mine" filter.
+      int? supervisorId;
+      try {
+        final authState = context.read<AuthBloc>().state;
+        if (authState is AuthAuthenticated) {
+          supervisorId = authState.user.id;
+        }
+      } catch (_) {}
+
+      final isAdmin = _isSessionAdmin();
+      // Admins always see all sessions for the day (no "تذكيراتي" filter).
+      final showMineOnly = isAdmin ? false : _showMineOnly;
+
+      // Fetch sessions for the currently selected view (mine or all),
+      // and also fetch totals to show counters on the toggle chips.
+      Map<String, dynamic> respToQuery(int perPage, {bool mine = false}) {
+        final q = <String, dynamic>{'date': dateStr, 'per_page': perPage};
+        if (mine && supervisorId != null) {
+          q['supervisor_id'] = supervisorId;
+        }
+        return q;
       }
 
-      final response = await _apiClient.dio
-          .get('/sessions', queryParameters: params);
-      final List data = response.data['data'] ?? [];
-      if (mounted) {
+      if (showMineOnly && supervisorId == null) {
+        // Can't load "mine" without supervisor id; still show "all" counters.
+        final allResp = await _apiClient.dio.get(
+          '/sessions',
+          queryParameters: respToQuery(100, mine: false),
+        );
+        final allData = allResp.data['data'] ?? [];
+        final allTotal =
+            (allResp.data['meta']?['total'] as int?) ?? allData.length;
+
+        if (!mounted) return;
         setState(() {
-          _sessions = data.map((j) => ClassSessionModel.fromJson(j)).toList();
+          _sessions = [];
+          _allCount = allTotal;
+          _mineCount = 0;
           _loading = false;
         });
+        return;
+      }
+
+      if (showMineOnly) {
+        final mineResp = await _apiClient.dio.get(
+          '/sessions',
+          queryParameters: respToQuery(100, mine: true),
+        );
+        final allTotalResp = await _apiClient.dio.get(
+          '/sessions',
+          queryParameters: respToQuery(1, mine: false),
+        );
+
+        final List mineData = mineResp.data['data'] ?? [];
+        final mineTotal =
+            (mineResp.data['meta']?['total'] as int?) ?? mineData.length;
+        final allTotal =
+            (allTotalResp.data['meta']?['total'] as int?) ??
+            (allTotalResp.data['data']?.length ?? 0);
+
+        if (mounted) {
+          setState(() {
+            _sessions = mineData
+                .map((j) => ClassSessionModel.fromJson(j))
+                .toList();
+            _allCount = allTotal;
+            _mineCount = mineTotal;
+            _loading = false;
+          });
+        }
+      } else {
+        final allResp = await _apiClient.dio.get(
+          '/sessions',
+          queryParameters: respToQuery(100, mine: false),
+        );
+        final mineTotalResp = supervisorId == null
+            ? null
+            : await _apiClient.dio.get(
+                '/sessions',
+                queryParameters: respToQuery(1, mine: true),
+              );
+
+        final List allData = allResp.data['data'] ?? [];
+        final allTotal =
+            (allResp.data['meta']?['total'] as int?) ?? allData.length;
+
+        int mineTotal = 0;
+        if (mineTotalResp != null) {
+          final mineMetaTotal = mineTotalResp.data['meta']?['total'] as int?;
+          mineTotal = mineMetaTotal ?? (mineTotalResp.data['data']?.length ?? 0);
+        }
+
+        if (mounted) {
+          setState(() {
+            _sessions = allData
+                .map((j) => ClassSessionModel.fromJson(j))
+                .toList();
+            _allCount = allTotal;
+            _mineCount = mineTotal;
+            _loading = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -73,6 +172,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
 
   // ── Helpers ────────────────────────────────────────────
   _TimeCategory _categorize(ClassSessionModel s) {
+    if (s.status == 'waiting') return _TimeCategory.waiting;
     final now = TimeOfDay.now();
     final start = _parseTime(s.effectiveStartTime);
     final end = _parseTime(s.effectiveEndTime);
@@ -241,6 +341,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
     final current = <ClassSessionModel>[];
     final upcoming = <ClassSessionModel>[];
     final passed = <ClassSessionModel>[];
+    final waiting = <ClassSessionModel>[];
     for (final s in _sessions) {
       switch (_categorize(s)) {
         case _TimeCategory.current:
@@ -249,8 +350,15 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
           upcoming.add(s);
         case _TimeCategory.passed:
           passed.add(s);
+        case _TimeCategory.waiting:
+          waiting.add(s);
       }
     }
+
+    final filteredCurrent = _selectedCategory == null || _selectedCategory == _TimeCategory.current ? current : <ClassSessionModel>[];
+    final filteredUpcoming = _selectedCategory == null || _selectedCategory == _TimeCategory.upcoming ? upcoming : <ClassSessionModel>[];
+    final filteredPassed = _selectedCategory == null || _selectedCategory == _TimeCategory.passed ? passed : <ClassSessionModel>[];
+    final filteredWaiting = _selectedCategory == null || _selectedCategory == _TimeCategory.waiting ? waiting : <ClassSessionModel>[];
 
     return Column(
       children: [
@@ -279,50 +387,67 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Column(
               children: [
-                // Mine / All toggle
+                // Supervisors: mine vs all. Admins: all sessions only (no "تذكيراتي").
+                if (!_isSessionAdmin()) ...[
+                  Row(
+                    children: [
+                      _FilterChip(
+                        label: 'الكل ($_allCount)',
+                        isSelected: !_showMineOnly,
+                        onTap: () {
+                          setState(() => _showMineOnly = false);
+                          _load();
+                        },
+                      ),
+                      const SizedBox(width: 6),
+                      _FilterChip(
+                        label: 'تذكيراتي ($_mineCount)',
+                        isSelected: _showMineOnly,
+                        onTap: () {
+                          setState(() => _showMineOnly = true);
+                          _load();
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 Row(
                   children: [
-                    _FilterChip(
-                      label: 'الكل',
-                      isSelected: !_showMineOnly,
-                      onTap: () {
-                        setState(() => _showMineOnly = false);
-                        _load();
-                      },
+                    _SummaryChip(
+                      icon: Icons.error_outline_rounded,
+                      label: 'معلّقة',
+                      count: waiting.length,
+                      color: AppColors.amber,
+                      isSelected: _selectedCategory == _TimeCategory.waiting,
+                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.waiting ? null : _TimeCategory.waiting),
                     ),
                     const SizedBox(width: 6),
-                    _FilterChip(
-                      label: 'حصصي',
-                      isSelected: _showMineOnly,
-                      onTap: () {
-                        setState(() => _showMineOnly = true);
-                        _load();
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
                     _SummaryChip(
                       icon: Icons.play_circle_fill_rounded,
                       label: 'جارية',
                       count: current.length,
                       color: const Color(0xFF00E676),
+                      isSelected: _selectedCategory == _TimeCategory.current,
+                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.current ? null : _TimeCategory.current),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     _SummaryChip(
                       icon: Icons.schedule_rounded,
                       label: 'قادمة',
                       count: upcoming.length,
                       color: const Color(0xFF448AFF),
+                      isSelected: _selectedCategory == _TimeCategory.upcoming,
+                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.upcoming ? null : _TimeCategory.upcoming),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     _SummaryChip(
                       icon: Icons.check_circle_rounded,
                       label: 'منتهية',
                       count: passed.length,
                       color: const Color(0xFF8696A0),
+                      isSelected: _selectedCategory == _TimeCategory.passed,
+                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.passed ? null : _TimeCategory.passed),
                     ),
                   ],
                 ),
@@ -344,45 +469,68 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                           child: ListView(
                             padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
                             children: [
-                              if (current.isNotEmpty) ...[
+                              if (filteredWaiting.isNotEmpty) ...[
+                                _SectionHeader(
+                                  title: 'الحصص المعلّقة (بانتظار الإجراء)',
+                                  icon: Icons.error_outline_rounded,
+                                  color: AppColors.amber,
+                                ),
+                                ...filteredWaiting.map((s) => _SessionCard(
+                                      session: s,
+                                      category: _TimeCategory.waiting,
+                                      showSupervisor: _isSessionAdmin(),
+                                      onStudentTap: (studentId) => context.push('/students/$studentId'),
+                                      onRemindStudent: () => _sendReminder(s.id, 'student'),
+                                      onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
+                                      onStatusChange: (status) => _updateSessionStatus(s.id, status),
+                                    )),
+                                const SizedBox(height: 12),
+                              ],
+                              if (filteredCurrent.isNotEmpty) ...[
                                 _SectionHeader(
                                   title: 'الحصص الجارية الآن',
                                   icon: Icons.play_circle_fill_rounded,
                                   color: const Color(0xFF00E676),
                                 ),
-                                ...current.map((s) => _SessionCard(
+                                ...filteredCurrent.map((s) => _SessionCard(
                                       session: s,
                                       category: _TimeCategory.current,
+                                      showSupervisor: _isSessionAdmin(),
+                                      onStudentTap: (studentId) => context.push('/students/$studentId'),
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
                                     )),
                                 const SizedBox(height: 12),
                               ],
-                              if (upcoming.isNotEmpty) ...[
+                              if (filteredUpcoming.isNotEmpty) ...[
                                 _SectionHeader(
                                   title: 'الحصص القادمة',
                                   icon: Icons.schedule_rounded,
                                   color: const Color(0xFF448AFF),
                                 ),
-                                ...upcoming.map((s) => _SessionCard(
+                                ...filteredUpcoming.map((s) => _SessionCard(
                                       session: s,
                                       category: _TimeCategory.upcoming,
+                                      showSupervisor: _isSessionAdmin(),
+                                      onStudentTap: (studentId) => context.push('/students/$studentId'),
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
                                     )),
                                 const SizedBox(height: 12),
                               ],
-                              if (passed.isNotEmpty) ...[
+                              if (filteredPassed.isNotEmpty) ...[
                                 _SectionHeader(
                                   title: 'الحصص المنتهية',
                                   icon: Icons.check_circle_rounded,
                                   color: const Color(0xFF8696A0),
                                 ),
-                                ...passed.map((s) => _SessionCard(
+                                ...filteredPassed.map((s) => _SessionCard(
                                       session: s,
                                       category: _TimeCategory.passed,
+                                      showSupervisor: _isSessionAdmin(),
+                                      onStudentTap: (studentId) => context.push('/students/$studentId'),
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
@@ -451,7 +599,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum _TimeCategory { current, upcoming, passed }
+enum _TimeCategory { current, upcoming, passed, waiting }
 
 // ── Date Bar ─────────────────────────────────────────────────────────────────
 
@@ -594,38 +742,49 @@ class _SummaryChip extends StatelessWidget {
   final String label;
   final int count;
   final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
 
-  const _SummaryChip(
-      {required this.icon,
-      required this.label,
-      required this.count,
-      required this.color});
+  const _SummaryChip({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.color,
+    this.isSelected = false,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 4),
-            Text(
-              '$count',
-              style: TextStyle(
-                  color: color, fontWeight: FontWeight.w900, fontSize: 18),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: isSelected ? 0.2 : 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: color.withValues(alpha: isSelected ? 0.6 : 0.2),
+              width: isSelected ? 1.5 : 1.0,
             ),
-            Text(
-              label,
-              style: TextStyle(
-                  color: color.withValues(alpha: 0.8), fontSize: 10),
-            ),
-          ],
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(height: 4),
+              Text(
+                '$count',
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.w900, fontSize: 18),
+              ),
+              Text(
+                label,
+                style: TextStyle(
+                    color: color.withValues(alpha: 0.8), fontSize: 10, fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -676,22 +835,27 @@ class _SectionHeader extends StatelessWidget {
 class _SessionCard extends StatelessWidget {
   final ClassSessionModel session;
   final _TimeCategory category;
+  final bool showSupervisor;
   final VoidCallback? onRemindStudent;
   final VoidCallback? onRemindTeacher;
   final ValueChanged<String>? onStatusChange;
+  final ValueChanged<int>? onStudentTap;
 
   const _SessionCard({
     required this.session,
     required this.category,
+    this.showSupervisor = false,
     this.onRemindStudent,
     this.onRemindTeacher,
     this.onStatusChange,
+    this.onStudentTap,
   });
 
   Color get _accentColor => switch (category) {
         _TimeCategory.current => const Color(0xFF00E676),
         _TimeCategory.upcoming => const Color(0xFF448AFF),
         _TimeCategory.passed => const Color(0xFF8696A0),
+        _TimeCategory.waiting => AppColors.amber,
       };
 
   IconData get _statusIcon {
@@ -702,6 +866,8 @@ class _SessionCard extends StatelessWidget {
         return Icons.cancel;
       case 'rescheduled':
         return Icons.update;
+      case 'waiting':
+        return Icons.error_outline_rounded;
       default:
         return category == _TimeCategory.current
             ? Icons.play_circle_fill_rounded
@@ -719,6 +885,8 @@ class _SessionCard extends StatelessWidget {
         return AppColors.coral;
       case 'rescheduled':
         return AppColors.amber;
+      case 'waiting':
+        return AppColors.amber;
       default:
         return _accentColor;
     }
@@ -732,9 +900,12 @@ class _SessionCard extends StatelessWidget {
         return 'ملغاة';
       case 'rescheduled':
         return 'مُعاد جدولتها';
+      case 'waiting':
+        return 'معلّقة';
       default:
         if (category == _TimeCategory.current) return 'جارية الآن';
         if (category == _TimeCategory.upcoming) return 'قادمة';
+        if (category == _TimeCategory.waiting) return 'معلّقة';
         return 'انتهت';
     }
   }
@@ -790,14 +961,20 @@ class _SessionCard extends StatelessWidget {
                         : AppColors.primary),
                 const SizedBox(width: 5),
                 Expanded(
-                  child: Text(
-                    session.studentName ?? 'طالب غير محدد',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: category == _TimeCategory.passed
-                          ? AppColors.textSecondary
-                          : AppColors.textPrimary,
+                  child: InkWell(
+                    onTap: (session.studentId != null && onStudentTap != null)
+                        ? () => onStudentTap!(session.studentId!)
+                        : null,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Text(
+                      session.studentName ?? 'طالب غير محدد',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: category == _TimeCategory.passed
+                            ? AppColors.textSecondary
+                            : AppColors.textPrimary,
+                      ),
                     ),
                   ),
                 ),
@@ -868,6 +1045,28 @@ class _SessionCard extends StatelessWidget {
                 ],
               ],
             ),
+            if (showSupervisor) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(Icons.supervisor_account_rounded,
+                      size: 14, color: AppColors.primary.withValues(alpha: 0.85)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'المشرف: ${session.supervisorName ?? 'غير معيّن'}',
+                      style: TextStyle(
+                        color: AppColors.primary.withValues(alpha: 0.95),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
 
             // Time + date row

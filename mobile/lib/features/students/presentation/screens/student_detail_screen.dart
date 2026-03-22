@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
@@ -8,6 +9,8 @@ import '../../data/student_repository.dart';
 import '../../../schedules/data/schedule_repository.dart'; // Added import
 import '../../../schedules/data/models/schedule_model.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/api/api_client.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../widgets/student_classes_tab.dart';
 import 'student_schedule_form.dart';
 import 'package:go_router/go_router.dart';
@@ -27,6 +30,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   final List<ClassSessionModel> _classSessions = [];
   bool _isLoading = true;
   bool _sessionsLoaded = false; // tracks whether sessions fetch has completed
+  final _apiClient = getIt<ApiClient>();
 
   @override
   void initState() {
@@ -103,38 +107,65 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading || _student == null) {
+    if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('تفاصيل الطالب')),
         body: const Center(child: CircularProgressIndicator(color: AppColors.primary)),
       );
     }
 
+    if (_student == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('تفاصيل الطالب')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: AppColors.coral),
+              const SizedBox(height: 16),
+              const Text('فشل تحميل بيانات الطالب', style: TextStyle(color: AppColors.textPrimary)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() => _isLoading = true);
+                  _loadStudent();
+                },
+                child: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final student = _student!;
+    final canEdit = _canEditStudentData();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('تفاصيل الطالب'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: () async {
-              final result = await context.push('/students/${student.id}/edit');
-              if (result == true && mounted) {
-                _loadStudent();
-              }
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: AppColors.coral),
-            onPressed: () => _confirmDelete(context, student),
-          ),
+          if (canEdit) ...[
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: () async {
+                final result = await context.push('/students/${student.id}/edit');
+                if (result == true && mounted) {
+                  _loadStudent();
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: AppColors.coral),
+              onPressed: () => _confirmDelete(context, student),
+            ),
+          ],
         ],
       ),
       body: Column(
         children: [
           // ── Profile Header ──
-          _buildProfileHeader(student),
+          _buildProfileHeader(student, canEdit: canEdit),
 
           // ── Tabs ──
           Container(
@@ -157,7 +188,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildTimelineTab(),
+                _buildTimelineTab(canEdit: canEdit),
                 _buildSessionsTab(),
                 _buildNotesTab(student),
               ],
@@ -168,7 +199,18 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
     );
   }
 
-  Widget _buildProfileHeader(StudentModel student) {
+  bool _canEditStudentData() {
+    try {
+      final authState = context.read<AuthBloc>().state;
+      if (authState is AuthAuthenticated) {
+        final role = authState.user.primaryRole;
+        return role != 'supervisor' && role != 'senior_supervisor';
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Widget _buildProfileHeader(StudentModel student, {required bool canEdit}) {
     final statusColor = _statusColor(student.status);
 
     return Container(
@@ -208,26 +250,28 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    if (student.country != null) ...[
-                      const Icon(Icons.public_outlined, size: 14, color: AppColors.textSecondary),
+                if (canEdit) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (student.country != null) ...[
+                        const Icon(Icons.public_outlined, size: 14, color: AppColors.textSecondary),
+                        const SizedBox(width: 3),
+                        Text(student.country!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        const SizedBox(width: 12),
+                      ],
+                      if (student.whatsappNumber != null) ...[
+                        const Icon(Icons.chat_outlined, size: 14, color: AppColors.textSecondary),
+                        const SizedBox(width: 3),
+                        Text(student.whatsappNumber!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        const SizedBox(width: 12),
+                      ],
+                      const Icon(Icons.calendar_today_outlined, size: 14, color: AppColors.textSecondary),
                       const SizedBox(width: 3),
-                      Text(student.country!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                      const SizedBox(width: 12),
+                      Text(student.enrollmentDisplay, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     ],
-                    if (student.whatsappNumber != null) ...[
-                      const Icon(Icons.chat_outlined, size: 14, color: AppColors.textSecondary),
-                      const SizedBox(width: 3),
-                      Text(student.whatsappNumber!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                      const SizedBox(width: 12),
-                    ],
-                    const Icon(Icons.calendar_today_outlined, size: 14, color: AppColors.textSecondary),
-                    const SizedBox(width: 3),
-                    Text(student.enrollmentDisplay, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -238,7 +282,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
 
 
 
-  Widget _buildTimelineTab() {
+  Widget _buildTimelineTab({required bool canEdit}) {
     if (_scheduleEntries.isEmpty) {
       return Center(
         child: Column(
@@ -251,16 +295,18 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
               style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'اضغط + لإضافة حصة للجدول',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: _openScheduleForm,
-              icon: const Icon(Icons.add),
-              label: const Text('إضافة حصة للجدول'),
-            ),
+            if (canEdit) ...[
+              const Text(
+                'اضغط + لإضافة حصة للجدول',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _openScheduleForm,
+                icon: const Icon(Icons.add),
+                label: const Text('إضافة حصة للجدول'),
+              ),
+            ],
           ],
         ),
       );
@@ -342,7 +388,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
                     ],
                   ),
                   const SizedBox(height: 8),
-                  ...dayEntries.map((entry) => _buildScheduleEntryTile(entry, dayColor)),
+                  ...dayEntries.map((entry) => _buildScheduleEntryTile(entry, dayColor, canEdit: canEdit)),
                   const SizedBox(height: 14),
                 ],
               );
@@ -352,32 +398,42 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
         Positioned(
           bottom: 16,
           left: 16,
-          child: FloatingActionButton.extended(
-            heroTag: 'add_entry',
-            onPressed: _openScheduleForm,
-            icon: const Icon(Icons.add),
-            label: const Text('إضافة للجدول'),
-          ),
+          child: canEdit
+              ? FloatingActionButton.extended(
+                  heroTag: 'add_entry',
+                  onPressed: _openScheduleForm,
+                  icon: const Icon(Icons.add),
+                  label: const Text('إضافة للجدول'),
+                )
+              : const SizedBox.shrink(),
         ),
       ],
     );
   }
 
-  Widget _buildScheduleEntryTile(ScheduleEntryModel entry, Color dayColor) {
+  Widget _buildScheduleEntryTile(
+    ScheduleEntryModel entry,
+    Color dayColor, {
+    required bool canEdit,
+  }) {
     return Dismissible(
       key: ValueKey('entry_${entry.id}_${entry.title}_${entry.dayOfWeek}'),
       direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.only(left: 20),
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(
-          color: AppColors.coral,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Icon(Icons.delete_outline, color: Colors.white),
-      ),
+      background: canEdit
+          ? Container(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 20),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: AppColors.coral,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.delete_outline, color: Colors.white),
+            )
+          : const SizedBox.shrink(),
+      confirmDismiss: canEdit ? null : (_) async => false,
       onDismissed: (_) async {
+        if (!canEdit) return;
         setState(() => _scheduleEntries.remove(entry));
         try {
           await getIt<StudentRepository>().deleteScheduleEntry(widget.studentId, entry.id);
@@ -461,13 +517,14 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
                           ),
                         ),
                         // Switch (isActive)
-                        Switch(
-                          value: entry.isActive,
-                          activeColor: AppColors.primary,
-                          onChanged: (val) {
-                             _toggleScheduleEntryStatus(entry, val);
-                          },
-                        ),
+                        if (canEdit)
+                          Switch(
+                            value: entry.isActive,
+                            activeColor: AppColors.primary,
+                            onChanged: (val) {
+                              _toggleScheduleEntryStatus(entry, val);
+                            },
+                          ),
                       ],
                     ),
                   ),
@@ -537,6 +594,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل حفظ الجدول'), backgroundColor: AppColors.coral));
             }
+            rethrow;
           }
         },
       ),
@@ -544,6 +602,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   }
 
   Widget _buildSessionsTab() {
+    final canEdit = _canEditStudentData();
     if (!_sessionsLoaded) {
       return const Center(
         child: Column(
@@ -572,52 +631,163 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
     }
     return StudentClassesTab(
       sessions: _classSessions,
+      canGenerate: canEdit,
       onGenerate: () async {
         final repo = getIt<StudentRepository>();
         await _autoGenerateSessions(repo);
       },
       onAction: (sessionId, action, {reason, newDate, newStart, newEnd}) {
-        setState(() {
-          final idx = _classSessions.indexWhere((s) => s.id == sessionId);
-          if (idx == -1) return;
-          final old = _classSessions[idx];
-          switch (action) {
-            case 'complete':
-              _classSessions[idx] = ClassSessionModel(
-                id: old.id, scheduleEntryId: old.scheduleEntryId, studentId: old.studentId,
-                teacherId: old.teacherId, teacherName: old.teacherName, title: old.title,
-                sessionDate: old.sessionDate, startTime: old.startTime, endTime: old.endTime,
-                status: 'completed',
-              );
-              break;
-            case 'cancel':
-              _classSessions[idx] = ClassSessionModel(
-                id: old.id, scheduleEntryId: old.scheduleEntryId, studentId: old.studentId,
-                teacherId: old.teacherId, teacherName: old.teacherName, title: old.title,
-                sessionDate: old.sessionDate, startTime: old.startTime, endTime: old.endTime,
-                status: 'cancelled', cancellationReason: reason,
-              );
-              break;
-            case 'reschedule':
-              if (newDate != null && newStart != null && newEnd != null) {
-                String fmtTime(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-                _classSessions[idx] = ClassSessionModel(
-                  id: old.id, scheduleEntryId: old.scheduleEntryId, studentId: old.studentId,
-                  teacherId: old.teacherId, teacherName: old.teacherName, title: old.title,
-                  sessionDate: old.sessionDate, startTime: old.startTime, endTime: old.endTime,
-                  status: 'rescheduled', rescheduledDate: newDate,
-                  rescheduledStartTime: fmtTime(newStart), rescheduledEndTime: fmtTime(newEnd),
-                );
-              }
-              break;
-          }
-        });
-        final msg = action == 'complete' ? 'تم إتمام الحصة' : action == 'cancel' ? 'تم إلغاء الحصة' : 'تم إعادة جدولة الحصة';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: AppColors.success),
+        // Fire-and-forget: we keep the UI responsive, and refresh from backend after the update.
+        _handleSessionAction(
+          sessionId,
+          action,
+          reason: reason,
+          newDate: newDate,
+          newStart: newStart,
+          newEnd: newEnd,
         );
       },
     );
+  }
+
+  Future<void> _handleSessionAction(
+    int sessionId,
+    String action, {
+    String? reason,
+    DateTime? newDate,
+    TimeOfDay? newStart,
+    TimeOfDay? newEnd,
+  }) async {
+    // Optimistic UI update.
+    setState(() {
+      final idx = _classSessions.indexWhere((s) => s.id == sessionId);
+      if (idx == -1) return;
+      final old = _classSessions[idx];
+      switch (action) {
+        case 'complete':
+          _classSessions[idx] = ClassSessionModel(
+            id: old.id,
+            scheduleEntryId: old.scheduleEntryId,
+            studentId: old.studentId,
+            teacherId: old.teacherId,
+            teacherName: old.teacherName,
+            title: old.title,
+            sessionDate: old.sessionDate,
+            startTime: old.startTime,
+            endTime: old.endTime,
+            status: 'completed',
+          );
+          break;
+        case 'cancel':
+          _classSessions[idx] = ClassSessionModel(
+            id: old.id,
+            scheduleEntryId: old.scheduleEntryId,
+            studentId: old.studentId,
+            teacherId: old.teacherId,
+            teacherName: old.teacherName,
+            title: old.title,
+            sessionDate: old.sessionDate,
+            startTime: old.startTime,
+            endTime: old.endTime,
+            status: 'cancelled',
+            cancellationReason: reason,
+          );
+          break;
+        case 'reschedule':
+          if (newDate != null && newStart != null && newEnd != null) {
+            String fmtTime(TimeOfDay t) =>
+                '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+            _classSessions[idx] = ClassSessionModel(
+              id: old.id,
+              scheduleEntryId: old.scheduleEntryId,
+              studentId: old.studentId,
+              teacherId: old.teacherId,
+              teacherName: old.teacherName,
+              title: old.title,
+              sessionDate: old.sessionDate,
+              startTime: old.startTime,
+              endTime: old.endTime,
+              status: 'rescheduled',
+              rescheduledDate: newDate,
+              rescheduledStartTime: fmtTime(newStart),
+              rescheduledEndTime: fmtTime(newEnd),
+            );
+          }
+          break;
+      }
+    });
+
+    try {
+      Map<String, dynamic> payload;
+      switch (action) {
+        case 'complete':
+          payload = {'status': 'completed'};
+          break;
+        case 'cancel':
+          payload = {'status': 'cancelled'};
+          if (reason != null && reason.trim().isNotEmpty) {
+            payload['cancellation_reason'] = reason.trim();
+          }
+          break;
+        case 'reschedule':
+          payload = {'status': 'rescheduled'};
+          if (newDate != null && newStart != null && newEnd != null) {
+            final dateStr =
+                '${newDate.year}-${newDate.month.toString().padLeft(2, '0')}-${newDate.day.toString().padLeft(2, '0')}';
+            String fmtTime(TimeOfDay t) =>
+                '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+            payload['rescheduled_date'] = dateStr;
+            payload['rescheduled_start_time'] = fmtTime(newStart);
+            payload['rescheduled_end_time'] = fmtTime(newEnd);
+          }
+          break;
+        default:
+          return;
+      }
+
+      await _apiClient.dio.put('/sessions/$sessionId/status', data: payload);
+
+      // Refresh sessions from backend (reverts optimistic UI if needed).
+      final repo = getIt<StudentRepository>();
+      final sessions = await repo.getClassSessions(widget.studentId);
+      if (!mounted) return;
+      setState(() {
+        _classSessions
+          ..clear()
+          ..addAll(
+            sessions.map((s) => ClassSessionModel.fromJson(s as Map<String, dynamic>)).toList(),
+          );
+        _sessionsLoaded = true;
+      });
+
+      final msg = action == 'complete'
+          ? 'تم إتمام الحصة'
+          : action == 'cancel'
+              ? 'تم إلغاء الحصة'
+              : 'تم إعادة جدولة الحصة';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: AppColors.success),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('فشل تحديث حالة الحصة'), backgroundColor: AppColors.coral),
+      );
+      // Reload to ensure UI matches backend.
+      try {
+        final repo = getIt<StudentRepository>();
+        final sessions = await repo.getClassSessions(widget.studentId);
+        if (!mounted) return;
+        setState(() {
+          _classSessions
+            ..clear()
+            ..addAll(
+              sessions.map((s) => ClassSessionModel.fromJson(s as Map<String, dynamic>)).toList(),
+            );
+          _sessionsLoaded = true;
+        });
+      } catch (_) {}
+    }
   }
 
   Widget _buildNotesTab(StudentModel student) {

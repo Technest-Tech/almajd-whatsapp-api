@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
 import '../../data/models/session_model.dart';
 import '../../data/session_repository.dart';
 import '../../../../core/di/injection.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 
 class SessionDetailScreen extends StatefulWidget {
   final int sessionId;
@@ -55,6 +57,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
     final session = _session!;
     final statusColor = _statusColor(session.status);
+    final authState = context.watch<AuthBloc>().state;
+    final isAdmin = authState is AuthAuthenticated && authState.user.primaryRole == 'admin';
 
     return Scaffold(
       appBar: AppBar(title: const Text('تفاصيل الحصة')),
@@ -105,6 +109,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
           // ── Info Cards ──
           _buildInfoRow(Icons.person_outline, 'المعلم', session.teacherName ?? 'غير محدد'),
+          if (isAdmin)
+            _buildInfoRow(
+              Icons.supervisor_account_outlined,
+              'المشرف المكلّف',
+              session.supervisorName ?? 'غير معيّن',
+            ),
           _buildInfoRow(Icons.calendar_today_outlined, 'التاريخ', session.dateDisplay),
           if (session.timeDisplay.isNotEmpty)
             _buildInfoRow(Icons.access_time_outlined, 'الوقت', session.timeDisplay),

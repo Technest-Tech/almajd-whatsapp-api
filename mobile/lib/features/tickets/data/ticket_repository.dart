@@ -142,10 +142,17 @@ class TicketRepository {
   }
 
   /// Create (or find) a ticket for a teacher by whatsapp number — returns ticket id.
-  Future<int> createTicketForTeacher(String whatsappNumber) async {
+  /// We send `name` too so the Inbox displays the teacher name instead of the phone number.
+  Future<int> createTicketForTeacher(
+    String whatsappNumber, {
+    String? name,
+  }) async {
     final response = await apiClient.dio.post(
       '/tickets/create-for-contact',
-      data: {'phone': whatsappNumber},
+      data: {
+        'phone': whatsappNumber,
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      },
     );
     return response.data['data']['id'] as int;
   }

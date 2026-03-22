@@ -12,6 +12,8 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/api/websockets_client.dart';
 import '../../../students/data/student_repository.dart';
 import '../../../students/data/models/student_model.dart';
+import '../../../teachers/data/teacher_repository.dart';
+import '../../../teachers/data/models/teacher_model.dart';
 import '../../data/ticket_repository.dart';
 import '../../data/models/ticket_model.dart';
 import '../bloc/ticket_list_bloc.dart';
@@ -45,41 +47,39 @@ class _InboxViewState extends State<_InboxView> {
 
   // Student search
   final _studentRepo = getIt<StudentRepository>();
+  final _teacherRepo = getIt<TeacherRepository>();
   final _ticketRepo  = getIt<TicketRepository>();
   List<StudentModel> _studentResults = [];
+  List<TeacherModel> _teacherResults = [];
   bool _searchingStudents = false;
+  bool _searchingTeachers = false;
   Timer? _debounce;
-  Timer? _refreshTimer;
+  Timer? _autoRefreshTimer;
   int? _creatingStudentId; // which student is loading (creating ticket)
+  int? _creatingTeacherId; // which teacher is loading (creating ticket)
 
   // Status filter
   String _activeFilter = 'all';
 
   static const _filters = [
     {'key': 'all',       'label': 'الكل'},
-    {'key': 'open',      'label': 'جديد'},
-    {'key': 'assigned',  'label': 'معين'},
-    {'key': 'pending',   'label': 'معلق'},
-    {'key': 'escalated', 'label': 'متصاعد'},
-    {'key': 'resolved',  'label': 'محلول'},
-    {'key': 'closed',    'label': 'مغلق'},
+    {'key': 'students',  'label': 'طلاب'},
+    {'key': 'teachers',  'label': 'معلمين'},
+    {'key': 'unknown',   'label': 'غير معروف'},
   ];
 
   @override
   void initState() {
     super.initState();
-    // Trigger fetch from the global BLoC if not already loaded
-    final bloc = context.read<TicketListBloc>();
-    if (bloc.state is TicketListInitial) {
-      bloc.add(const TicketListFetchRequested());
-    }
-    // Silent refresh every 5 seconds so new messages always appear
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (mounted) {
-        context.read<TicketListBloc>().add(
-          TicketListFetchRequested(statusFilter: _activeFilter, refresh: true),
-        );
-      }
+    // Always refresh when opening Inbox, so any backend name changes show up
+    // immediately (not only if the bloc is still in the initial state).
+    context.read<TicketListBloc>().add(TicketListRefreshRequested());
+
+    // Keep Inbox in sync with backend changes (e.g. contact names updated).
+    // Use refresh=true so the UI does not switch to loading shimmer.
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted) return;
+      context.read<TicketListBloc>().add(TicketListRefreshRequested());
     });
   }
 
@@ -87,14 +87,18 @@ class _InboxViewState extends State<_InboxView> {
   void dispose() {
     _searchController.dispose();
     _debounce?.cancel();
-    _refreshTimer?.cancel();
+    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 
   void _clearSearch() {
     _searchController.clear();
     _studentResults = [];
+    _teacherResults = [];
     _searchingStudents = false;
+    _searchingTeachers = false;
+    _creatingStudentId = null;
+    _creatingTeacherId = null;
     context
         .read<TicketListBloc>()
         .add(const TicketListSearchChanged(''));
@@ -104,26 +108,40 @@ class _InboxViewState extends State<_InboxView> {
     // Update ticket search immediately
     context.read<TicketListBloc>().add(TicketListSearchChanged(query));
 
-    // Debounce student search
+    // Debounce student + teacher search
     _debounce?.cancel();
     if (query.trim().isEmpty) {
       setState(() {
         _studentResults = [];
         _searchingStudents = false;
+        _teacherResults = [];
+        _searchingTeachers = false;
       });
       return;
     }
 
-    setState(() => _searchingStudents = true);
+    setState(() {
+      _searchingStudents = true;
+      _searchingTeachers = true;
+    });
     _debounce = Timer(const Duration(milliseconds: 300), () async {
       try {
-        final students = await _studentRepo.getStudents(search: query, perPage: 10);
-        if (mounted) setState(() {
-          _studentResults = students;
+        final studentsFuture = _studentRepo.getStudents(search: query, perPage: 10);
+        final teachersFuture = _teacherRepo.getTeachers(search: query, perPage: 10);
+        final results = await Future.wait([studentsFuture, teachersFuture]);
+        if (!mounted) return;
+        setState(() {
+          _studentResults = results[0] as List<StudentModel>;
+          _teacherResults = results[1] as List<TeacherModel>;
           _searchingStudents = false;
+          _searchingTeachers = false;
         });
       } catch (_) {
-        if (mounted) setState(() => _searchingStudents = false);
+        if (!mounted) return;
+        setState(() {
+          _searchingStudents = false;
+          _searchingTeachers = false;
+        });
       }
     });
   }
@@ -144,6 +162,39 @@ class _InboxViewState extends State<_InboxView> {
       }
     } finally {
       if (mounted) setState(() => _creatingStudentId = null);
+    }
+  }
+
+  Future<void> _openTeacherChat(TeacherModel teacher) async {
+    final wa = teacher.whatsappNumber;
+    if (wa == null || wa.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا يوجد رقم واتساب لهذا المعلم'),
+          backgroundColor: AppColors.coral,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _creatingTeacherId = teacher.id);
+    try {
+      final ticketId = await _ticketRepo.createTicketForTeacher(
+        wa,
+        name: teacher.name,
+      );
+      if (mounted) context.push('/tickets/$ticketId');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل فتح المحادثة: $e'),
+            backgroundColor: AppColors.coral,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _creatingTeacherId = null);
     }
   }
 
@@ -313,10 +364,15 @@ class _InboxViewState extends State<_InboxView> {
     if (state is TicketListLoaded) {
       final hasSearchQuery = state.searchQuery.isNotEmpty;
       final hasStudentResults = _studentResults.isNotEmpty;
+      final hasTeacherResults = _teacherResults.isNotEmpty;
       final hasTicketResults = state.tickets.isNotEmpty;
 
       // No results at all
-      if (!hasStudentResults && !hasTicketResults && !_searchingStudents) {
+      if (!hasStudentResults &&
+          !hasTeacherResults &&
+          !hasTicketResults &&
+          !_searchingStudents &&
+          !_searchingTeachers) {
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -371,8 +427,38 @@ class _InboxViewState extends State<_InboxView> {
                 const Divider(color: Colors.white12, indent: 16, endIndent: 16, height: 16),
             ],
 
+            // ── Teacher Results Section ──
+            if (hasSearchQuery && (hasTeacherResults || _searchingTeachers)) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person_search_rounded, size: 16, color: Color(0xFF00A884)),
+                    const SizedBox(width: 6),
+                    const Text('معلمين', style: TextStyle(color: Color(0xFF00A884), fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    if (_searchingTeachers)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00A884)),
+                      ),
+                  ],
+                ),
+              ),
+              ..._teacherResults.map((teacher) => _TeacherRow(
+                    teacher: teacher,
+                    isLoading: _creatingTeacherId == teacher.id,
+                    onTap: () => _openTeacherChat(teacher),
+                  )),
+              if (hasTicketResults)
+                const Divider(color: Colors.white12, indent: 16, endIndent: 16, height: 16),
+            ],
+
             // ── Ticket Results Section ──
-            if (hasSearchQuery && hasTicketResults && hasStudentResults)
+            if (hasSearchQuery &&
+                hasTicketResults &&
+                (hasStudentResults || hasTeacherResults))
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 4, 16, 6),
                 child: Row(
@@ -517,6 +603,81 @@ class _StudentRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Teacher search result row
+// ─────────────────────────────────────────────────────────────
+class _TeacherRow extends StatelessWidget {
+  final TeacherModel teacher;
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  const _TeacherRow({
+    required this.teacher,
+    required this.isLoading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: isLoading ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 22,
+              backgroundColor: Color(0xFF2A3942),
+              backgroundImage: AssetImage('assets/images/default_avatar.png'),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    teacher.name,
+                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (teacher.whatsappNumber != null && teacher.whatsappNumber!.isNotEmpty)
+                    Text(
+                      teacher.whatsappNumber!,
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            if (isLoading)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00A884)),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00A884).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.chat_bubble_outline_rounded, size: 14, color: Color(0xFF00A884)),
+                    SizedBox(width: 4),
+                    Text('محادثة', style: TextStyle(color: Color(0xFF00A884), fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Inline search bar
 // ─────────────────────────────────────────────────────────────
 class _SearchBar extends StatelessWidget {
@@ -579,10 +740,9 @@ class _StatsRow extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         children: [
-          _Chip('مفتوح', '${stats['open'] ?? 0}', AppColors.statusOpen),
-          _Chip('معين', '${stats['assigned'] ?? 0}', AppColors.primary),
-          _Chip('متصاعد', '${stats['escalated'] ?? 0}', AppColors.coral),
-          _Chip('معلق', '${stats['pending'] ?? 0}', AppColors.amber),
+          _Chip('طلاب', '${stats['students'] ?? 0}', AppColors.primary),
+          _Chip('معلمين', '${stats['teachers'] ?? 0}', Colors.blue),
+          _Chip('غير معروف', '${stats['unknown'] ?? 0}', AppColors.coral),
         ],
       ),
     );

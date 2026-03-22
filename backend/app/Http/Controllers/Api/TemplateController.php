@@ -37,7 +37,23 @@ class TemplateController extends Controller
      */
     public function approved(): JsonResponse
     {
-        $templates = $this->templateService->listApproved();
+        $nameMap = [
+            'chat_open_inquiry' => 'رسالة ترحيب واستفسار عام',
+            'chat_followup_request' => 'متابعة سريعة (طلب رد)',
+            'chat_student_absence' => 'تنبيه غياب طالب',
+            'chat_tech_support' => 'مساعدة تقنية (زوم)',
+            'chat_payment_reminder' => 'تذكير بتجديد الاشتراك',
+        ];
+
+        $templates = $this->templateService->listApproved()
+            ->filter(fn($t) => \Illuminate\Support\Str::startsWith($t->name, 'chat_'))
+            ->map(function ($t) use ($nameMap) {
+                // Mutating the model array representation for the response
+                $array = $t->toArray();
+                $array['name'] = $nameMap[$t->name] ?? $t->name;
+                return $array;
+            })->values();
+
         return $this->response->success($templates);
     }
 

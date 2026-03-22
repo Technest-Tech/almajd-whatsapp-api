@@ -37,7 +37,7 @@ class StartConversationBanner extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'جلسة واتساب منتهية — يجب إرسال قالب مُعتمد لبدء محادثة جديدة.',
+                    'جلسة واتساب منتهية (مر 24 ساعة) — يجب إرسال قالب مُعتمد لبدء محادثة جديدة.',
                     style: TextStyle(color: Colors.white.withValues(alpha: 0.65), fontSize: 12),
                     textDirection: TextDirection.rtl,
                   ),

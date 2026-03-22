@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-
+import '../../../../core/di/injection.dart';
 import '../../data/models/schedule_model.dart';
+import '../../data/schedule_repository.dart';
+import '../screens/schedule_form_screen.dart';
+import '../../data/models/schedule_model.dart';
+import '../../data/schedule_repository.dart';
+import '../../../students/data/models/class_session_model.dart';
+import '../../../students/presentation/screens/student_schedule_form.dart';
 
 class ScheduleDetailScreen extends StatefulWidget {
   final int scheduleId;
@@ -14,6 +20,9 @@ class ScheduleDetailScreen extends StatefulWidget {
 
 class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
   ScheduleModel? _schedule;
+  bool _loading = true;
+  List<ClassSessionModel> _sessions = [];
+  bool _loadingSessions = true;
 
   static const _dayColors = [
     Color(0xFF26A69A), // Sunday
@@ -31,13 +40,40 @@ class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
     _loadSchedule();
   }
 
-  void _loadSchedule() {
-    // TODO: load schedule from API using widget.scheduleId
+  Future<void> _loadSchedule() async {
+    setState(() {
+      _loading = true;
+      _loadingSessions = true;
+    });
+    try {
+      final repo = getIt<ScheduleRepository>();
+      final schedule = await repo.getSchedule(widget.scheduleId);
+      final sessions = await repo.getScheduleSessions(widget.scheduleId);
+      if (!mounted) return;
+      setState(() {
+        _schedule = schedule;
+        _sessions = sessions;
+        _loading = false;
+        _loadingSessions = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadingSessions = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('فشل تحميل البيانات'),
+          backgroundColor: AppColors.coral,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_schedule == null) {
+    if (_loading || _schedule == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('تفاصيل الجدول')),
         body: const Center(child: CircularProgressIndicator(color: AppColors.primary)),
@@ -55,7 +91,10 @@ class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
       appBar: AppBar(
         title: const Text('تفاصيل الجدول'),
         actions: [
-          IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => _openEditScheduleSheet(schedule),
+          ),
         ],
       ),
       body: ListView(
@@ -172,7 +211,79 @@ class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
                 ],
               );
             }),
+
+          // Incoming Classes Section
+          const SizedBox(height: 16),
+          const Text(
+            'الحصص القادمة',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 12),
+          if (_loadingSessions)
+            const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          else if (_sessions.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text('لا توجد حصص قادمة', style: TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.7))),
+              ),
+            )
+          else
+            ..._sessions.map((session) => _buildSessionTile(session)),
         ],
+      ),
+    );
+  }
+
+  void _openEditScheduleSheet(ScheduleModel schedule) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => StudentScheduleForm(
+        studentName: schedule.studentName,
+        existingSchedule: schedule,
+        onSave: (scheduleName, entries) async {
+          final repo = getIt<ScheduleRepository>();
+          try {
+            // Update basic info
+            await repo.updateSchedule(schedule.id, {
+               'name': scheduleName,
+               'description': schedule.description,
+               'is_active': schedule.isActive,
+            });
+
+            // To support completely editing entries smoothly, we delete old and insert new. 
+            // Depending on backend, a single update endpoint could be used, but standard REST usually requires this:
+            for (final oldEntry in schedule.entries) {
+               await repo.deleteEntry(schedule.id, oldEntry.id);
+            }
+            for (final data in entries) {
+               await repo.addEntry(schedule.id, data);
+            }
+            
+            if (!mounted) return;
+            _loadSchedule();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تمت تحديث الجدول بنجاح'),
+                backgroundColor: AppColors.success,
+              ),
+            );
+          } catch (_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('فشل تحديث الجدول'),
+                backgroundColor: AppColors.coral,
+              ),
+            );
+            rethrow;
+          }
+        },
       ),
     );
   }
@@ -238,6 +349,83 @@ class _ScheduleDetailScreenState extends State<ScheduleDetailScreen> {
             child: Text(
               entry.recurrenceDisplay,
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSessionTile(ClassSessionModel session) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  '${session.sessionDate.day}',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.primary),
+                ),
+                Text(
+                  session.effectiveDateDisplay,
+                  style: const TextStyle(fontSize: 12, color: AppColors.primary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  session.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textPrimary),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.access_time, size: 12, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${session.startTime12h} - ${session.endTime12h}',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    ),
+                    if (session.teacherName != null) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.person_outline, size: 12, color: AppColors.textSecondary),
+                      const SizedBox(width: 4),
+                      Text(
+                        session.teacherName!,
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.darkCardElevated,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              session.statusDisplay,
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
             ),
           ),
         ],

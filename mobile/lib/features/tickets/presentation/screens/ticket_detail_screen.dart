@@ -63,6 +63,9 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   Timer? _recordTimer;
   bool _isRecordLocked = false;
 
+  // ── WebSocket Channel ──
+  Channel? _channel;
+
   // ── Animation ──
   late final AnimationController _sendBtnController;
   late final Animation<double> _sendBtnAnimation;
@@ -125,6 +128,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
 
   @override
   void dispose() {
+    _channel?.unsubscribe();
     _messageController.dispose();
     _focusNode.dispose();
     _audioRecorder.dispose();
@@ -155,6 +159,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
             },
           ),
     );
+    _channel = channel;
 
     channel.bind('TicketMessageCreated').listen((event) {
       if (mounted && event.data != null) {
@@ -170,7 +175,9 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           final newMessage = MessageModel.fromJson(messageData);
 
           if (!_messages.any((m) => m.id == newMessage.id)) {
-            setState(() => _messages.add(newMessage));
+            setState(() {
+              _messages.add(newMessage);
+            });
             _scrollToBottom();
           }
 
@@ -380,62 +387,6 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
               ),
             ),
 
-          // Modern Loading Overlay
-          if (_isLoading || _isAutoScrolling)
-            Positioned.fill(
-              child: TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0.0, end: 1.0),
-                duration: const Duration(milliseconds: 300),
-                builder: (context, value, child) {
-                  return Opacity(
-                    opacity: value,
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-                      child: Container(
-                        color: const Color(0xFF0B141A).withValues(alpha: 0.6),
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 20,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1F2C34),
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.4),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const CircularProgressIndicator(
-                                  color: Color(0xFF00A884),
-                                  strokeWidth: 3,
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  'جاري التحميل...',
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
         ],
       ),
     );
@@ -617,14 +568,22 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // INPUT AREA
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  /// True when the contact has sent at least one inbound message
-  /// (meaning WhatsApp's 24h session window may be open).
-  bool get _hasInboundMessages =>
-      _messages.any((m) => m.direction == 'inbound');
+  /// True when the contact has sent at least one inbound message within the last 24 hours.
+  /// (Meaning WhatsApp's 24h session window is open).
+  bool get _is24HourWindowActive {
+    final now = DateTime.now();
+    for (final m in _messages.reversed) {
+      if (m.direction == 'inbound') {
+        final diff = now.difference(m.createdAt);
+        return diff.inHours < 24;
+      }
+    }
+    return false;
+  }
 
   Widget _buildInputArea() {
-    // If this is a new contact with no inbound messages, show template banner
-    if (!_isLoading && !_hasInboundMessages) {
+    // If this is a new contact or 24 hour window has elapsed, show template banner
+    if (!_isLoading && !_is24HourWindowActive) {
       return StartConversationBanner(
         ticketId: widget.ticketId,
         onTemplateSent: _loadData,
@@ -1210,40 +1169,37 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     _scrollToBottom();
     HapticFeedback.lightImpact();
 
-    try {
-      final repo = getIt<TicketRepository>();
-      final realMessage = await repo.replyToTicket(
-        widget.ticketId,
-        text,
-        replyToMessageId: replyToId,
-      );
+    // ── Isolated Background Send ──
+    Future.microtask(() async {
+      try {
+        final repo = getIt<TicketRepository>();
+        final realMessage = await repo.replyToTicket(
+          widget.ticketId,
+          text,
+          replyToMessageId: replyToId,
+        );
 
-      if (mounted) {
-        setState(() {
-          final idx = _messages.indexWhere((m) => m.id == tempId);
-          if (idx != -1) _messages[idx] = realMessage;
-        });
+        if (mounted) {
+          setState(() {
+            final idx = _messages.indexWhere((m) => m.id == tempId);
+            if (idx != -1) _messages[idx] = realMessage;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            final idx = _messages.indexWhere((m) => m.id == tempId);
+            if (idx != -1) {
+              final oldMsg = _messages[idx];
+              _messages[idx] = oldMsg.copyWith(deliveryStatus: 'failed');
+            }
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('فشل إرسال الرسالة'))
+          );
+        }
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          final idx = _messages.indexWhere((m) => m.id == tempId);
-          if (idx != -1) {
-            _messages[idx] = MessageModel(
-              id: tempId,
-              ticketId: widget.ticketId,
-              body: text,
-              direction: 'outbound',
-              deliveryStatus: 'failed',
-              createdAt: DateTime.now(),
-            );
-          }
-        });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('فشل إرسال الرسالة')));
-      }
-    }
+    });
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1384,19 +1340,21 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  setState(() {
-                    _messages.add(
-                      MessageModel(
-                        id: _messages.length + 200,
-                        ticketId: widget.ticketId,
-                        body: 'تم تغيير الحالة إلى ${s['label']}',
-                        direction: 'outbound',
-                        type: 'system',
-                        createdAt: DateTime.now(),
-                      ),
-                    );
-                  });
-                  _scrollToBottom();
+                  if (mounted) {
+                    setState(() {
+                      _messages.add(
+                        MessageModel(
+                          id: _messages.length + 200,
+                          ticketId: widget.ticketId,
+                          body: 'تم تغيير الحالة إلى ${s['label']}',
+                          direction: 'outbound',
+                          type: 'system',
+                          createdAt: DateTime.now(),
+                        ),
+                      );
+                    });
+                    _scrollToBottom();
+                  }
                   _showSnackBar('تم تغيير الحالة إلى ${s['label']}');
                 },
               ),
@@ -1465,6 +1423,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   }
 
   void _showSnackBar(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, textAlign: TextAlign.center),
@@ -1475,7 +1434,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       ),
     );
   }
-}
+} // End of _TicketDetailScreenState
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Chat Wallpaper Painter

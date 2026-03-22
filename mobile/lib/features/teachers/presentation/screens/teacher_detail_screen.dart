@@ -132,6 +132,7 @@ class _TeacherDetailScreenState extends State<TeacherDetailScreen> {
     try {
       final ticketId = await getIt<TicketRepository>().createTicketForTeacher(
         teacher.whatsappNumber!,
+        name: teacher.name,
       );
       if (mounted) context.push('/tickets/$ticketId');
     } catch (e) {

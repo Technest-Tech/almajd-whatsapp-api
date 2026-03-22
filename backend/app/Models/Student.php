@@ -13,6 +13,14 @@ class Student extends Model
 {
     use SoftDeletes;
 
+    protected static function booted()
+    {
+        static::saved(function ($student) {
+            \App\Models\Guardian::where('phone', $student->whatsapp_number)
+                ->update(['name' => $student->name]);
+        });
+    }
+
     protected $fillable = [
         'name', 'whatsapp_number', 'country', 'currency', 'student_code', 'notes'
     ];

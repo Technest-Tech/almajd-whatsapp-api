@@ -7,12 +7,14 @@ class StudentClassesTab extends StatefulWidget {
   final List<ClassSessionModel> sessions;
   final VoidCallback onGenerate;
   final void Function(int sessionId, String action, {String? reason, DateTime? newDate, TimeOfDay? newStart, TimeOfDay? newEnd}) onAction;
+  final bool canGenerate;
 
   const StudentClassesTab({
     super.key,
     required this.sessions,
     required this.onGenerate,
     required this.onAction,
+    this.canGenerate = true,
   });
 
   @override
@@ -45,13 +47,18 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
             const SizedBox(height: 12),
             const Text('لا توجد حصص لهذا الشهر', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
             const SizedBox(height: 4),
-            const Text('توليد الحصص من الجدول الأسبوعي', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: widget.onGenerate,
-              icon: const Icon(Icons.auto_awesome),
-              label: const Text('توليد حصص الشهر'),
+            Text(
+              widget.canGenerate ? 'توليد الحصص من الجدول الأسبوعي' : 'لا توجد صلاحية لتوليد الحصص',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
+            if (widget.canGenerate) ...[
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: widget.onGenerate,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('توليد حصص الشهر'),
+              ),
+            ],
           ],
         ),
       );

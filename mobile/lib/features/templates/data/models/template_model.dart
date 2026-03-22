@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class TemplateModel {
   final int id;
   final String name;
@@ -52,11 +54,29 @@ class TemplateModel {
         footerText:       json['footer_text'] as String?,
         status:           json['status'] as String,
         contentSid:       json['content_sid'] as String?,
-        variablesSchema:  (json['variables_schema'] as List<dynamic>?)
-                              ?.map((e) => e.toString())
-                              .toList() ?? [],
+        variablesSchema:  _parseVariablesSchema(json['variables_schema']),
         rejectionReason:  json['rejection_reason'] as String?,
       );
+
+  static List<String> _parseVariablesSchema(dynamic schema) {
+    if (schema == null) return [];
+    if (schema is String) {
+      if (schema.isEmpty) return [];
+      try {
+        final decoded = jsonDecode(schema);
+        if (decoded is List) return decoded.map((e) => e.toString()).toList();
+        if (decoded is Map) return decoded.values.map((v) => v.toString()).toList();
+      } catch (_) {}
+      return [];
+    }
+    if (schema is List) {
+      return schema.map((e) => e.toString()).toList();
+    }
+    if (schema is Map) {
+      return schema.values.map((v) => v.toString()).toList();
+    }
+    return [];
+  }
 
   Map<String, dynamic> toJson() => {
         'id':              id,

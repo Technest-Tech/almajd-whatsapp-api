@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection.dart';
+import '../../data/schedule_repository.dart';
+import '../../data/models/schedule_model.dart';
 
 class ScheduleFormScreen extends StatefulWidget {
   final int? scheduleId; // null = create new
@@ -19,6 +22,22 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
 
+  bool _loading = false;
+  bool _saving = false;
+  ScheduleModel? _loadedSchedule;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.scheduleId != null) {
+      _loadSchedule();
+    } else {
+      final now = DateTime.now();
+      _startDate = now;
+      _endDate = now.add(const Duration(days: 90));
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -26,20 +45,97 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     super.dispose();
   }
 
-  void _save() {
-    if (_formKey.currentState!.validate()) {
-      if (_startDate == null || _endDate == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('الرجاء اختيار تاريخ البداية والنهاية'), backgroundColor: AppColors.coral),
-        );
-        return;
-      }
-      
-      // Navigate back and show success
-      Navigator.pop(context);
+  Future<void> _loadSchedule() async {
+    setState(() {
+      _loading = true;
+    });
+    try {
+      final repo = getIt<ScheduleRepository>();
+      final schedule = await repo.getSchedule(widget.scheduleId!);
+      if (!mounted) return;
+      _loadedSchedule = schedule;
+      _nameController.text = schedule.name;
+      _descriptionController.text = schedule.description ?? '';
+      _isActive = schedule.isActive;
+      _startDate = schedule.startDate ?? DateTime.now();
+      _endDate = schedule.endDate ?? _startDate!.add(const Duration(days: 90));
+      setState(() {
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم الحفظ بنجاح'), backgroundColor: AppColors.success),
+        const SnackBar(
+          content: Text('فشل تحميل بيانات الجدول'),
+          backgroundColor: AppColors.coral,
+        ),
       );
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_startDate == null || _endDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('الرجاء اختيار تاريخ البداية والنهاية'),
+          backgroundColor: AppColors.coral,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+    });
+
+    final payload = <String, dynamic>{
+      'name': _nameController.text.trim(),
+      'description': _descriptionController.text.trim().isEmpty
+          ? null
+          : _descriptionController.text.trim(),
+      'start_date':
+          '${_startDate!.year.toString().padLeft(4, '0')}-${_startDate!.month.toString().padLeft(2, '0')}-${_startDate!.day.toString().padLeft(2, '0')}',
+      'end_date':
+          '${_endDate!.year.toString().padLeft(4, '0')}-${_endDate!.month.toString().padLeft(2, '0')}-${_endDate!.day.toString().padLeft(2, '0')}',
+      'is_active': _isActive,
+    };
+
+    final repo = getIt<ScheduleRepository>();
+    final isEditing = widget.scheduleId != null;
+
+    try {
+      if (isEditing) {
+        await repo.updateSchedule(widget.scheduleId!, payload);
+      } else {
+        await repo.createSchedule(payload);
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context, true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEditing ? 'تم تحديث الجدول بنجاح' : 'تم إنشاء الجدول بنجاح'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('فشل حفظ الجدول'),
+          backgroundColor: AppColors.coral,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
     }
   }
 
@@ -85,6 +181,17 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.scheduleId != null;
+
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(isEditing ? 'تعديل الجدول' : 'إضافة جدول جديد'),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -211,12 +318,24 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
 
             // Save Button
             ElevatedButton(
-              onPressed: _save,
+              onPressed: _saving ? null : _save,
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('حفظ الجدول', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              child: _saving
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      isEditing ? 'تحديث الجدول' : 'حفظ الجدول',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
             ),
           ],
         ),

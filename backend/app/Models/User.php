@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\UserAvailability;
+use App\Models\ClassSession;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -71,5 +72,10 @@ class User extends Authenticatable implements JWTSubject
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class, 'assigned_to');
+    }
+
+    public function classSessions(): HasMany
+    {
+        return $this->hasMany(ClassSession::class, 'supervisor_id');
     }
 }

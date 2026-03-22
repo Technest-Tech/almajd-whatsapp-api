@@ -7,6 +7,7 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/models/student_model.dart';
 import '../bloc/student_list_bloc.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 
 class StudentListScreen extends StatelessWidget {
   const StudentListScreen({super.key});
@@ -29,6 +30,16 @@ class _StudentListView extends StatefulWidget {
 
 class _StudentListViewState extends State<_StudentListView> {
   final _searchController = TextEditingController();
+  bool get _isSupervisorMode {
+    try {
+      final authState = context.read<AuthBloc>().state;
+      if (authState is AuthAuthenticated) {
+        final role = authState.user.primaryRole;
+        return role == 'supervisor' || role == 'senior_supervisor';
+      }
+    } catch (_) {}
+    return false;
+  }
 
   static const _filters = [
     {'key': 'all', 'label': 'الكل'},
@@ -115,21 +126,22 @@ class _StudentListViewState extends State<_StudentListView> {
       },
       ),
       // ── FAB Always Visible ──
-      Positioned(
-        bottom: 16,
-        left: 16,
-        child: FloatingActionButton.extended(
-          heroTag: 'add_student',
-          onPressed: () async {
-            await context.push('/students/new');
-            if (context.mounted) {
-              context.read<StudentListBloc>().add(StudentListRefreshRequested());
-            }
-          },
-          icon: const Icon(Icons.person_add),
-          label: const Text('إضافة طالب'),
+      if (!_isSupervisorMode)
+        Positioned(
+          bottom: 16,
+          left: 16,
+          child: FloatingActionButton.extended(
+            heroTag: 'add_student',
+            onPressed: () async {
+              await context.push('/students/new');
+              if (context.mounted) {
+                context.read<StudentListBloc>().add(StudentListRefreshRequested());
+              }
+            },
+            icon: const Icon(Icons.person_add),
+            label: const Text('إضافة طالب'),
+          ),
         ),
-      ),
     ],
     );
   }
@@ -184,6 +196,8 @@ class _StudentListViewState extends State<_StudentListView> {
             final student = state.students[index];
             return _StudentCard(
               student: student,
+              showWhatsApp: !_isSupervisorMode,
+              showExtras: !_isSupervisorMode,
               onTap: () async {
                 await context.push('/students/${student.id}');
                 // Always refresh when returning from detail (edit may have occurred)
@@ -225,8 +239,15 @@ class _StudentListViewState extends State<_StudentListView> {
 class _StudentCard extends StatelessWidget {
   final StudentModel student;
   final VoidCallback onTap;
+  final bool showWhatsApp;
+  final bool showExtras;
 
-  const _StudentCard({required this.student, required this.onTap});
+  const _StudentCard({
+    required this.student,
+    required this.onTap,
+    required this.showWhatsApp,
+    required this.showExtras,
+  });
 
   Color _statusColor(String status) {
     switch (status) {
@@ -288,25 +309,26 @@ class _StudentCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            student.statusDisplay,
-                            style: TextStyle(
-                              color: statusColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                        if (showExtras)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              student.statusDisplay,
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    if (student.whatsappNumber != null)
+                    if (showWhatsApp && student.whatsappNumber != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Row(
@@ -325,7 +347,7 @@ class _StudentCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                    if (student.country != null)
+                    if (showExtras && student.country != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Row(

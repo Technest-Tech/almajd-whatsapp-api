@@ -13,7 +13,14 @@ class SessionService
      */
     public function list(array $filters = [], int $perPage = 20)
     {
-        $query = ClassSession::with(['teacher', 'student', 'scheduleEntry'])
+        $query = ClassSession::with([
+            'teacher',
+            'student',
+            'scheduleEntry',
+            'supervisor' => static function ($q): void {
+                $q->select('id', 'name');
+            },
+        ])
             ->orderBy('session_date')
             ->orderBy('start_time');
 
@@ -44,7 +51,14 @@ class SessionService
      */
     public function show(int $id): ClassSession
     {
-        return ClassSession::with(['teacher', 'scheduleEntry.schedule'])->findOrFail($id);
+        return ClassSession::with([
+            'teacher',
+            'student',
+            'scheduleEntry.schedule',
+            'supervisor' => static function ($q): void {
+                $q->select('id', 'name');
+            },
+        ])->findOrFail($id);
     }
 
     /**

@@ -40,36 +40,51 @@ class _TeacherListViewState extends State<_TeacherListView> {
   Widget build(BuildContext context) {
     return BlocBuilder<TeacherListBloc, TeacherListState>(
       builder: (context, state) {
-        return Column(
+        return Stack(
           children: [
-            // ── Search Bar ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'بحث عن معلم...',
-                  hintStyle: const TextStyle(color: AppColors.textSecondary),
-                  prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.close, color: AppColors.textSecondary),
-                          onPressed: () {
-                            _searchController.clear();
-                            context.read<TeacherListBloc>().add(const TeacherListSearchChanged(''));
-                          },
-                        )
-                      : null,
+            Column(
+              children: [
+                // ── Search Bar ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'بحث عن معلم...',
+                      hintStyle: const TextStyle(color: AppColors.textSecondary),
+                      prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                              onPressed: () {
+                                _searchController.clear();
+                                context.read<TeacherListBloc>().add(const TeacherListSearchChanged(''));
+                              },
+                            )
+                          : null,
+                    ),
+                    onChanged: (value) {
+                      context.read<TeacherListBloc>().add(TeacherListSearchChanged(value));
+                      setState(() {});
+                    },
+                  ),
                 ),
-                onChanged: (value) {
-                  context.read<TeacherListBloc>().add(TeacherListSearchChanged(value));
-                  setState(() {});
-                },
+
+                // ── Content ──
+                Expanded(child: _buildContent(context, state)),
+              ],
+            ),
+            // FAB
+            Positioned(
+              bottom: 16,
+              left: 16,
+              child: FloatingActionButton.extended(
+                heroTag: 'add_teacher',
+                onPressed: () => context.push('/teachers/new'),
+                icon: const Icon(Icons.person_add),
+                label: const Text('إضافة معلم'),
               ),
             ),
-
-            // ── Content ──
-            Expanded(child: _buildContent(context, state)),
           ],
         );
       },
@@ -113,38 +128,23 @@ class _TeacherListViewState extends State<_TeacherListView> {
         );
       }
 
-      return Stack(
-        children: [
-          RefreshIndicator(
-            color: AppColors.primary,
-            onRefresh: () async {
-              context.read<TeacherListBloc>().add(TeacherListRefreshRequested());
-              await Future.delayed(const Duration(milliseconds: 500));
-            },
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
-              itemCount: state.teachers.length,
-              itemBuilder: (context, index) {
-                final teacher = state.teachers[index];
-                return _TeacherCard(
-                  teacher: teacher,
-                  onTap: () => context.push('/teachers/${teacher.id}/edit'),
-                );
-              },
-            ),
-          ),
-          // FAB
-          Positioned(
-            bottom: 16,
-            left: 16,
-            child: FloatingActionButton.extended(
-              heroTag: 'add_teacher',
-              onPressed: () => context.push('/teachers/new'),
-              icon: const Icon(Icons.person_add),
-              label: const Text('إضافة معلم'),
-            ),
-          ),
-        ],
+      return RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: () async {
+          context.read<TeacherListBloc>().add(TeacherListRefreshRequested());
+          await Future.delayed(const Duration(milliseconds: 500));
+        },
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
+          itemCount: state.teachers.length,
+          itemBuilder: (context, index) {
+            final teacher = state.teachers[index];
+            return _TeacherCard(
+              teacher: teacher,
+              onTap: () => context.push('/teachers/${teacher.id}'),
+            );
+          },
+        ),
       );
     }
 
@@ -179,23 +179,8 @@ class _TeacherCard extends StatelessWidget {
 
   const _TeacherCard({required this.teacher, required this.onTap});
 
-  Color _availabilityColor(String status) {
-    switch (status) {
-      case 'available':
-        return AppColors.success;
-      case 'busy':
-        return AppColors.amber;
-      case 'offline':
-        return AppColors.textSecondary;
-      default:
-        return AppColors.textSecondary;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final avColor = _availabilityColor(teacher.availability);
-
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
@@ -205,35 +190,18 @@ class _TeacherCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              // Avatar with status dot
-              Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor: AppColors.primaryDark.withValues(alpha: 0.3),
-                    child: Text(
-                      teacher.initials,
-                      style: const TextStyle(
-                        color: AppColors.primaryLight,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                      ),
-                    ),
+              // Avatar
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: AppColors.primaryDark.withValues(alpha: 0.3),
+                child: Text(
+                  teacher.name.isNotEmpty ? teacher.name[0] : '?',
+                  style: const TextStyle(
+                    color: AppColors.primaryLight,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
                   ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: avColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.darkCard, width: 2),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(width: 12),
 
@@ -242,66 +210,31 @@ class _TeacherCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            teacher.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                              color: AppColors.textPrimary,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: avColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            teacher.availabilityDisplay,
-                            style: TextStyle(color: avColor, fontSize: 11, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      teacher.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: AppColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 6),
 
-                    // Subject Tags
-                    if (teacher.subjects.isNotEmpty)
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: teacher.subjects.map((subject) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-                            ),
-                            child: Text(
-                              subject,
-                              style: const TextStyle(color: AppColors.primaryLight, fontSize: 11, fontWeight: FontWeight.w500),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-
-                    if (teacher.phone != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          children: [
-                            Icon(Icons.phone_outlined, size: 14, color: AppColors.textSecondary.withValues(alpha: 0.7)),
-                            const SizedBox(width: 4),
-                            Text(teacher.phone!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                          ],
-                        ),
+                    if (teacher.whatsappNumber != null && teacher.whatsappNumber!.isNotEmpty)
+                      Row(
+                        textDirection: TextDirection.ltr,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Icon(Icons.phone_outlined, size: 14, color: AppColors.textSecondary.withValues(alpha: 0.7)),
+                          const SizedBox(width: 4),
+                          Text(
+                            teacher.whatsappNumber!, 
+                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                            textDirection: TextDirection.ltr,
+                          ),
+                        ],
                       ),
                   ],
                 ),

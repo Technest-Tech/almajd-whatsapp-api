@@ -9,6 +9,7 @@ import '../../features/students/presentation/screens/student_detail_screen.dart'
 import '../../features/students/presentation/screens/student_form_screen.dart';
 import '../../features/teachers/presentation/screens/teacher_list_screen.dart';
 import '../../features/teachers/presentation/screens/teacher_form_screen.dart';
+import '../../features/teachers/presentation/screens/teacher_detail_screen.dart';
 import '../../features/schedules/presentation/screens/schedule_list_screen.dart';
 import '../../features/schedules/presentation/screens/schedule_detail_screen.dart';
 import '../../features/schedules/presentation/screens/schedule_form_screen.dart';
@@ -16,7 +17,9 @@ import '../../features/sessions/presentation/screens/session_list_screen.dart';
 import '../../features/sessions/presentation/screens/session_detail_screen.dart';
 import '../../features/reminders/presentation/screens/reminder_list_screen.dart';
 import '../../features/admin/presentation/screens/analytics_screen.dart';
-import '../../features/admin/presentation/screens/user_list_screen.dart';
+import '../../features/admin/presentation/screens/supervisor_list_screen.dart';
+import '../../features/admin/presentation/screens/supervisor_form_screen.dart';
+import '../../features/admin/presentation/screens/supervisor_performance_screen.dart';
 import '../../features/admin/presentation/screens/settings_screen.dart';
 import '../../features/admin/presentation/screens/management_hub_screen.dart';
 import '../../features/timetable/presentation/screens/timetable_screen.dart';
@@ -25,9 +28,11 @@ import '../../features/reminders/presentation/screens/classes_tracker_screen.dar
 import '../../features/notifications/presentation/screens/notifications_screen.dart';
 
 class AppRouter {
-  static final GoRouter router = GoRouter(
-    initialLocation: '/splash',
-    routes: [
+  static GoRouter? _router;
+  static GoRouter getRouter(String initialLocation) {
+    _router ??= GoRouter(
+      initialLocation: initialLocation,
+      routes: [
       GoRoute(
         path: '/splash',
         builder: (_, __) => const SplashScreen(),
@@ -73,6 +78,13 @@ class AppRouter {
         builder: (_, state) {
           final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
           return TeacherFormScreen(teacherId: id);
+        },
+      ),
+      GoRoute(
+        path: '/teachers/:id',
+        builder: (_, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return TeacherDetailScreen(teacherId: id);
         },
       ),
       // ── Schedule Detail (outside shell — full screen) ──
@@ -142,8 +154,28 @@ class AppRouter {
             builder: (_, __) => const AnalyticsScreen(),
           ),
           GoRoute(
-            path: '/users',
-            builder: (_, __) => const UserListScreen(),
+            path: '/supervisors',
+            builder: (_, __) => const SupervisorListScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                builder: (_, __) => const SupervisorFormScreen(),
+              ),
+              GoRoute(
+                path: ':id/edit',
+                builder: (_, state) {
+                  final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                  return SupervisorFormScreen(supervisorId: id);
+                },
+              ),
+              GoRoute(
+                path: ':id/performance',
+                builder: (_, state) {
+                  final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                  return SupervisorPerformanceScreen(supervisorId: id);
+                },
+              ),
+            ],
           ),
           GoRoute(
             path: '/management',
@@ -165,5 +197,6 @@ class AppRouter {
       ),
     ],
   );
+  return _router!;
 }
 

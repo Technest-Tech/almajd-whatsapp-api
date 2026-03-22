@@ -83,7 +83,14 @@ class _DashboardShellState extends State<DashboardShell> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AuthBloc, AuthState>(
+    return BlocConsumer<AuthBloc, AuthState>(
+      listener: (context, state) {
+        if (state is AuthUnauthenticated || state is AuthError) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) context.go('/login');
+          });
+        }
+      },
       builder: (context, state) {
         final user = state is AuthAuthenticated ? state.user : null;
 
@@ -97,6 +104,7 @@ class _DashboardShellState extends State<DashboardShell> {
             final navItems = _getNavItems(user, unreadCount);
 
             return Scaffold(
+          resizeToAvoidBottomInset: false,
           appBar: AppBar(
             title: Text(navItems[_currentIndex]['label'] as String),
             actions: [
@@ -153,18 +161,14 @@ class _DashboardShellState extends State<DashboardShell> {
               ),
             ],
           ),
-          body: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
-            child: Container(
-              key: ValueKey(GoRouterState.of(context).uri.toString()),
-              color: AppColors.darkBg,
-              child: widget.child,
-            ),
+          body: Container(
+            color: AppColors.darkBg,
+            child: widget.child,
           ),
-          floatingActionButton: _buildCenterFAB(context, navItems),
+          floatingActionButton: _buildCenterFAB(
+            navItems,
+            role: (user?.primaryRole ?? 'supervisor'),
+          ),
           floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
           bottomNavigationBar: _buildBottomBar(context, navItems),
         );
@@ -174,9 +178,24 @@ class _DashboardShellState extends State<DashboardShell> {
     );
   }
 
-  Widget _buildCenterFAB(BuildContext context, List<Map<String, dynamic>> navItems) {
-    final centerIndex = navItems.length ~/ 2;
-    final isSelected = _currentIndex == centerIndex;
+  Future<void> _onNavTap(int index, String path) async {
+    // Close any open bottom sheets/dialogs before changing the shell route
+    await Navigator.of(context).maybePop();
+    if (!mounted) return;
+    setState(() => _currentIndex = index);
+    context.go(path);
+  }
+
+  Widget _buildCenterFAB(
+    List<Map<String, dynamic>> navItems, {
+    required String role,
+  }) {
+    final centerIndex = navItems.indexWhere((e) => e['path'] == '/classes');
+    final safeCenterIndex = centerIndex == -1 ? (navItems.length ~/ 2) : centerIndex;
+    final isSelected = _currentIndex == safeCenterIndex;
+    // Keep center FAB styling consistent across roles (same as admin).
+    final fabBackgroundColor = AppColors.primary;
+
     return Container(
       margin: const EdgeInsets.only(top: 16),
       decoration: BoxDecoration(
@@ -191,33 +210,25 @@ class _DashboardShellState extends State<DashboardShell> {
       ),
       child: FloatingActionButton(
         elevation: 0,
-        backgroundColor: AppColors.primary,
+        backgroundColor: fabBackgroundColor,
         onPressed: () {
-          setState(() => _currentIndex = centerIndex);
-          context.go('/classes');
+          _onNavTap(safeCenterIndex, '/classes');
         },
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
-              color: Colors.white,
-              size: 24,
-            ),
-            const Text(
-              'التذكيرات',
-              style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700),
-            ),
-          ],
+        // Keep it simple + visible: icon-only button (no tiny label).
+        child: Icon(
+          isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
+          color: Colors.white,
+          size: 28,
         ),
       ),
     );
   }
 
   Widget _buildBottomBar(BuildContext context, List<Map<String, dynamic>> navItems) {
-    final centerIndex = navItems.length ~/ 2;
-    final leftItems = navItems.sublist(0, centerIndex);
-    final rightItems = navItems.sublist(centerIndex + 1);
+    final centerIndex = navItems.indexWhere((e) => e['path'] == '/classes');
+    final safeCenterIndex = centerIndex == -1 ? (navItems.length ~/ 2) : centerIndex;
+    final leftItems = navItems.sublist(0, safeCenterIndex);
+    final rightItems = navItems.sublist(safeCenterIndex + 1);
 
     return BottomAppBar(
       shape: const CircularNotchedRectangle(),
@@ -229,23 +240,20 @@ class _DashboardShellState extends State<DashboardShell> {
         child: Row(
           children: [
             // Left side items
-            ...leftItems.asMap().entries.map((e) => _buildNavItem(
-                  context,
-                  icon: e.value['icon'] as IconData,
-                  selectedIcon: e.value['selectedIcon'] as IconData,
-                  label: e.value['label'] as String,
-                  isSelected: _currentIndex == e.key,
-                  badge: (e.value['badge'] as int?) ?? 0,
-                  onTap: () {
-                    setState(() => _currentIndex = e.key);
-                    context.go(e.value['path'] as String);
-                  },
-                )),
+                ...leftItems.asMap().entries.map((e) => _buildNavItem(
+                      context,
+                      icon: e.value['icon'] as IconData,
+                      selectedIcon: e.value['selectedIcon'] as IconData,
+                      label: e.value['label'] as String,
+                      isSelected: _currentIndex == e.key,
+                      badge: (e.value['badge'] as int?) ?? 0,
+                      onTap: () => _onNavTap(e.key, e.value['path'] as String),
+                    )),
             // Center spacer for FAB
             const Expanded(child: SizedBox()),
             // Right side items
             ...rightItems.asMap().entries.map((e) {
-              final actualIndex = centerIndex + 1 + e.key;
+              final actualIndex = safeCenterIndex + 1 + e.key;
               return _buildNavItem(
                 context,
                 icon: e.value['icon'] as IconData,
@@ -253,12 +261,126 @@ class _DashboardShellState extends State<DashboardShell> {
                 label: e.value['label'] as String,
                 isSelected: _currentIndex == actualIndex,
                 badge: (e.value['badge'] as int?) ?? 0,
-                onTap: () {
-                  setState(() => _currentIndex = actualIndex);
-                  context.go(e.value['path'] as String);
-                },
+                onTap: () => _onNavTap(actualIndex, e.value['path'] as String),
               );
             }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Supervisor fixed layout: 5 controls in a single row:
+  /// Inbox, Teachers, Students, Reminders(classes) as a normal button, Settings.
+  ///
+  /// This avoids notch/FAB alignment issues and guarantees spacing/order.
+  Widget _buildSupervisorBottomBar(BuildContext context) {
+    const barHeight = 64.0;
+    return Material(
+      color: AppColors.darkCard,
+      elevation: 8,
+      child: SizedBox(
+        height: barHeight,
+        child: Row(
+          children: [
+            _buildNavItem(
+              context,
+              icon: Icons.inbox_outlined,
+              selectedIcon: Icons.inbox_rounded,
+              label: 'الوارد',
+              isSelected: _currentIndex == 0,
+              badge: _unreadCount,
+              onTap: () => _onNavTap(0, '/inbox'),
+            ),
+            _buildNavItem(
+              context,
+              icon: Icons.school_outlined,
+              selectedIcon: Icons.school_rounded,
+              label: 'المعلمون',
+              isSelected: _currentIndex == 1,
+              onTap: () => _onNavTap(1, '/teachers'),
+            ),
+            _buildNavItem(
+              context,
+              icon: Icons.people_outline,
+              selectedIcon: Icons.people_rounded,
+              label: 'الطلاب',
+              isSelected: _currentIndex == 2,
+              onTap: () => _onNavTap(2, '/students'),
+            ),
+            _buildSupervisorReminderItem(
+              context,
+              isSelected: _currentIndex == 3,
+              badge: 0,
+              onTap: () => _onNavTap(3, '/classes'),
+            ),
+            _buildNavItem(
+              context,
+              icon: Icons.settings_outlined,
+              selectedIcon: Icons.settings_rounded,
+              label: 'الإعدادات',
+              isSelected: _currentIndex == 4,
+              onTap: () => _onNavTap(4, '/settings'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSupervisorReminderItem(
+    BuildContext context, {
+    required bool isSelected,
+    required int badge,
+    required VoidCallback onTap,
+  }) {
+    // "Normal" button inside the bar, but with coral color + better visibility.
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
+                  color: AppColors.coral,
+                  size: 26,
+                ),
+                if (badge > 0)
+                  Positioned(
+                    right: -8,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.coral,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+                      child: Text(
+                        badge > 99 ? '99+' : '$badge',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'التذكيرات',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.coral,
+                fontSize: 10.5,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
@@ -328,7 +450,6 @@ class _DashboardShellState extends State<DashboardShell> {
   List<Map<String, dynamic>> _getNavItems(UserModel? user, int unreadCount) {
     final role = user?.primaryRole ?? 'supervisor';
 
-    // Left side items
     final items = <Map<String, dynamic>>[
       {
         'icon': Icons.inbox_outlined,
@@ -339,8 +460,23 @@ class _DashboardShellState extends State<DashboardShell> {
       },
     ];
 
-    // ── Role-specific LEFT items (before center) ──
+    // ── LEFT items (before center) ──
     if (role == 'admin') {
+      items.add({
+        'icon': Icons.people_outline,
+        'selectedIcon': Icons.people_rounded,
+        'label': 'الطلاب',
+        'path': '/students',
+      });
+    } else if (role == 'senior_supervisor') {
+      items.add({
+        'icon': Icons.group_outlined,
+        'selectedIcon': Icons.group_rounded,
+        'label': 'المشرفون',
+        'path': '/supervisors',
+      });
+    } else {
+      // Regular Supervisor
       items.add({
         'icon': Icons.people_outline,
         'selectedIcon': Icons.people_rounded,
@@ -349,7 +485,7 @@ class _DashboardShellState extends State<DashboardShell> {
       });
     }
 
-    // ── CENTER: التذكيرات (placeholder in list for index math) ──
+    // ── CENTER: التذكيرات ──
     items.add({
       'icon': Icons.notifications_outlined,
       'selectedIcon': Icons.notifications_active_rounded,
@@ -357,7 +493,7 @@ class _DashboardShellState extends State<DashboardShell> {
       'path': '/classes',
     });
 
-    // ── Role-specific RIGHT items (after center) ──
+    // ── RIGHT items (after center) ──
     if (role == 'admin') {
       items.addAll([
         {
@@ -374,14 +510,6 @@ class _DashboardShellState extends State<DashboardShell> {
         },
       ]);
     } else if (role == 'senior_supervisor') {
-      items.insertAll(items.length - 1, [
-        {
-          'icon': Icons.group_outlined,
-          'selectedIcon': Icons.group_rounded,
-          'label': 'الفريق',
-          'path': '/users',
-        },
-      ]);
       items.addAll([
         {
           'icon': Icons.bar_chart_outlined,
@@ -397,21 +525,21 @@ class _DashboardShellState extends State<DashboardShell> {
         },
       ]);
     } else {
-      // Supervisor
-      items.insertAll(items.length - 1, [
+      // Regular Supervisor
+      items.addAll([
         {
-          'icon': Icons.search_outlined,
-          'selectedIcon': Icons.search_rounded,
-          'label': 'البحث',
-          'path': '/tickets',
+          'icon': Icons.school_outlined,
+          'selectedIcon': Icons.school_rounded,
+          'label': 'المعلمون',
+          'path': '/teachers',
+        },
+        {
+          'icon': Icons.settings_outlined,
+          'selectedIcon': Icons.settings_rounded,
+          'label': 'الإعدادات',
+          'path': '/settings',
         },
       ]);
-      items.add({
-        'icon': Icons.settings_outlined,
-        'selectedIcon': Icons.settings_rounded,
-        'label': 'الإعدادات',
-        'path': '/settings',
-      });
     }
 
     return items;
@@ -441,9 +569,11 @@ class _DashboardShellState extends State<DashboardShell> {
             Text(user?.email ?? '', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary)),
             const SizedBox(height: 24),
 
-            // Availability toggle
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Availability: supervisors must opt in to "متاح" to receive class assignments.
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 const Text('الحالة: '),
                 ChoiceChip(
@@ -455,7 +585,15 @@ class _DashboardShellState extends State<DashboardShell> {
                     Navigator.pop(ctx);
                   },
                 ),
-                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('غير متاح'),
+                  selected: user?.availability == 'unavailable',
+                  selectedColor: AppColors.textSecondary,
+                  onSelected: (_) {
+                    context.read<AuthBloc>().add(const AuthAvailabilityChanged('unavailable'));
+                    Navigator.pop(ctx);
+                  },
+                ),
                 ChoiceChip(
                   label: const Text('مشغول'),
                   selected: user?.availability == 'busy',

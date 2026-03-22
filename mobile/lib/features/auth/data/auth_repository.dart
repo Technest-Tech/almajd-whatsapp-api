@@ -17,10 +17,12 @@ class AuthRepository {
     String? deviceName,
   }) async {
     final fcmToken = FcmService.token ?? await FcmService.refreshToken();
+    // Must match what ApiClient uses during token refresh.
+    final effectiveDeviceId = deviceId ?? 'flutter_mobile_client';
     final response = await apiClient.dio.post('/auth/login', data: {
       'email': email,
       'password': password,
-      'device_id': deviceId ?? 'mobile_${DateTime.now().millisecondsSinceEpoch}',
+      'device_id': effectiveDeviceId,
       'device_name': deviceName ?? 'Flutter App',
       if (fcmToken != null) 'fcm_token': fcmToken,
     });
@@ -28,6 +30,7 @@ class AuthRepository {
     final data = response.data['data'];
     await storage.write(key: 'access_token', value: data['access_token']);
     await storage.write(key: 'refresh_token', value: data['refresh_token']);
+    await storage.write(key: 'device_id', value: effectiveDeviceId);
 
     return UserModel.fromJson(data['user']);
   }

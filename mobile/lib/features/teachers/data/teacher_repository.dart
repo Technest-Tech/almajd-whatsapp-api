@@ -6,6 +6,17 @@ class TeacherRepository {
 
   TeacherRepository({required this.apiClient});
 
+  Future<List<dynamic>> getTeacherSessions(int teacherId) async {
+    print('DEBUG: Calling /sessions with teacher_id=$teacherId');
+    final response = await apiClient.dio.get(
+      '/sessions',
+      queryParameters: {'teacher_id': teacherId, 'per_page': 1000},
+    );
+    final List data = response.data['data'];
+    print('DEBUG: /sessions returned ${data.length} items for teacher $teacherId');
+    return data;
+  }
+
   Future<List<TeacherModel>> getTeachers({
     String? search,
     int page = 1,

@@ -55,6 +55,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'students.view',
             'schedules.view',
             'sessions.view',
+            'sessions.edit',
+            // Teachers features
+            'teachers.view', 'teachers.create', 'teachers.edit', 'teachers.delete',
         ]);
 
         // Senior Supervisor: everything supervisor has + analytics, users view
@@ -64,6 +67,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'students.view',
             'schedules.view',
             'sessions.view',
+            'sessions.edit',
+            // Teachers features
+            'teachers.view', 'teachers.create', 'teachers.edit', 'teachers.delete',
             'analytics.view',
             'users.view',
         ]);

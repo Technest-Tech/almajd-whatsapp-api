@@ -5,6 +5,7 @@ import 'package:shimmer/shimmer.dart';
 
 import '../../../../core/di/injection.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../data/models/session_model.dart';
 import '../bloc/session_list_bloc.dart';
 
@@ -113,13 +114,19 @@ class _SessionListView extends StatelessWidget {
           context.read<SessionListBloc>().add(SessionListRefreshRequested());
           await Future.delayed(const Duration(milliseconds: 500));
         },
-        child: ListView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
-          itemCount: state.sessions.length,
-          itemBuilder: (context, index) {
-            return _SessionCard(
-              session: state.sessions[index],
-              onTap: () => context.push('/sessions/${state.sessions[index].id}'),
+        child: BlocBuilder<AuthBloc, AuthState>(
+          builder: (context, authState) {
+            final isAdmin = authState is AuthAuthenticated && authState.user.primaryRole == 'admin';
+            return ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+              itemCount: state.sessions.length,
+              itemBuilder: (context, index) {
+                return _SessionCard(
+                  session: state.sessions[index],
+                  showSupervisor: isAdmin,
+                  onTap: () => context.push('/sessions/${state.sessions[index].id}'),
+                );
+              },
             );
           },
         ),
@@ -153,9 +160,10 @@ class _SessionListView extends StatelessWidget {
 
 class _SessionCard extends StatelessWidget {
   final SessionModel session;
+  final bool showSupervisor;
   final VoidCallback onTap;
 
-  const _SessionCard({required this.session, required this.onTap});
+  const _SessionCard({required this.session, this.showSupervisor = false, required this.onTap});
 
   Color _statusColor(String status) {
     switch (status) {
@@ -255,6 +263,23 @@ class _SessionCard extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (showSupervisor) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.supervisor_account_outlined, size: 13, color: AppColors.primary.withValues(alpha: 0.85)),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'المشرف: ${session.supervisorName ?? 'غير معيّن'}',
+                              style: TextStyle(color: AppColors.primary.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     if (session.cancellationReason != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),

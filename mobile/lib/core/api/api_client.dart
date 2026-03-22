@@ -51,16 +51,16 @@ class _AuthInterceptor extends Interceptor {
       try {
         final refreshToken = await _storage.read(key: 'refresh_token');
         if (refreshToken != null) {
+          final deviceId =
+              (await _storage.read(key: 'device_id')) ?? 'flutter_mobile_client';
           final response = await _dio.post('/auth/refresh', data: {
             'refresh_token': refreshToken,
-             'device_id': 'flutter_mobile_client',
+            'device_id': deviceId,
           });
 
           final newToken = response.data['data']['access_token'];
-          final newRefresh = response.data['data']['refresh_token'];
 
           await _storage.write(key: 'access_token', value: newToken);
-          await _storage.write(key: 'refresh_token', value: newRefresh);
 
           // Retry original request
           err.requestOptions.headers['Authorization'] = 'Bearer $newToken';

@@ -69,6 +69,9 @@ class AuthError extends AuthState {
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthRepository authRepository;
+  // Used to prevent async race conditions where an old AuthCheckStatus finishes
+  // after a successful login and overwrites AuthAuthenticated with AuthUnauthenticated.
+  int _authMutationId = 0;
 
   AuthBloc({required this.authRepository}) : super(AuthInitial()) {
     on<AuthCheckStatus>(_onCheckStatus);
@@ -79,30 +82,41 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   Future<void> _onCheckStatus(AuthCheckStatus event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
+    final mutationAtStart = _authMutationId;
     try {
       final hasToken = await authRepository.hasValidToken();
       if (hasToken) {
         final user = await authRepository.getProfile();
-        await WebSocketsClient.instance.init(authRepository.storage);
+        if (mutationAtStart != _authMutationId) return;
+        // Websocket setup should not break auth flow.
+        try {
+          await WebSocketsClient.instance.init(authRepository.storage);
+        } catch (_) {}
         emit(AuthAuthenticated(user));
       } else {
+        if (mutationAtStart != _authMutationId) return;
         emit(AuthUnauthenticated());
       }
     } catch (e, stackTrace) {
       print('AUTH CHECK ERROR: $e');
       print('STACK: $stackTrace');
+      if (mutationAtStart != _authMutationId) return;
       emit(AuthUnauthenticated());
     }
   }
 
   Future<void> _onLogin(AuthLoginRequested event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
+    _authMutationId++;
     try {
       final user = await authRepository.login(
         email: event.email,
         password: event.password,
       );
-      await WebSocketsClient.instance.init(authRepository.storage);
+      // Login should succeed even if websocket connection fails.
+      try {
+        await WebSocketsClient.instance.init(authRepository.storage);
+      } catch (_) {}
       emit(AuthAuthenticated(user));
     } catch (e) {
       String message = 'فشل تسجيل الدخول';
@@ -116,6 +130,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   Future<void> _onLogout(AuthLogoutRequested event, Emitter<AuthState> emit) async {
+    _authMutationId++;
     await authRepository.logout();
     WebSocketsClient.instance.disconnect();
     emit(AuthUnauthenticated());

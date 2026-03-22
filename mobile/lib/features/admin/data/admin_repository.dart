@@ -5,39 +5,46 @@ class AdminRepository {
 
   AdminRepository({required this.apiClient});
 
-  // ── Users ──
+  // ── Supervisors ──
 
-  Future<List<Map<String, dynamic>>> getUsers({
-    String? role,
+  Future<List<Map<String, dynamic>>> getSupervisors({
     String? search,
     int page = 1,
     int perPage = 20,
   }) async {
     final params = <String, dynamic>{'page': page, 'per_page': perPage};
-    if (role != null && role != 'all') params['role'] = role;
     if (search != null && search.isNotEmpty) params['search'] = search;
 
-    final response = await apiClient.dio.get('/admin/users', queryParameters: params);
+    final response = await apiClient.dio.get('/admin/supervisors', queryParameters: params);
     return List<Map<String, dynamic>>.from(response.data['data']);
   }
 
-  Future<Map<String, dynamic>> getUser(int id) async {
-    final response = await apiClient.dio.get('/admin/users/$id');
+  Future<Map<String, dynamic>> getSupervisor(int id) async {
+    final response = await apiClient.dio.get('/admin/supervisors/$id');
     return Map<String, dynamic>.from(response.data['data']);
   }
 
-  Future<Map<String, dynamic>> createUser(Map<String, dynamic> data) async {
-    final response = await apiClient.dio.post('/admin/users', data: data);
+  Future<Map<String, dynamic>> createSupervisor(Map<String, dynamic> data) async {
+    final response = await apiClient.dio.post('/admin/supervisors', data: data);
     return Map<String, dynamic>.from(response.data['data']);
   }
 
-  Future<Map<String, dynamic>> updateUser(int id, Map<String, dynamic> data) async {
-    final response = await apiClient.dio.put('/admin/users/$id', data: data);
+  Future<Map<String, dynamic>> updateSupervisor(int id, Map<String, dynamic> data) async {
+    final response = await apiClient.dio.put('/admin/supervisors/$id', data: data);
     return Map<String, dynamic>.from(response.data['data']);
   }
 
-  Future<void> deleteUser(int id) async {
-    await apiClient.dio.delete('/admin/users/$id');
+  Future<void> deleteSupervisor(int id) async {
+    await apiClient.dio.delete('/admin/supervisors/$id');
+  }
+
+  Future<Map<String, dynamic>> getSupervisorPerformance(int id, {String? from, String? to}) async {
+    final params = <String, dynamic>{};
+    if (from != null) params['from'] = from;
+    if (to != null) params['to'] = to;
+    
+    final response = await apiClient.dio.get('/admin/supervisors/$id/performance', queryParameters: params);
+    return Map<String, dynamic>.from(response.data['data']);
   }
 
   // ── Analytics ──

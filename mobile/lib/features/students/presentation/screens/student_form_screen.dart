@@ -20,13 +20,11 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _whatsappController = TextEditingController();
-  final _notesController = TextEditingController();
   String _status = 'active';
   bool _isSaving = false;
   bool _isLoadingStudent = false;
 
   String? _selectedCountry;
-  String? _selectedCurrency;
 
   static const _statusOptions = [
     {'key': 'active', 'label': 'نشط'},
@@ -42,16 +40,6 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
     'ماليزيا', 'نيجيريا', 'السنغال', 'المملكة المتحدة', 'أمريكا', 'كندا',
     'أستراليا', 'ألمانيا', 'فرنسا', 'هولندا', 'السويد', 'النرويج',
     'الدنمارك', 'بلجيكا', 'سويسرا', 'النمسا', 'إسبانيا', 'إيطاليا',
-  ];
-
-  static const _currencies = [
-    'SAR - ريال سعودي', 'AED - درهم إماراتي', 'EGP - جنيه مصري',
-    'KWD - دينار كويتي', 'QAR - ريال قطري', 'BHD - دينار بحريني',
-    'OMR - ريال عُماني', 'JOD - دينار أردني', 'LBP - ليرة لبنانية',
-    'USD - دولار أمريكي', 'GBP - جنيه إسترليني', 'EUR - يورو',
-    'CAD - دولار كندي', 'AUD - دولار أسترالي', 'TRY - ليرة تركية',
-    'IQD - دينار عراقي', 'DZD - دينار جزائري', 'MAD - درهم مغربي',
-    'TND - دينار تونسي', 'SDG - جنيه سوداني', 'PKR - روبية باكستانية',
   ];
 
   @override
@@ -70,16 +58,8 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
         setState(() {
           _nameController.text = student.name;
           _whatsappController.text = student.whatsappNumber ?? '';
-          _notesController.text = student.notes ?? '';
           _status = student.status;
           _selectedCountry = student.country;
-          // Match stored code (e.g. "SAR") with the full dropdown label
-          if (student.currency != null) {
-            _selectedCurrency = _currencies.firstWhere(
-              (c) => c.startsWith(student.currency!),
-              orElse: () => student.currency!,
-            );
-          }
           _isLoadingStudent = false;
         });
       }
@@ -92,7 +72,6 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
   void dispose() {
     _nameController.dispose();
     _whatsappController.dispose();
-    _notesController.dispose();
     super.dispose();
   }
 
@@ -176,29 +155,6 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Currency (Searchable DropdownMenu)
-            _buildLabel('العملة', Icons.payments_outlined),
-            const SizedBox(height: 6),
-            DropdownMenu<String>(
-              key: ValueKey('currency_$_selectedCurrency'),
-              width: MediaQuery.of(context).size.width - 32,
-              initialSelection: _selectedCurrency,
-              hintText: 'ابحث واختر العملة',
-              inputDecorationTheme: InputDecorationTheme(
-                filled: true,
-                fillColor: AppColors.darkCard,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              dropdownMenuEntries: _currencies
-                  .map((c) => DropdownMenuEntry(value: c, label: c))
-                  .toList(),
-              onSelected: (v) => setState(() => _selectedCurrency = v),
-            ),
-            const SizedBox(height: 12),
-
             // Status
             DropdownButtonFormField<String>(
               value: _status,
@@ -211,22 +167,6 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                 return DropdownMenuItem(value: opt['key'], child: Text(opt['label']!));
               }).toList(),
               onChanged: (v) => setState(() => _status = v!),
-            ),
-
-            const SizedBox(height: 28),
-
-            // ── Section: Notes ──
-            _buildSectionHeader('ملاحظات', Icons.note_alt_outlined),
-            const SizedBox(height: 12),
-
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'ملاحظات',
-                prefixIcon: Icon(Icons.note_outlined),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 3,
             ),
 
             const SizedBox(height: 32),
@@ -292,15 +232,11 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
 
     try {
       final repo = getIt<StudentRepository>();
-      // Extract just the currency code (e.g. "SAR" from "SAR - ريال سعودي")
-      final currencyCode = _selectedCurrency?.split(' - ').first;
       final data = {
         'name': _nameController.text.trim(),
         'whatsapp_number': _whatsappController.text.trim(),
         'country': _selectedCountry ?? '',
-        'currency': currencyCode ?? '',
         'status': _status,
-        'notes': _notesController.text.trim(),
       };
 
       if (widget.isEditing) {

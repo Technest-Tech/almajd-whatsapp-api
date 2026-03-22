@@ -19,13 +19,13 @@ abstract class TicketListEvent extends Equatable {
 }
 
 class TicketListFetchRequested extends TicketListEvent {
-  final String? statusFilter;
+  final String? typeFilter;
   final bool refresh;
 
-  const TicketListFetchRequested({this.statusFilter, this.refresh = false});
+  const TicketListFetchRequested({this.typeFilter, this.refresh = false});
 
   @override
-  List<Object?> get props => [statusFilter, refresh];
+  List<Object?> get props => [typeFilter, refresh];
 }
 
 class TicketListRefreshRequested extends TicketListEvent {}
@@ -222,13 +222,13 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     _setupWebsockets();
     if (!event.refresh) emit(TicketListLoading());
     try {
-      final tickets = await ticketRepository.getTickets(status: event.statusFilter);
+      final tickets = await ticketRepository.getTickets(type: event.typeFilter);
       Map<String, dynamic>? stats;
       try { stats = await ticketRepository.getStats(); } catch (_) {}
       emit(TicketListLoaded(
         tickets: tickets,
         allTickets: tickets,
-        activeFilter: event.statusFilter ?? 'all',
+        activeFilter: event.typeFilter ?? 'all',
         stats: stats,
       ));
     } catch (e) {
@@ -240,11 +240,11 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     final currentFilter = state is TicketListLoaded
         ? (state as TicketListLoaded).activeFilter
         : 'all';
-    add(TicketListFetchRequested(statusFilter: currentFilter, refresh: true));
+    add(TicketListFetchRequested(typeFilter: currentFilter, refresh: true));
   }
 
   Future<void> _onFilterChanged(TicketListFilterChanged event, Emitter<TicketListState> emit) async {
-    add(TicketListFetchRequested(statusFilter: event.status));
+    add(TicketListFetchRequested(typeFilter: event.status));
   }
 
   Future<void> _onQuickAssign(TicketQuickAssign event, Emitter<TicketListState> emit) async {

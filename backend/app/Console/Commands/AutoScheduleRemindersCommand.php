@@ -6,8 +6,8 @@ namespace App\Console\Commands;
 
 use App\Models\ClassSession;
 use App\Models\Reminder;
-use App\Models\User;
 use App\Models\WhatsappTemplate;
+use App\Services\SessionLoadBalancerService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -66,6 +66,13 @@ class AutoScheduleRemindersCommand extends Command
                         $templates, "📚 تذكير: حصة *{$session->title}* ستبدأ خلال 5 دقائق\n⏰ الوقت: {$session->start_time}\n👨‍🏫 المعلم: {$teacherName}{$zoomLinkTxt}");
                     $created++;
                 }
+                if ($teacherPhone) {
+                    $this->queueTemplate($session, 'teacher', 'before', $teacherPhone, $teacherName, $beforeTime,
+                        'teacher_before_alert', 
+                        [], 
+                        $templates, "📚 تذكير: حصتك *{$session->title}* ستبدأ خلال 5 دقائق\n👤 الطالب: {$studentName}\nيرجى الاستعداد.");
+                    $created++;
+                }
             }
 
             // ── Phase 2: AT class start — teacher gets confirmation request ──
@@ -80,7 +87,7 @@ class AutoScheduleRemindersCommand extends Command
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'at_start', $teacherPhone, $teacherName, $sessionStart,
                         'teacher_at_start_request', 
-                        ['1' => $session->title, '2' => $studentName ?? ''], 
+                        [], 
                         $templates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
                 }
@@ -100,7 +107,7 @@ class AutoScheduleRemindersCommand extends Command
                 if ($teacherPhone && $session->status === 'pending') {
                     $this->queueTemplate($session, 'teacher', 'after', $teacherPhone, $teacherName, $afterStartTime,
                         'teacher_after_5m_request', 
-                        ['1' => $session->title, '2' => $studentName ?? ''], 
+                        [], 
                         $templates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👤 الطالب: {$studentName}\n\nمرت 5 دقائق. هل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
                 }
@@ -112,7 +119,7 @@ class AutoScheduleRemindersCommand extends Command
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'post_end', $teacherPhone, $teacherName, $afterEndTime,
                         'teacher_post_end_request', 
-                        ['1' => $session->title, '2' => $studentName ?? ''], 
+                        [], 
                         $templates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
                     $created++;
                 }
@@ -130,26 +137,11 @@ class AutoScheduleRemindersCommand extends Command
     }
 
     /**
-     * Round-robin assign supervisors to unassigned sessions.
+     * Assign supervisors to unassigned sessions using load balancer.
      */
     private function assignSupervisors($sessions): void
     {
-        $unassigned = $sessions->filter(fn($s) => !$s->supervisor_id);
-        if ($unassigned->isEmpty()) return;
-
-        // Get supervisors (role: supervisor, senior_supervisor, admin)
-        $supervisors = User::whereHas('roles', function ($query) {
-            $query->whereIn('name', ['supervisor', 'senior_supervisor', 'admin']);
-        })->pluck('id')->toArray();
-        
-        if (empty($supervisors)) return;
-
-        $i = 0;
-        foreach ($unassigned as $session) {
-            $supervisorId = $supervisors[$i % count($supervisors)];
-            $session->update(['supervisor_id' => $supervisorId]);
-            $i++;
-        }
+        app(SessionLoadBalancerService::class)->distribute($sessions);
     }
 
     private function queueTemplate(

@@ -314,16 +314,23 @@ class TicketController extends Controller
         ]);
 
         $phone = trim((string) $data['phone']);
+        $providedName = isset($data['name']) ? trim((string) $data['name']) : null;
+        if ($providedName !== null && $providedName === '') {
+            $providedName = null;
+        }
 
         // Resolve or create Guardian
         $guardian = \App\Models\Guardian::where('phone', $phone)->first();
         if (!$guardian) {
             $guardian = \App\Models\Guardian::create([
-                'name'  => $data['name'] ?? $phone,
+                'name'  => $providedName ?? $phone,
                 'phone' => $phone,
             ]);
-        } elseif (!empty($data['name']) && $guardian->name === 'Unknown Contact') {
-            $guardian->update(['name' => $data['name']]);
+        } elseif ($providedName !== null) {
+            // Replace placeholders so Inbox shows the correct name.
+            if ($guardian->name === 'Unknown Contact' || $guardian->name === $phone) {
+                $guardian->update(['name' => $providedName]);
+            }
         }
 
         // Find existing open/pending ticket or create one

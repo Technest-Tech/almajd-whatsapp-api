@@ -17,60 +17,58 @@ class AdminController extends Controller
         private readonly ApiResponseService $response,
     ) {}
 
-    // ── User Management ────────────────────────────────
+    // ── Supervisor Management ────────────────────────────────
 
-    public function listUsers(Request $request): JsonResponse
+    public function listSupervisors(Request $request): JsonResponse
     {
-        $paginator = $this->adminService->listUsers(
-            filters: $request->only(['role', 'availability', 'search']),
+        $paginator = $this->adminService->listSupervisors(
+            filters: $request->only(['availability', 'search']),
             perPage: (int) $request->input('per_page', 20),
         );
 
-        return $this->response->paginated($paginator, 'Users retrieved');
+        return $this->response->paginated($paginator, 'Supervisors retrieved');
     }
 
-    public function showUser(int $id): JsonResponse
+    public function showSupervisor(int $id): JsonResponse
     {
         $user = \App\Models\User::with('roles')->findOrFail($id);
         return $this->response->success($user);
     }
 
-    public function createUser(Request $request): JsonResponse
+    public function createSupervisor(Request $request): JsonResponse
     {
         $data = $request->validate([
             'name'             => 'required|string|max:255',
             'email'            => 'required|email|unique:users,email',
             'phone'            => 'nullable|string|max:20',
             'password'         => 'required|string|min:8',
-            'role'             => 'required|in:supervisor,senior_supervisor,admin',
             'max_open_tickets' => 'nullable|integer|min:1|max:100',
         ]);
 
-        $user = $this->adminService->createUser($data);
+        $user = $this->adminService->createSupervisor($data);
 
-        return $this->response->success($user, 'User created', code: 201);
+        return $this->response->success($user, 'Supervisor created', code: 201);
     }
 
-    public function updateUser(Request $request, int $id): JsonResponse
+    public function updateSupervisor(Request $request, int $id): JsonResponse
     {
         $data = $request->validate([
             'name'             => 'sometimes|string|max:255',
             'email'            => 'sometimes|email',
             'phone'            => 'nullable|string|max:20',
             'password'         => 'nullable|string|min:8',
-            'role'             => 'nullable|in:supervisor,senior_supervisor,admin',
             'max_open_tickets' => 'nullable|integer|min:1|max:100',
         ]);
 
-        $user = $this->adminService->updateUser($id, $data);
+        $user = $this->adminService->updateSupervisor($id, $data);
 
-        return $this->response->success($user, 'User updated');
+        return $this->response->success($user, 'Supervisor updated');
     }
 
-    public function deleteUser(int $id): JsonResponse
+    public function deleteSupervisor(int $id): JsonResponse
     {
-        $this->adminService->deleteUser($id);
-        return $this->response->success(message: 'User deactivated');
+        $this->adminService->deleteSupervisor($id);
+        return $this->response->success(message: 'Supervisor deactivated');
     }
 
     // ── Analytics ──────────────────────────────────────
