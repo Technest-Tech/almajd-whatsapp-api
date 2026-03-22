@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('teachers', function (Blueprint $table) {
-            $table->string('zoom_link')->nullable()->after('whatsapp_number');
-        });
+        if (! Schema::hasColumn('teachers', 'zoom_link')) {
+            Schema::table('teachers', function (Blueprint $table) {
+                $table->string('zoom_link')->nullable();
+            });
+        }
     }
 
     /**

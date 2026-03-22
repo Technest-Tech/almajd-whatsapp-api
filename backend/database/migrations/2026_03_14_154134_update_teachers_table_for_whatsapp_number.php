@@ -11,10 +11,22 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('teachers', function (Blueprint $table) {
-            $table->renameColumn('phone', 'whatsapp_number');
-            $table->dropColumn(['email', 'notes']);
-        });
+        // Idempotent: same as 2026_03_13 (production may have run partial / alternate schema).
+        if (Schema::hasColumn('teachers', 'phone') && ! Schema::hasColumn('teachers', 'whatsapp_number')) {
+            Schema::table('teachers', function (Blueprint $table) {
+                $table->renameColumn('phone', 'whatsapp_number');
+            });
+        }
+
+        $toDrop = array_values(array_filter(
+            ['email', 'notes'],
+            static fn (string $col): bool => Schema::hasColumn('teachers', $col),
+        ));
+        if ($toDrop !== []) {
+            Schema::table('teachers', function (Blueprint $table) use ($toDrop) {
+                $table->dropColumn($toDrop);
+            });
+        }
     }
 
     /**
