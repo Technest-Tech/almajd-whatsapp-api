@@ -43,6 +43,12 @@ class SessionController extends Controller
         return $this->response->success($this->sessionService->show($id));
     }
 
+    public function pendingCount(Request $request): JsonResponse
+    {
+        $count = \App\Models\ClassSession::where('status', 'pending')->count();
+        return $this->response->success(['count' => $count]);
+    }
+
     public function updateStatus(Request $request, int $id): JsonResponse
     {
         $data = $request->validate([
