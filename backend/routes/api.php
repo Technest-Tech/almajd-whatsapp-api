@@ -226,25 +226,29 @@ Route::middleware('auth:api')->group(function () {
 
     // ── Admin ───────────────────────────────────────────
     Route::prefix('admin')->group(function () {
-        // Supervisors
-        Route::get('supervisors', [AdminController::class, 'listSupervisors'])
-            ->middleware('permission:users.view');
-        Route::get('supervisors/{id}', [AdminController::class, 'showSupervisor'])
-            ->middleware('permission:users.view');
-        Route::post('supervisors', [AdminController::class, 'createSupervisor'])
-            ->middleware('permission:users.create');
-        Route::put('supervisors/{id}', [AdminController::class, 'updateSupervisor'])
-            ->middleware('permission:users.edit');
-        Route::delete('supervisors/{id}', [AdminController::class, 'deleteSupervisor'])
-            ->middleware('permission:users.delete');
+        // Supervisor Management
+        Route::prefix('supervisors')->group(function () {
+            Route::get('/', [AdminController::class, 'listSupervisors'])
+                ->middleware('permission:users.view');
 
-        // Supervisor Performance
-        Route::get('supervisors/performance', [\App\Http\Controllers\Api\SupervisorPerformanceController::class, 'index'])
-            ->middleware('permission:users.view');
-        Route::get('supervisors/{id}/performance', [\App\Http\Controllers\Api\SupervisorPerformanceController::class, 'show'])
-            ->middleware('permission:users.view');
-        Route::get('supervisors/{id}/performance/export', [\App\Http\Controllers\Api\SupervisorPerformanceController::class, 'export'])
-            ->middleware('permission:users.view');
+            // --- Supervisor Performance Metrics ---
+            Route::get('performance', [\App\Http\Controllers\Api\SupervisorPerformanceController::class, 'index'])
+                ->middleware('permission:users.view');
+            Route::get('{id}/performance', [\App\Http\Controllers\Api\SupervisorPerformanceController::class, 'show'])
+                ->middleware('permission:users.view');
+            Route::get('{id}/performance/export', [\App\Http\Controllers\Api\SupervisorPerformanceController::class, 'export'])
+                ->middleware('permission:users.view');
+            // -------------------------------------------
+
+            Route::get('{id}', [AdminController::class, 'showSupervisor'])
+                ->middleware('permission:users.view');
+            Route::post('/', [AdminController::class, 'createSupervisor'])
+                ->middleware('permission:users.create');
+            Route::put('{id}', [AdminController::class, 'updateSupervisor'])
+                ->middleware('permission:users.edit');
+            Route::delete('{id}', [AdminController::class, 'deleteSupervisor'])
+                ->middleware('permission:users.delete');
+        });
 
         // Analytics
         Route::get('analytics', [AdminController::class, 'analytics'])
