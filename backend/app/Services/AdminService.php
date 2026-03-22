@@ -144,6 +144,23 @@ class AdminService
     private function getOverview($from, $to): array
     {
         return [
+            // Academy Stats
+            'total_students'     => \App\Models\Student::count(),
+            'active_students'    => \App\Models\Student::count(),
+            'total_teachers'     => \App\Models\User::role(['teacher', 'api'])->count(),
+            'total_schedules'    => \App\Models\Schedule::count(),
+            'active_schedules'   => \App\Models\Schedule::count(),
+            
+            // Sessions Stats
+            'total_sessions'     => \App\Models\ClassSession::whereBetween('session_date', [$from, $to])->count(),
+            'completed_sessions' => \App\Models\ClassSession::whereBetween('session_date', [$from, $to])->where('status', 'completed')->count(),
+            'cancelled_sessions' => \App\Models\ClassSession::whereBetween('session_date', [$from, $to])->where('status', 'cancelled')->count(),
+            
+            // Reminders Stats
+            'pending_reminders'  => \App\Models\Reminder::whereBetween('created_at', [$from, $to])->where('status', 'pending')->count(),
+            'sent_reminders'     => \App\Models\Reminder::whereBetween('created_at', [$from, $to])->where('status', 'sent')->count(),
+
+            // Ticket & Supervisor Analytics
             'total_tickets'    => Ticket::whereBetween('created_at', [$from, $to])->count(),
             'resolved_tickets' => Ticket::whereBetween('created_at', [$from, $to])
                                        ->where('status', TicketStatus::Resolved)->count(),
