@@ -137,10 +137,65 @@ class TemplateService
 
         foreach ($contents as $item) {
             $sid = $item['sid'] ?? null;
-            if (!$sid) continue;
+            if (!$sid) {
+                continue;
+            }
+
+            $friendlyName = $item['friendly_name'] ?? null;
+
+            $types = $item['types'] ?? [];
+            $bodyTemplate = '';
+            if (isset($types['twilio/text']['body'])) {
+                $bodyTemplate = $types['twilio/text']['body'];
+            } elseif (isset($types['twilio/media']['body'])) {
+                $bodyTemplate = $types['twilio/media']['body'];
+            } else {
+                $bodyTemplate = json_encode($types);
+            }
+
+            $variablesSchema = [];
+            $variables = $item['variables'] ?? [];
+            if (!empty($variables)) {
+                foreach ($variables as $key => $val) {
+                    $variablesSchema[$key] = 'string';
+                }
+            }
 
             $template = WhatsappTemplate::where('content_sid', $sid)->first();
-            if (!$template) continue;
+
+            if (!$template && is_string($friendlyName) && $friendlyName !== '') {
+                $template = WhatsappTemplate::where('name', $friendlyName)->first();
+            }
+
+            if ($template) {
+                $updates = [
+                    'content_sid' => $sid,
+                ];
+                if (is_string($friendlyName) && $friendlyName !== '') {
+                    $updates['name'] = $friendlyName;
+                }
+                if ($bodyTemplate !== '') {
+                    $updates['body_template'] = $bodyTemplate;
+                }
+                if (!empty($item['language'])) {
+                    $updates['language'] = $item['language'];
+                }
+                if (!empty($variablesSchema)) {
+                    $updates['variables_schema'] = $variablesSchema;
+                }
+                $template->update($updates);
+            } else {
+                $template = WhatsappTemplate::create([
+                    'name'             => $friendlyName ?? 'template_' . substr($sid, -6),
+                    'language'         => $item['language'] ?? 'ar',
+                    'category'         => 'UTILITY',
+                    'body_template'    => $bodyTemplate ?: 'No body content',
+                    'header_type'      => 'none',
+                    'variables_schema' => $variablesSchema,
+                    'content_sid'      => $sid,
+                    'status'           => TemplateStatus::Pending,
+                ]);
+            }
 
             // Fetch specific approval request status for this template
             $approvalResponse = Http::withBasicAuth($this->accountSid, $this->authToken)
