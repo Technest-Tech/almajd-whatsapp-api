@@ -9,7 +9,7 @@ use App\Models\DeviceSession;
 use App\Models\User;
 use App\Services\SessionLoadBalancerService;
 use Illuminate\Support\Str;
-use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthService
 {
@@ -104,9 +104,10 @@ class AuthService
             ->delete();
 
         try {
-            JWTAuth::invalidate(JWTAuth::getToken());
-        } catch (\Exception) {
-            // Token may already be invalid — ignore
+            // Uses request token; invalidates via blacklist when enabled (see config/jwt.php)
+            auth('api')->logout();
+        } catch (\Throwable) {
+            // Missing token, blacklist off, or already invalidated
         }
     }
 
