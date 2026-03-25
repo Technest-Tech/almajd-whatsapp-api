@@ -8,6 +8,7 @@ use App\Models\ClassSession;
 use App\Models\Reminder;
 use App\Models\WhatsappTemplate;
 use App\Services\SessionLoadBalancerService;
+use App\Support\ReminderTemplateResolver;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -28,8 +29,8 @@ class AutoScheduleRemindersCommand extends Command
             ->whereIn('status', ['scheduled', 'rescheduled', 'pending', 'running'])
             ->get();
 
-        // Load approved templates for automation
-        $templates = WhatsappTemplate::where('status', 'approved')->get()->keyBy('name');
+        // Load approved templates for automation (resolve by logical key + optional config name/SID)
+        $approvedTemplates = WhatsappTemplate::where('status', 'approved')->get();
 
         // ── Round-robin supervisor assignment ──
         $this->assignSupervisors($sessions);
@@ -63,14 +64,14 @@ class AutoScheduleRemindersCommand extends Command
                     $this->queueTemplate($session, 'student', 'before', $studentPhone, $studentName, $beforeTime,
                         'student_before_reminder', 
                         ['1' => $session->title, '2' => $session->start_time, '3' => $teacherName ?? '', '4' => $teacher->zoom_link ?? ''], 
-                        $templates, "📚 تذكير: حصة *{$session->title}* ستبدأ خلال 5 دقائق\n⏰ الوقت: {$session->start_time}\n👨‍🏫 المعلم: {$teacherName}{$zoomLinkTxt}");
+                        $approvedTemplates, "📚 تذكير: حصة *{$session->title}* ستبدأ خلال 5 دقائق\n⏰ الوقت: {$session->start_time}\n👨‍🏫 المعلم: {$teacherName}{$zoomLinkTxt}");
                     $created++;
                 }
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'before', $teacherPhone, $teacherName, $beforeTime,
                         'teacher_before_alert', 
                         [], 
-                        $templates, "📚 تذكير: حصتك *{$session->title}* ستبدأ خلال 5 دقائق\n👤 الطالب: {$studentName}\nيرجى الاستعداد.");
+                        $approvedTemplates, "📚 تذكير: حصتك *{$session->title}* ستبدأ خلال 5 دقائق\n👤 الطالب: {$studentName}\nيرجى الاستعداد.");
                     $created++;
                 }
             }
@@ -81,14 +82,14 @@ class AutoScheduleRemindersCommand extends Command
                     $this->queueTemplate($session, 'student', 'at_start', $studentPhone, $studentName, $sessionStart,
                         'student_at_start_reminder', 
                         ['1' => $session->title, '2' => $teacherName ?? '', '3' => $teacher->zoom_link ?? ''], 
-                        $templates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً{$zoomLinkTxt}");
+                        $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً{$zoomLinkTxt}");
                     $created++;
                 }
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'at_start', $teacherPhone, $teacherName, $sessionStart,
                         'teacher_at_start_request', 
                         [], 
-                        $templates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
+                        $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
                 }
             }
@@ -100,7 +101,7 @@ class AutoScheduleRemindersCommand extends Command
                     $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $afterStartTime,
                         'student_after_5m_alert', 
                         ['1' => $session->title, '2' => $teacherName ?? '', '3' => $teacher->zoom_link ?? ''], 
-                        $templates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً!{$zoomLinkTxt}");
+                        $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً!{$zoomLinkTxt}");
                     $created++;
                 }
                 // Only send teacher reminder if class is still pending
@@ -108,7 +109,7 @@ class AutoScheduleRemindersCommand extends Command
                     $this->queueTemplate($session, 'teacher', 'after', $teacherPhone, $teacherName, $afterStartTime,
                         'teacher_after_5m_request', 
                         [], 
-                        $templates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👤 الطالب: {$studentName}\n\nمرت 5 دقائق. هل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
+                        $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👤 الطالب: {$studentName}\n\nمرت 5 دقائق. هل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
                 }
             }
@@ -120,7 +121,7 @@ class AutoScheduleRemindersCommand extends Command
                     $this->queueTemplate($session, 'teacher', 'post_end', $teacherPhone, $teacherName, $afterEndTime,
                         'teacher_post_end_request', 
                         [], 
-                        $templates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
+                        $approvedTemplates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
                     $created++;
                 }
             }
@@ -153,20 +154,14 @@ class AutoScheduleRemindersCommand extends Command
         Carbon $scheduledAt,
         string $templateName,
         array $params,
-        $templates,
+        $approvedTemplates,
         string $fallbackBody,
         ?string $confirmationStatus = null
     ): void {
-        $template = $templates->get($templateName);
+        $template = ReminderTemplateResolver::resolve($templateName, $approvedTemplates);
         $templateSid = $template?->content_sid;
-        
-        $body = $fallbackBody;
-        if ($template) {
-            $body = $template->body_template;
-            foreach ($params as $key => $val) {
-                $body = str_replace("{{" . $key . "}}", (string)$val, $body);
-            }
-        }
+
+        $body = ReminderTemplateResolver::resolveBody($template, $params, $fallbackBody);
 
         $this->createReminder(
             $session, $recipientType, $phase, $phone, $name, 

@@ -270,13 +270,13 @@ class TicketController extends Controller
     }
 
     /**
-     * GET /api/tickets/{ticket}/messages?page=1&per_page=30
+     * GET /api/tickets/{ticket}/messages?page=1&per_page=15
      * Paginated messages — newest first (reversed for chat display)
      */
     public function messages(Request $request, int $ticket): JsonResponse
     {
         $ticketModel = \App\Models\Ticket::findOrFail($ticket);
-        $perPage = min((int) $request->input('per_page', 30), 100);
+        $perPage = min((int) $request->input('per_page', 15), 100);
 
         $paginator = $ticketModel->messages()
             ->orderByDesc('id')

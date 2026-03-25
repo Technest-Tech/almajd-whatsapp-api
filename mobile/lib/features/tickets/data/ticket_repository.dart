@@ -111,7 +111,7 @@ class TicketRepository {
   }
 
   /// Get paginated messages for a ticket (newest first, reversed for display)
-  Future<Map<String, dynamic>> getMessages(int ticketId, {int page = 1, int perPage = 30}) async {
+  Future<Map<String, dynamic>> getMessages(int ticketId, {int page = 1, int perPage = 15}) async {
     final response = await apiClient.dio.get(
       '/tickets/$ticketId/messages',
       queryParameters: {'page': page, 'per_page': perPage},

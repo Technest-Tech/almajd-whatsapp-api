@@ -15,8 +15,11 @@ use App\Models\Guardian;
 use App\Models\Reminder;
 use App\Models\Ticket;
 use App\Models\WhatsappMessage;
+use App\Models\WhatsappTemplate;
 use App\Services\ApiResponseService;
 use App\Services\SessionService;
+use App\Services\WhatsApp\WhatsAppServiceInterface;
+use App\Support\ReminderTemplateResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -105,22 +108,38 @@ class SessionController extends Controller
         $name = null;
         $message = '';
 
+        $teacher = $session->teacher;
+        $teacherName = $teacher?->name ?? 'غير محدد';
+        $studentName = $session->student?->name ?? 'غير محدد';
+
         if ($recipientType === 'student') {
             $student = $session->student;
             $phone = $student?->guardian?->phone ?? $student?->phone;
             $name = $student?->name;
-            $teacherName = $session->teacher?->name ?? 'غير محدد';
+            $logicalTemplateKey = 'student_before_reminder';
+            $templateParams = [
+                '1' => $session->title,
+                '2' => $session->start_time,
+                '3' => $teacherName,
+                '4' => $teacher?->zoom_link ?? '',
+            ];
             $message = "📚 تذكير: لديك حصة *{$session->title}*\n⏰ الوقت: {$session->start_time}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الحضور";
         } else {
-            $phone = $session->teacher?->phone;
-            $name = $session->teacher?->name;
-            $studentName = $session->student?->name ?? 'غير محدد';
+            $phone = $teacher?->whatsapp_number;
+            $name = $teacher?->name;
+            $logicalTemplateKey = 'teacher_before_alert';
+            $templateParams = [];
             $message = "📚 تذكير: لديك حصة *{$session->title}*\n⏰ الوقت: {$session->start_time}\n👤 الطالب: {$studentName}\nيرجى الحضور";
         }
 
         if (!$phone) {
             return $this->response->error('رقم الهاتف غير متوفر', 422);
         }
+
+        $approved = WhatsappTemplate::where('status', 'approved')->get();
+        $waTemplate = ReminderTemplateResolver::resolve($logicalTemplateKey, $approved);
+        $templateSid = $waTemplate?->content_sid;
+        $message = ReminderTemplateResolver::resolveBody($waTemplate, $templateParams, $message);
 
         // Create reminder record
         $reminder = Reminder::create([
@@ -130,22 +149,32 @@ class SessionController extends Controller
             'class_session_id' => $session->id,
             'recipient_phone'  => $phone,
             'recipient_name'   => $name,
+            'template_name'    => $logicalTemplateKey,
+            'template_sid'     => $templateSid,
+            'template_params'  => $templateParams,
             'message_body'     => $message,
             'scheduled_at'     => now(),
             'status'           => 'pending',
         ]);
 
-        // Try sending via WhatsApp
         try {
-            $whatsAppService = app(\App\Services\WhatsApp\WhatsAppServiceInterface::class);
-            $whatsAppService->sendText(to: $phone, message: $message);
+            $whatsAppService = app(WhatsAppServiceInterface::class);
+            if (!empty($templateSid)) {
+                $whatsAppService->sendTemplate(
+                    to: $phone,
+                    templateName: $templateSid,
+                    params: $templateParams,
+                    language: 'ar',
+                );
+            } else {
+                $whatsAppService->sendText(to: $phone, message: $message);
+            }
             $reminder->update(['status' => 'sent', 'sent_at' => now()]);
         } catch (\Throwable $e) {
-            Log::error("Reminder send failed: " . $e->getMessage());
+            Log::error('Reminder send failed: ' . $e->getMessage());
             $reminder->update(['status' => 'failed', 'failure_reason' => $e->getMessage()]);
         }
 
-        // Create inbox message (always, regardless of send success)
         $inboxResult = $this->createInboxMessage($phone, $name, $message);
 
         return $this->response->success([

@@ -50,6 +50,34 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Session reminder templates (Twilio Content / Meta approved)
+    |--------------------------------------------------------------------------
+    | Auto-scheduled reminders look up WhatsappTemplate by logical key (e.g. student_before_reminder).
+    | If your DB row uses Twilio friendly_name from sync, set the matching env to that name, or set
+    | *_SID to the Content SID (HX...). Empty env = use logical key as DB name.
+    */
+    'reminder_templates' => [
+        'student_before_reminder'   => env('WHATSAPP_REMINDER_STUDENT_BEFORE'),
+        'teacher_before_alert'      => env('WHATSAPP_REMINDER_TEACHER_BEFORE'),
+        'student_at_start_reminder' => env('WHATSAPP_REMINDER_STUDENT_AT_START'),
+        'teacher_at_start_request'  => env('WHATSAPP_REMINDER_TEACHER_AT_START'),
+        'student_after_5m_alert'    => env('WHATSAPP_REMINDER_STUDENT_AFTER_5M'),
+        'teacher_after_5m_request'  => env('WHATSAPP_REMINDER_TEACHER_AFTER_5M'),
+        'teacher_post_end_request'  => env('WHATSAPP_REMINDER_TEACHER_POST_END'),
+    ],
+
+    'reminder_template_sids' => [
+        'student_before_reminder'   => env('WHATSAPP_REMINDER_STUDENT_BEFORE_SID'),
+        'teacher_before_alert'      => env('WHATSAPP_REMINDER_TEACHER_BEFORE_SID'),
+        'student_at_start_reminder' => env('WHATSAPP_REMINDER_STUDENT_AT_START_SID'),
+        'teacher_at_start_request'  => env('WHATSAPP_REMINDER_TEACHER_AT_START_SID'),
+        'student_after_5m_alert'    => env('WHATSAPP_REMINDER_STUDENT_AFTER_5M_SID'),
+        'teacher_after_5m_request'  => env('WHATSAPP_REMINDER_TEACHER_AFTER_5M_SID'),
+        'teacher_post_end_request'  => env('WHATSAPP_REMINDER_TEACHER_POST_END_SID'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Retry Configuration
     |--------------------------------------------------------------------------
     */

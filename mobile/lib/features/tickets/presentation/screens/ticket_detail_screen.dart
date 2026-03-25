@@ -36,6 +36,8 @@ class TicketDetailScreen extends StatefulWidget {
 
 class _TicketDetailScreenState extends State<TicketDetailScreen>
     with TickerProviderStateMixin {
+  static const int _chatPageSize = 15;
+
   // ── Controllers ──
   final _messageController = TextEditingController();
   final _itemScrollController = ItemScrollController();
@@ -55,6 +57,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   int _currentPage = 1;
   int _lastPage = 1;
   bool _isLoadingMore = false;
+  bool _loadOlderInFlight = false;
 
   // ── Audio Recording ──
   final _audioRecorder = AudioRecorder();
@@ -106,8 +109,12 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       if (show != _showScrollToBottom) {
         setState(() => _showScrollToBottom = show);
       }
-      // Load older messages when scrolling near the top
-      if (firstVisible <= 3 && !_isLoadingMore && _currentPage < _lastPage) {
+      // Load older messages when scrolling near the top (not during initial open scroll)
+      if (!_isLoading &&
+          firstVisible <= 3 &&
+          !_loadOlderInFlight &&
+          !_isLoadingMore &&
+          _currentPage < _lastPage) {
         _loadOlderMessages();
       }
     });
@@ -235,8 +242,12 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       final repo = getIt<TicketRepository>();
       // Load ticket metadata (for app bar: name, phone, status)
       final ticket = await repo.getTicket(widget.ticketId);
-      // Load first page of messages (newest 30)
-      final result = await repo.getMessages(widget.ticketId, page: 1, perPage: 30);
+      // First page: latest messages only
+      final result = await repo.getMessages(
+        widget.ticketId,
+        page: 1,
+        perPage: _chatPageSize,
+      );
       final messages = result['messages'] as List<MessageModel>;
 
       if (mounted) {
@@ -269,33 +280,69 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     }
   }
 
-  /// Load older messages when scrolling up (infinite scroll)
+  /// Load older messages when scrolling up (15 per page, same as initial load)
   Future<void> _loadOlderMessages() async {
-    if (_isLoadingMore || _currentPage >= _lastPage) return;
-    setState(() => _isLoadingMore = true);
+    if (_loadOlderInFlight || _isLoadingMore || _currentPage >= _lastPage) {
+      return;
+    }
+
+    final positions = _positionsListener.itemPositions.value;
+    int? anchorIndex;
+    var anchorLeading = 0.0;
+    if (positions.isNotEmpty) {
+      final top = positions.reduce((a, b) => a.index < b.index ? a : b);
+      anchorIndex = top.index;
+      anchorLeading = top.itemLeadingEdge;
+    }
+
+    _loadOlderInFlight = true;
+    if (mounted) setState(() => _isLoadingMore = true);
 
     try {
       final repo = getIt<TicketRepository>();
       final result = await repo.getMessages(
         widget.ticketId,
         page: _currentPage + 1,
-        perPage: 30,
+        perPage: _chatPageSize,
       );
       final olderMessages = result['messages'] as List<MessageModel>;
 
-      if (mounted && olderMessages.isNotEmpty) {
+      if (!mounted) return;
+
+      if (olderMessages.isEmpty) {
         setState(() {
-          // Prepend older messages at the beginning
-          _messages.insertAll(0, olderMessages);
+          _isLoadingMore = false;
           _currentPage = result['current_page'] as int;
           _lastPage = result['last_page'] as int;
-          _isLoadingMore = false;
         });
-      } else {
-        if (mounted) setState(() => _isLoadingMore = false);
+        return;
+      }
+
+      final added = olderMessages.length;
+      setState(() {
+        _messages.insertAll(0, olderMessages);
+        _currentPage = result['current_page'] as int;
+        _lastPage = result['last_page'] as int;
+        _isLoadingMore = false;
+      });
+
+      // Keep the same messages in view after prepending (indices shift by [added])
+      if (anchorIndex != null && added > 0 && _itemScrollController.isAttached) {
+        final newIndex = anchorIndex + added;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_itemScrollController.isAttached) return;
+          _itemScrollController.scrollTo(
+            index: newIndex,
+            duration: Duration.zero,
+            curve: Curves.linear,
+            alignment: anchorLeading,
+          );
+        });
       }
     } catch (_) {
       if (mounted) setState(() => _isLoadingMore = false);
+    } finally {
+      _loadOlderInFlight = false;
     }
   }
 
