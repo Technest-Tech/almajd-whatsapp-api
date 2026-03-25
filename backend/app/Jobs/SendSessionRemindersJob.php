@@ -38,11 +38,21 @@ class SendSessionRemindersJob implements ShouldQueue
     {
         $dueReminders = Reminder::where('status', 'pending')
             ->where('scheduled_at', '<=', now())
+            ->orderBy('scheduled_at')
+            ->orderByRaw("CASE reminder_phase WHEN 'before' THEN 1 WHEN 'at_start' THEN 2 WHEN 'after' THEN 3 WHEN 'post_end' THEN 4 ELSE 5 END")
             ->limit(50)
             ->get();
 
         foreach ($dueReminders as $reminder) {
             try {
+                if ($this->shouldSkipReminder($reminder)) {
+                    $reminder->update([
+                        'status'         => 'cancelled',
+                        'failure_reason' => 'لم يعد ينطبق على حالة الحصة',
+                    ]);
+                    continue;
+                }
+
                 // Send via WhatsApp Template API if SID exists, else fallback to text
                 if (!empty($reminder->template_sid)) {
                     $whatsAppService->sendTemplate(
@@ -152,5 +162,34 @@ class SendSessionRemindersJob implements ShouldQueue
         } catch (\Throwable $e) {
             Log::warning("Failed to create inbox message for reminder #{$reminder->id}: {$e->getMessage()}");
         }
+    }
+
+    /**
+     * Skip reminders that no longer make sense for the current session state.
+     */
+    private function shouldSkipReminder(Reminder $reminder): bool
+    {
+        if ($reminder->type !== 'session_reminder' || !$reminder->class_session_id) {
+            return false;
+        }
+
+        $session = ClassSession::query()->find($reminder->class_session_id);
+        if (!$session) {
+            return true;
+        }
+
+        if (in_array($session->status, ['completed', 'cancelled'], true)) {
+            return true;
+        }
+
+        // Teacher "after" only if class moved past pure "scheduled" (at_start already fired or equivalent)
+        if ($reminder->reminder_phase === 'after' && $reminder->recipient_type === 'teacher') {
+            $started = in_array($session->status, ['pending', 'running', 'waiting', 'rescheduled'], true);
+            if (!$started && $session->status === 'scheduled') {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -21,7 +21,7 @@ class AutoScheduleRemindersCommand extends Command
     {
         $academyTz = env('ACADEMY_TIMEZONE', 'Africa/Cairo');
         $todayLocal = Carbon::today($academyTz); // The local date e.g. 2026-03-15
-        $now = Carbon::now(); // System UTC now
+        $now = Carbon::now('UTC');
 
         // Get all scheduled sessions for today that haven't been cancelled
         $sessions = ClassSession::with(['student.guardian', 'teacher'])
@@ -38,9 +38,7 @@ class AutoScheduleRemindersCommand extends Command
         $created = 0;
 
         foreach ($sessions as $session) {
-            // Parse using the local academy timezone, then convert to UTC for accurate cron comparison
-            $sessionStart = Carbon::parse($todayLocal->format('Y-m-d') . ' ' . $session->start_time, $academyTz)->setTimezone('UTC');
-            $sessionEnd = Carbon::parse($todayLocal->format('Y-m-d') . ' ' . $session->end_time, $academyTz)->setTimezone('UTC');
+            [$sessionStart, $sessionEnd, $startTimeDisp] = $this->sessionBoundsUtc($session, $todayLocal, $academyTz);
 
             $student = $session->student;
             $teacher = $session->teacher;
@@ -53,62 +51,74 @@ class AutoScheduleRemindersCommand extends Command
             }
 
             $teacherPhone = $teacher?->whatsapp_number;
-            $teacherName = $teacher?->name;
+            $teacherName = $teacher?->name ?? '';
+            $zoomUrl = $this->normalizeZoomLink($teacher?->zoom_link);
+            $zoomLinkTxt = $zoomUrl !== '' ? "\n🔗 رابط الزوم: {$zoomUrl}" : '';
 
-            // ── Phase 1: 5 min BEFORE class ──
+            // Same variable order as Meta templates: 1=title 2=time 3=teacher 4=zoom
+            $studentVars = [
+                '1' => $session->title,
+                '2' => $startTimeDisp,
+                '3' => $teacherName,
+                '4' => $zoomUrl,
+            ];
+
+            // ── Phase 1: 5 min BEFORE class (still queue if we skipped earlier runs) ──
             $beforeTime = $sessionStart->copy()->subMinutes(5);
-            $zoomLinkTxt = $teacher->zoom_link ? "\n🔗 رابط الزوم: {$teacher->zoom_link}" : "";
-            
-            if ($beforeTime->isAfter($now)) {
+            if ($now->lt($sessionStart)) {
+                $sendAt = $beforeTime->gt($now) ? $beforeTime : $now->copy();
                 if ($studentPhone) {
-                    $this->queueTemplate($session, 'student', 'before', $studentPhone, $studentName, $beforeTime,
-                        'student_before_reminder', 
-                        ['1' => $session->title, '2' => $session->start_time, '3' => $teacherName ?? '', '4' => $teacher->zoom_link ?? ''], 
-                        $approvedTemplates, "📚 تذكير: حصة *{$session->title}* ستبدأ خلال 5 دقائق\n⏰ الوقت: {$session->start_time}\n👨‍🏫 المعلم: {$teacherName}{$zoomLinkTxt}");
+                    $this->queueTemplate($session, 'student', 'before', $studentPhone, $studentName, $sendAt,
+                        'student_before_reminder',
+                        $studentVars,
+                        $approvedTemplates, "📚 تذكير: حصة *{$session->title}* ستبدأ خلال 5 دقائق\n⏰ الوقت: {$startTimeDisp}\n👨‍🏫 المعلم: {$teacherName}{$zoomLinkTxt}");
                     $created++;
                 }
                 if ($teacherPhone) {
-                    $this->queueTemplate($session, 'teacher', 'before', $teacherPhone, $teacherName, $beforeTime,
-                        'teacher_before_alert', 
-                        [], 
+                    $this->queueTemplate($session, 'teacher', 'before', $teacherPhone, $teacherName, $sendAt,
+                        'teacher_before_alert',
+                        [],
                         $approvedTemplates, "📚 تذكير: حصتك *{$session->title}* ستبدأ خلال 5 دقائق\n👤 الطالب: {$studentName}\nيرجى الاستعداد.");
                     $created++;
                 }
             }
 
-            // ── Phase 2: AT class start — teacher gets confirmation request ──
-            if ($sessionStart->isAfter($now)) {
+            // ── Phase 2: AT class start (queue until class ends so late auto-schedule still creates it) ──
+            if ($now->lt($sessionEnd)) {
+                $sendAt = $sessionStart->gt($now) ? $sessionStart : $now->copy();
                 if ($studentPhone) {
-                    $this->queueTemplate($session, 'student', 'at_start', $studentPhone, $studentName, $sessionStart,
-                        'student_at_start_reminder', 
-                        ['1' => $session->title, '2' => $teacherName ?? '', '3' => $teacher->zoom_link ?? ''], 
-                        $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً{$zoomLinkTxt}");
+                    $this->queueTemplate($session, 'student', 'at_start', $studentPhone, $studentName, $sendAt,
+                        'student_at_start_reminder',
+                        $studentVars,
+                        $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n⏰ الوقت: {$startTimeDisp}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً{$zoomLinkTxt}");
                     $created++;
                 }
                 if ($teacherPhone) {
-                    $this->queueTemplate($session, 'teacher', 'at_start', $teacherPhone, $teacherName, $sessionStart,
-                        'teacher_at_start_request', 
-                        [], 
+                    $this->queueTemplate($session, 'teacher', 'at_start', $teacherPhone, $teacherName, $sendAt,
+                        'teacher_at_start_request',
+                        [],
                         $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
                 }
             }
 
-            // ── Phase 3: 5 min AFTER class start ──
+            // ── Phase 3: 5 min AFTER class start (don’t skip if auto-schedule ran late) ──
             $afterStartTime = $sessionStart->copy()->addMinutes(5);
-            if ($afterStartTime->isAfter($now)) {
+            $afterPhaseExpires = $sessionStart->copy()->addHours(2);
+            if ($now->lt($sessionEnd) && $now->lt($afterPhaseExpires)) {
+                $sendAt = $afterStartTime->gt($now) ? $afterStartTime : $now->copy();
                 if ($studentPhone) {
-                    $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $afterStartTime,
-                        'student_after_5m_alert', 
-                        ['1' => $session->title, '2' => $teacherName ?? '', '3' => $teacher->zoom_link ?? ''], 
-                        $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً!{$zoomLinkTxt}");
+                    $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $sendAt,
+                        'student_after_5m_alert',
+                        $studentVars,
+                        $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n⏰ {$startTimeDisp}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً!{$zoomLinkTxt}");
                     $created++;
                 }
-                // Only send teacher reminder if class is still pending
-                if ($teacherPhone && $session->status === 'pending') {
-                    $this->queueTemplate($session, 'teacher', 'after', $teacherPhone, $teacherName, $afterStartTime,
-                        'teacher_after_5m_request', 
-                        [], 
+                // Always queue (session is still `scheduled` here); send job skips if session already completed/cancelled.
+                if ($teacherPhone) {
+                    $this->queueTemplate($session, 'teacher', 'after', $teacherPhone, $teacherName, $sendAt,
+                        'teacher_after_5m_request',
+                        [],
                         $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👤 الطالب: {$studentName}\n\nمرت 5 دقائق. هل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
                 }
@@ -116,11 +126,12 @@ class AutoScheduleRemindersCommand extends Command
 
             // ── Phase 4: 5 min AFTER class END — completion confirmation ──
             $afterEndTime = $sessionEnd->copy()->addMinutes(5);
-            if ($afterEndTime->isAfter($now)) {
+            if ($now->lt($sessionEnd->copy()->addDay())) {
+                $sendAt = $afterEndTime->gt($now) ? $afterEndTime : $now->copy();
                 if ($teacherPhone) {
-                    $this->queueTemplate($session, 'teacher', 'post_end', $teacherPhone, $teacherName, $afterEndTime,
-                        'teacher_post_end_request', 
-                        [], 
+                    $this->queueTemplate($session, 'teacher', 'post_end', $teacherPhone, $teacherName, $sendAt,
+                        'teacher_post_end_request',
+                        [],
                         $approvedTemplates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
                     $created++;
                 }
@@ -135,6 +146,66 @@ class AutoScheduleRemindersCommand extends Command
         }
 
         $this->info("✅ Scheduled {$created} reminders for " . $sessions->count() . " sessions.");
+    }
+
+    /**
+     * Session start/end in UTC plus a short local time label for template {{2}}.
+     *
+     * @return array{0: Carbon, 1: Carbon, 2: string}
+     */
+    private function sessionBoundsUtc(ClassSession $session, Carbon $todayLocal, string $academyTz): array
+    {
+        $dateStr = $session->session_date->format('Y-m-d');
+        $startTime = $session->start_time;
+        $endTime = $session->end_time;
+
+        if ($session->status === 'rescheduled'
+            && $session->rescheduled_date
+            && $session->rescheduled_start_time
+            && $session->rescheduled_end_time) {
+            $dateStr = $session->rescheduled_date->format('Y-m-d');
+            $startTime = $session->rescheduled_start_time;
+            $endTime = $session->rescheduled_end_time;
+        }
+
+        $startStr = $this->formatTimeForParse($startTime);
+        $endStr = $this->formatTimeForParse($endTime);
+
+        $sessionStart = Carbon::parse("{$dateStr} {$startStr}", $academyTz)->utc();
+        $sessionEnd = Carbon::parse("{$dateStr} {$endStr}", $academyTz)->utc();
+
+        $startTimeDisp = strlen($startStr) >= 5 ? substr($startStr, 0, 5) : $startStr;
+
+        return [$sessionStart, $sessionEnd, $startTimeDisp];
+    }
+
+    private function formatTimeForParse(mixed $time): string
+    {
+        if ($time instanceof \DateTimeInterface) {
+            return $time->format('H:i:s');
+        }
+        $s = trim((string) $time);
+        if (preg_match('/^\d{2}:\d{2}:\d{2}/', $s)) {
+            return substr($s, 0, 8);
+        }
+        if (preg_match('/^\d{1,2}:\d{2}$/', $s)) {
+            return strlen($s) === 4 ? '0' . $s . ':00' : $s . ':00';
+        }
+
+        return $s;
+    }
+
+    private function normalizeZoomLink(?string $raw): string
+    {
+        if ($raw === null || trim($raw) === '') {
+            return '';
+        }
+        $u = trim($raw);
+        if (! str_starts_with($u, 'http://') && ! str_starts_with($u, 'https://')) {
+            $u = 'https://' . ltrim($u, '/');
+        }
+
+        return $u;
     }
 
     /**
