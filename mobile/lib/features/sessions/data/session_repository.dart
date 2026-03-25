@@ -41,4 +41,13 @@ class SessionRepository {
     final response = await apiClient.dio.put('/sessions/$id/status', data: data);
     return SessionModel.fromJson(response.data['data']);
   }
+
+  Future<int> getPendingCount() async {
+    try {
+      final response = await apiClient.dio.get('/sessions/pending-count');
+      return response.data['data']['count'] as int;
+    } catch (_) {
+      return 0;
+    }
+  }
 }

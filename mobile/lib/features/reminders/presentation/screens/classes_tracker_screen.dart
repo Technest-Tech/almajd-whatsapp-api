@@ -362,6 +362,26 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
 
     return Column(
       children: [
+        // ── Header with Back Button ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => context.go('/management'),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'الحصص والتذكيرات',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+        
         // ── Date Picker Bar ──
         _DateBar(
           date: _selectedDate,

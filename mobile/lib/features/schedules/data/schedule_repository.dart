@@ -10,6 +10,7 @@ class ScheduleRepository {
   Future<List<ScheduleModel>> getSchedules({
     bool? isActive,
     String? search,
+    int? studentId,
     int page = 1,
     int perPage = 20,
   }) async {
@@ -19,10 +20,25 @@ class ScheduleRepository {
     };
     if (isActive != null) params['is_active'] = isActive ? 1 : 0;
     if (search != null && search.isNotEmpty) params['search'] = search;
+    if (studentId != null) params['student_id'] = studentId;
 
     final response = await apiClient.dio.get('/schedules', queryParameters: params);
     final List data = response.data['data'];
     return data.map((j) => ScheduleModel.fromJson(j)).toList();
+  }
+
+  /// Whether this student has at least one timetable (`Schedule`) assigned.
+  Future<bool> studentHasTimetable(int studentId) async {
+    final response = await apiClient.dio.get(
+      '/schedules',
+      queryParameters: {'student_id': studentId, 'per_page': 1},
+    );
+    final meta = response.data['meta'];
+    if (meta is! Map) return false;
+    final total = meta['total'];
+    if (total is int) return total > 0;
+    if (total is num) return total > 0;
+    return false;
   }
 
   Future<ScheduleModel> getSchedule(int id) async {

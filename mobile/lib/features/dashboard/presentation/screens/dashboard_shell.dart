@@ -11,6 +11,7 @@ import '../../../auth/data/models/user_model.dart';
 import '../../../../features/tickets/presentation/bloc/ticket_list_bloc.dart';
 import '../../../../features/tickets/data/ticket_repository.dart';
 import '../../../../features/notifications/data/notification_repository.dart';
+import '../../../../features/sessions/data/session_repository.dart';
 
 /// Sent by the shell AppBar when the search icon is tapped.
 /// The InboxScreen listens for this and toggles its search bar.
@@ -28,6 +29,7 @@ class _DashboardShellState extends State<DashboardShell> {
   int _currentIndex = 0;
   int _unreadCount = 0;
   int _notifUnreadCount = 0;
+  int _pendingSessionsCount = 0;
   Timer? _badgeTimer;
   Timer? _debounce;
   late final StreamSubscription _blocSub;
@@ -60,14 +62,17 @@ class _DashboardShellState extends State<DashboardShell> {
     try {
       final ticketRepo = getIt<TicketRepository>();
       final notifRepo = getIt<NotificationRepository>();
+      final sessionRepo = getIt<SessionRepository>();
       final results = await Future.wait([
         ticketRepo.getUnreadCount(),
         notifRepo.getUnreadCount(),
+        sessionRepo.getPendingCount(),
       ]);
       if (mounted) {
         setState(() {
           _unreadCount = results[0];
           _notifUnreadCount = results[1];
+          _pendingSessionsCount = results[2];
         });
       }
     } catch (_) {}
@@ -101,7 +106,7 @@ class _DashboardShellState extends State<DashboardShell> {
             if (unreadCount == 0 && ticketState is TicketListLoaded) {
               unreadCount = ticketState.allTickets.fold(0, (sum, t) => sum + t.unreadCount);
             }
-            final navItems = _getNavItems(user, unreadCount);
+            final navItems = _getNavItems(user, unreadCount, _pendingSessionsCount);
 
             return Scaffold(
           resizeToAvoidBottomInset: false,
@@ -215,10 +220,33 @@ class _DashboardShellState extends State<DashboardShell> {
           _onNavTap(safeCenterIndex, '/classes');
         },
         // Keep it simple + visible: icon-only button (no tiny label).
-        child: Icon(
-          isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
-          color: Colors.white,
-          size: 28,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(
+              isSelected ? Icons.notifications_active_rounded : Icons.notifications_outlined,
+              color: Colors.white,
+              size: 28,
+            ),
+            if ((navItems[safeCenterIndex]['badge'] as int? ?? 0) > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: const BoxDecoration(
+                    color: AppColors.coral,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+                  child: Text(
+                    '${navItems[safeCenterIndex]['badge']}',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -447,7 +475,7 @@ class _DashboardShellState extends State<DashboardShell> {
     );
   }
 
-  List<Map<String, dynamic>> _getNavItems(UserModel? user, int unreadCount) {
+  List<Map<String, dynamic>> _getNavItems(UserModel? user, int unreadCount, int pendingCount) {
     final role = user?.primaryRole ?? 'supervisor';
 
     final items = <Map<String, dynamic>>[
@@ -491,6 +519,7 @@ class _DashboardShellState extends State<DashboardShell> {
       'selectedIcon': Icons.notifications_active_rounded,
       'label': 'التذكيرات',
       'path': '/classes',
+      'badge': pendingCount,
     });
 
     // ── RIGHT items (after center) ──

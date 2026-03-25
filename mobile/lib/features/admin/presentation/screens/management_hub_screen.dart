@@ -8,11 +8,10 @@ class ManagementHubScreen extends StatelessWidget {
 
   static const _items = [
     _HubItem(icon: Icons.calendar_month_rounded, label: 'الجداول', subtitle: 'إدارة جداول الطلاب', path: '/timetable', color: Color(0xFF26A69A)),
-    _HubItem(icon: Icons.class_rounded, label: 'الحصص', subtitle: 'جلسات اليوم والقادمة', path: '/sessions', color: Color(0xFF42A5F5)),
-    _HubItem(icon: Icons.notifications_active_rounded, label: 'التذكيرات', subtitle: 'إشعارات واتساب', path: '/reminders', color: Color(0xFFFFA726)),
-    _HubItem(icon: Icons.shield_rounded, label: 'المشرفون', subtitle: 'إدارة وتعيين المشرفين', path: '/supervisors', color: Color(0xFFAB47BC)),
+    _HubItem(icon: Icons.event_available_rounded, label: 'إدارة الحصص', subtitle: 'والمتابعة', path: '/classes', color: Color(0xFF42A5F5)),
+    _HubItem(icon: Icons.shield_rounded, label: 'المشرفون', subtitle: 'إدارة المشرفين', path: '/supervisors', color: Color(0xFFAB47BC)),
+    _HubItem(icon: Icons.insert_chart_outlined_rounded, label: 'أداء المشرفين', subtitle: 'التقارير والإحصائيات', path: '/supervisors_stats', color: Color(0xFF00A884)),
     _HubItem(icon: Icons.bar_chart_rounded, label: 'التقارير', subtitle: 'إحصائيات النظام', path: '/analytics', color: Color(0xFFEF5350)),
-    _HubItem(icon: Icons.chat_bubble_outline_rounded, label: 'قوالب واتساب', subtitle: 'إدارة قوالب الرسائل', path: '/templates', color: Color(0xFF00A884)),
     _HubItem(icon: Icons.settings_rounded, label: 'إعدادات النظام', subtitle: 'الحساب والتفضيلات', path: '/settings', color: Color(0xFF78909C)),
   ];
 

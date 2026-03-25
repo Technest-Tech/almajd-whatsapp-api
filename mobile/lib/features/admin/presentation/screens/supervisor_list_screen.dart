@@ -115,9 +115,20 @@ class _SupervisorListScreenState extends State<SupervisorListScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'إدارة المشرفين',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => context.go('/management'),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'إدارة المشرفين',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+                  ),
+                ],
               ),
               FilledButton.icon(
                 onPressed: () async {

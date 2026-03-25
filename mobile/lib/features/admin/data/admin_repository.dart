@@ -47,6 +47,15 @@ class AdminRepository {
     return Map<String, dynamic>.from(response.data['data']);
   }
 
+  Future<List<Map<String, dynamic>>> getAggregatedSupervisorsPerformance({String? from, String? to}) async {
+    final params = <String, dynamic>{};
+    if (from != null) params['from'] = from;
+    if (to != null) params['to'] = to;
+    
+    final response = await apiClient.dio.get('/admin/supervisors/performance', queryParameters: params);
+    return List<Map<String, dynamic>>.from(response.data['data']);
+  }
+
   // ── Analytics ──
 
   Future<Map<String, dynamic>> getAnalytics({String? from, String? to}) async {

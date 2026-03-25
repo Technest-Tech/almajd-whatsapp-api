@@ -28,6 +28,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   StudentModel? _student;
   final List<ScheduleEntryModel> _scheduleEntries = [];
   final List<ClassSessionModel> _classSessions = [];
+  /// At least one `Schedule` (timetable) exists for this student in الجداول.
+  bool _hasTimetable = false;
   bool _isLoading = true;
   bool _sessionsLoaded = false; // tracks whether sessions fetch has completed
   final _apiClient = getIt<ApiClient>();
@@ -42,9 +44,11 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   void _loadStudent() async {
     try {
       final repo = getIt<StudentRepository>();
+      final scheduleRepo = getIt<ScheduleRepository>();
       final results = await Future.wait([
         repo.getStudent(widget.studentId),
         repo.getScheduleEntries(widget.studentId),
+        scheduleRepo.studentHasTimetable(widget.studentId),
       ]);
       if (mounted) {
         setState(() {
@@ -52,6 +56,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
           _scheduleEntries
             ..clear()
             ..addAll(results[1] as List<ScheduleEntryModel>);
+          _hasTimetable = results[2] as bool;
           _isLoading = false;
         });
         // Auto-generate class sessions for this month in the background
@@ -283,6 +288,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
 
 
   Widget _buildTimelineTab({required bool canEdit}) {
+    final canAddWeeklySlots = canEdit && _hasTimetable;
+
     if (_scheduleEntries.isEmpty) {
       return Center(
         child: Column(
@@ -295,7 +302,17 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
               style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 6),
-            if (canEdit) ...[
+            if (!canAddWeeklySlots && canEdit) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'أنشئ جدولاً لهذا الطالب من شاشة «الجداول» أولاً، ثم يمكنك إضافة الحصص هنا.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+              ),
+            ],
+            if (canAddWeeklySlots) ...[
               const Text(
                 'اضغط + لإضافة حصة للجدول',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
@@ -398,7 +415,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
         Positioned(
           bottom: 16,
           left: 16,
-          child: canEdit
+          child: canAddWeeklySlots
               ? FloatingActionButton.extended(
                   heroTag: 'add_entry',
                   onPressed: _openScheduleForm,

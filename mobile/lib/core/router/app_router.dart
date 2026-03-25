@@ -22,6 +22,7 @@ import '../../features/admin/presentation/screens/supervisor_form_screen.dart';
 import '../../features/admin/presentation/screens/supervisor_performance_screen.dart';
 import '../../features/admin/presentation/screens/settings_screen.dart';
 import '../../features/admin/presentation/screens/management_hub_screen.dart';
+import '../../features/admin/presentation/screens/supervisors_stats_screen.dart';
 import '../../features/timetable/presentation/screens/timetable_screen.dart';
 import '../../features/templates/presentation/screens/templates_screen.dart';
 import '../../features/reminders/presentation/screens/classes_tracker_screen.dart';
@@ -178,6 +179,10 @@ class AppRouter {
             ],
           ),
           GoRoute(
+            path: '/supervisors_stats',
+            builder: (_, __) => const SupervisorsStatsScreen(),
+          ),
+          GoRoute(
             path: '/management',
             builder: (_, __) => const ManagementHubScreen(),
           ),
@@ -198,5 +203,6 @@ class AppRouter {
     ],
   );
   return _router!;
+}
 }
 

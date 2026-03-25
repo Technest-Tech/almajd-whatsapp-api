@@ -52,22 +52,21 @@ class AutoScheduleRemindersCommand extends Command
 
             $teacherPhone = $teacher?->whatsapp_number;
             $teacherName = $teacher?->name ?? '';
-            $zoomUrl = $this->normalizeZoomLink($teacher?->zoom_link);
+            $zoomUrl = ReminderTemplateResolver::normalizeZoomLink($teacher?->zoom_link);
             $zoomLinkTxt = $zoomUrl !== '' ? "\n🔗 رابط الزوم: {$zoomUrl}" : '';
-
-            // Same variable order as Meta templates: 1=title 2=time 3=teacher 4=zoom
-            $studentVars = [
-                '1' => $session->title,
-                '2' => $startTimeDisp,
-                '3' => $teacherName,
-                '4' => $zoomUrl,
-            ];
 
             // ── Phase 1: 5 min BEFORE class (still queue if we skipped earlier runs) ──
             $beforeTime = $sessionStart->copy()->subMinutes(5);
             if ($now->lt($sessionStart)) {
                 $sendAt = $beforeTime->gt($now) ? $beforeTime : $now->copy();
                 if ($studentPhone) {
+                    $studentVars = ReminderTemplateResolver::studentSessionReminderParams(
+                        ReminderTemplateResolver::resolve('student_before_reminder', $approvedTemplates),
+                        $session->title,
+                        $startTimeDisp,
+                        $teacherName,
+                        $zoomUrl,
+                    );
                     $this->queueTemplate($session, 'student', 'before', $studentPhone, $studentName, $sendAt,
                         'student_before_reminder',
                         $studentVars,
@@ -87,6 +86,13 @@ class AutoScheduleRemindersCommand extends Command
             if ($now->lt($sessionEnd)) {
                 $sendAt = $sessionStart->gt($now) ? $sessionStart : $now->copy();
                 if ($studentPhone) {
+                    $studentVars = ReminderTemplateResolver::studentSessionReminderParams(
+                        ReminderTemplateResolver::resolve('student_at_start_reminder', $approvedTemplates),
+                        $session->title,
+                        $startTimeDisp,
+                        $teacherName,
+                        $zoomUrl,
+                    );
                     $this->queueTemplate($session, 'student', 'at_start', $studentPhone, $studentName, $sendAt,
                         'student_at_start_reminder',
                         $studentVars,
@@ -108,6 +114,13 @@ class AutoScheduleRemindersCommand extends Command
             if ($now->lt($sessionEnd) && $now->lt($afterPhaseExpires)) {
                 $sendAt = $afterStartTime->gt($now) ? $afterStartTime : $now->copy();
                 if ($studentPhone) {
+                    $studentVars = ReminderTemplateResolver::studentSessionReminderParams(
+                        ReminderTemplateResolver::resolve('student_after_5m_alert', $approvedTemplates),
+                        $session->title,
+                        $startTimeDisp,
+                        $teacherName,
+                        $zoomUrl,
+                    );
                     $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $sendAt,
                         'student_after_5m_alert',
                         $studentVars,
@@ -193,19 +206,6 @@ class AutoScheduleRemindersCommand extends Command
         }
 
         return $s;
-    }
-
-    private function normalizeZoomLink(?string $raw): string
-    {
-        if ($raw === null || trim($raw) === '') {
-            return '';
-        }
-        $u = trim($raw);
-        if (! str_starts_with($u, 'http://') && ! str_starts_with($u, 'https://')) {
-            $u = 'https://' . ltrim($u, '/');
-        }
-
-        return $u;
     }
 
     /**

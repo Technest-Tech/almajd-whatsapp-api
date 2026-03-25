@@ -46,7 +46,6 @@ class TemplateController extends Controller
         ];
 
         $templates = $this->templateService->listApproved()
-            ->filter(fn($t) => \Illuminate\Support\Str::startsWith($t->name, 'chat_'))
             ->map(function ($t) use ($nameMap) {
                 // Mutating the model array representation for the response
                 $array = $t->toArray();

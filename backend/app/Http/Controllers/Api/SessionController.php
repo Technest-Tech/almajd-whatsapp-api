@@ -111,25 +111,21 @@ class SessionController extends Controller
         $teacher = $session->teacher;
         $teacherName = $teacher?->name ?? 'غير محدد';
         $studentName = $session->student?->name ?? 'غير محدد';
+        $startDisp = $session->start_time instanceof \DateTimeInterface
+            ? $session->start_time->format('H:i')
+            : (string) $session->start_time;
 
         if ($recipientType === 'student') {
             $student = $session->student;
             $phone = $student?->guardian?->phone ?? $student?->phone;
             $name = $student?->name;
             $logicalTemplateKey = 'student_before_reminder';
-            $templateParams = [
-                '1' => $session->title,
-                '2' => $session->start_time,
-                '3' => $teacherName,
-                '4' => $teacher?->zoom_link ?? '',
-            ];
-            $message = "📚 تذكير: لديك حصة *{$session->title}*\n⏰ الوقت: {$session->start_time}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الحضور";
+            $message = "📚 تذكير: لديك حصة *{$session->title}*\n⏰ الوقت: {$startDisp}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الحضور";
         } else {
             $phone = $teacher?->whatsapp_number;
             $name = $teacher?->name;
             $logicalTemplateKey = 'teacher_before_alert';
-            $templateParams = [];
-            $message = "📚 تذكير: لديك حصة *{$session->title}*\n⏰ الوقت: {$session->start_time}\n👤 الطالب: {$studentName}\nيرجى الحضور";
+            $message = "📚 تذكير: لديك حصة *{$session->title}*\n⏰ الوقت: {$startDisp}\n👤 الطالب: {$studentName}\nيرجى الحضور";
         }
 
         if (!$phone) {
@@ -137,6 +133,17 @@ class SessionController extends Controller
         }
 
         $approved = WhatsappTemplate::where('status', 'approved')->get();
+        $templateParams = [];
+        if ($recipientType === 'student') {
+            $zoomUrl = ReminderTemplateResolver::normalizeZoomLink($teacher?->zoom_link);
+            $templateParams = ReminderTemplateResolver::studentSessionReminderParams(
+                ReminderTemplateResolver::resolve($logicalTemplateKey, $approved),
+                $session->title,
+                $startDisp,
+                $teacherName,
+                $zoomUrl,
+            );
+        }
         $waTemplate = ReminderTemplateResolver::resolve($logicalTemplateKey, $approved);
         $templateSid = $waTemplate?->content_sid;
         $message = ReminderTemplateResolver::resolveBody($waTemplate, $templateParams, $message);

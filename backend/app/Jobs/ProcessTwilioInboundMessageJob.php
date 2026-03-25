@@ -52,25 +52,43 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
         $cleanFrom = str_replace('whatsapp:', '', $fromNumber);
         $phoneWithPlus = str_starts_with($cleanFrom, '+') ? $cleanFrom : '+' . $cleanFrom;
 
-        // ── Teacher Confirmation Check (Support Text & Quick Replies) ──
+        // ── Teacher confirmation: ButtonPayload = full phrase map. Plain Body ignores one-word yes/no
+        // ("yes", "نعم", …) so casual chat cannot flip a class; digits and explicit phrases still work.
         $buttonPayload = $this->payload['ButtonPayload'] ?? null;
-        $yesPhrases = ['1', 'yes', 'yes, joined', 'yes, completed', 'نعم', 'نعم، انضم', 'نعم انضم', 'نعم، اكتملت', 'نعم اكتملت', 'yes_joined', 'yes_completed'];
-        $noPhrases  = ['2', 'no', 'no, didn\'t join', 'no, didn\'t complete', 'لا', 'لا، لم ينضم', 'لا لم ينضم', 'لا، لم تكتمل', 'لا لم تكتمل', 'no_joined', 'no_completed'];
-        
-        $normalizedReply = null;
-        $checkString = mb_strtolower($buttonPayload ?: $body);
+        $yesPhrasesInteractive = ['1', 'yes', 'yes, joined', 'yes, completed', 'نعم', 'نعم، انضم', 'نعم انضم', 'نعم، اكتملت', 'نعم اكتملت', 'yes_joined', 'yes_completed'];
+        $noPhrasesInteractive  = ['2', 'no', 'no, didn\'t join', 'no, didn\'t complete', 'لا', 'لا، لم ينضم', 'لا لم ينضم', 'لا، لم تكتمل', 'لا لم تكتمل', 'no_joined', 'no_completed'];
+        $ambiguousBodyOnly     = ['yes', 'no', 'نعم', 'لا'];
 
-        if (in_array($checkString, $yesPhrases)) {
-            $normalizedReply = '1';
-        } elseif (in_array($checkString, $noPhrases)) {
-            $normalizedReply = '2';
+        $normalizedReply = null;
+        $checkString = '';
+        if ($buttonPayload !== null && $buttonPayload !== '') {
+            $checkString = mb_strtolower(trim($buttonPayload));
+            if (in_array($checkString, $yesPhrasesInteractive, true)) {
+                $normalizedReply = '1';
+            } elseif (in_array($checkString, $noPhrasesInteractive, true)) {
+                $normalizedReply = '2';
+            }
+        } else {
+            $checkString = mb_strtolower(trim($body));
+            if (in_array($checkString, $ambiguousBodyOnly, true)) {
+                $normalizedReply = null;
+            } elseif (in_array($checkString, ['1', '2', '١', '٢'], true)) {
+                $normalizedReply = ($checkString === '2' || $checkString === '٢') ? '2' : '1';
+            } elseif (in_array($checkString, $yesPhrasesInteractive, true)) {
+                $normalizedReply = '1';
+            } elseif (in_array($checkString, $noPhrasesInteractive, true)) {
+                $normalizedReply = '2';
+            }
         }
 
         if ($normalizedReply !== null) {
             $handled = $this->handleTeacherConfirmation($phoneWithPlus, $normalizedReply);
             if ($handled) {
-                Log::info("Teacher confirmation handled from {$phoneWithPlus}: Payload/Body: {$checkString} (Normalized: {$normalizedReply})");
-                // Continue processing to also store the message in inbox
+                Log::warning('Teacher confirmation applied via WhatsApp', [
+                    'phone' => $phoneWithPlus,
+                    'matched' => $checkString,
+                    'normalized' => $normalizedReply,
+                ]);
             }
         }
 
@@ -285,8 +303,25 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
             return false;
         }
 
+        $maxConfirmationAgeHours = (int) config('whatsapp.teacher_confirmation_max_age_hours', 72);
+        if ($reminder->sent_at && $reminder->sent_at->lt(now()->subHours($maxConfirmationAgeHours))) {
+            Log::warning('Teacher confirmation ignored: stale awaiting reminder', [
+                'reminder_id' => $reminder->id,
+                'class_session_id' => $reminder->class_session_id,
+                'sent_at' => $reminder->sent_at?->toIso8601String(),
+            ]);
+
+            return false;
+        }
+
         $session = \App\Models\ClassSession::find($reminder->class_session_id);
-        if (!$session) return false;
+        if (!$session) {
+            return false;
+        }
+
+        if (in_array($session->status, ['completed', 'cancelled'], true)) {
+            return false;
+        }
 
         $phase = $reminder->reminder_phase; // at_start, after, post_end
 

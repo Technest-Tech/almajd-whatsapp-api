@@ -50,6 +50,15 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Teacher WhatsApp confirmation (reply 1/2 to session reminders)
+    |--------------------------------------------------------------------------
+    | Ignore awaiting reminders older than this when matching inbound replies,
+    | so a stale reminder cannot change class status from unrelated messages.
+    */
+    'teacher_confirmation_max_age_hours' => (int) env('WHATSAPP_TEACHER_CONFIRMATION_MAX_AGE_HOURS', 72),
+
+    /*
+    |--------------------------------------------------------------------------
     | Session reminder templates (Twilio Content / Meta approved)
     |--------------------------------------------------------------------------
     | Auto-scheduled reminders look up WhatsappTemplate by logical key (e.g. student_before_reminder).
