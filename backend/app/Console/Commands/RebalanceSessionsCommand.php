@@ -27,7 +27,7 @@ class RebalanceSessionsCommand extends Command
                     ->where('guard_name', 'api');
             })
             ->whereHas('classSessions', function ($q) use ($threshold) {
-                $q->whereIn('status', ['scheduled', 'pending', 'waiting'])
+                $q->whereIn('status', ['scheduled', 'coming', 'pending'])
                     ->where('updated_at', '<', $threshold);
             })
             ->pluck('id');
@@ -35,7 +35,7 @@ class RebalanceSessionsCommand extends Command
         $sessionsToReassignCount = 0;
         if ($inactiveSupervisorIds->isNotEmpty()) {
             $sessionsToReassignCount = ClassSession::whereIn('supervisor_id', $inactiveSupervisorIds)
-                ->whereIn('status', ['scheduled', 'pending', 'waiting'])
+                ->whereIn('status', ['scheduled', 'coming', 'pending'])
                 ->where('updated_at', '<', $threshold)
                 ->count();
         }

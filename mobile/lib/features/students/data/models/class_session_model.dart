@@ -11,7 +11,7 @@ class ClassSessionModel {
   final DateTime sessionDate;
   final String startTime;
   final String endTime;
-  final String status; // scheduled, completed, cancelled, rescheduled
+  final String status; // scheduled, coming, pending, running, completed, cancelled, rescheduled
   final String? cancellationReason;
   final DateTime? rescheduledDate;
   final String? rescheduledStartTime;
@@ -63,6 +63,9 @@ class ClassSessionModel {
   }
 
   bool get isScheduled => status == 'scheduled';
+  bool get isComing => status == 'coming';
+  bool get isPending => status == 'pending';
+  bool get isRunning => status == 'running';
   bool get isCompleted => status == 'completed';
   bool get isCancelled => status == 'cancelled';
   bool get isRescheduled => status == 'rescheduled';
@@ -90,6 +93,9 @@ class ClassSessionModel {
   String get statusDisplay {
     switch (status) {
       case 'scheduled': return 'مجدولة';
+      case 'coming': return 'قادمة';
+      case 'pending': return 'معلّقة';
+      case 'running': return 'جارية';
       case 'completed': return 'مكتملة';
       case 'cancelled': return 'ملغاة';
       case 'rescheduled': return 'مُعاد جدولتها';

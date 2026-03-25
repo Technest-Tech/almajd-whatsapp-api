@@ -54,10 +54,18 @@ class SessionModel {
     switch (status) {
       case 'scheduled':
         return 'مجدولة';
+      case 'coming':
+        return 'قادمة';
+      case 'pending':
+        return 'معلّقة';
+      case 'running':
+        return 'جارية';
       case 'completed':
         return 'مكتملة';
       case 'cancelled':
         return 'ملغاة';
+      case 'rescheduled':
+        return 'مُعاد جدولتها';
       default:
         return status;
     }

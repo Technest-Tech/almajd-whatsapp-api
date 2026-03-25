@@ -172,16 +172,12 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
 
   // ── Helpers ────────────────────────────────────────────
   _TimeCategory _categorize(ClassSessionModel s) {
-    if (s.status == 'waiting') return _TimeCategory.waiting;
-    final now = TimeOfDay.now();
-    final start = _parseTime(s.effectiveStartTime);
-    final end = _parseTime(s.effectiveEndTime);
-    final nowMin = now.hour * 60 + now.minute;
-    final startMin = start.hour * 60 + start.minute;
-    final endMin = end.hour * 60 + end.minute;
-
     if (s.isCancelled) return _TimeCategory.passed;
     if (s.isCompleted) return _TimeCategory.passed;
+
+    // Explicitly pending/running sessions need supervisor action → waiting bucket
+    if (s.isPending) return _TimeCategory.waiting;
+    if (s.isRunning) return _TimeCategory.current;
 
     final today = DateTime.now();
     final isToday = _selectedDate.year == today.year &&
@@ -194,6 +190,13 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       }
       return _TimeCategory.upcoming;
     }
+
+    final now = TimeOfDay.now();
+    final start = _parseTime(s.effectiveStartTime);
+    final end = _parseTime(s.effectiveEndTime);
+    final nowMin = now.hour * 60 + now.minute;
+    final startMin = start.hour * 60 + start.minute;
+    final endMin = end.hour * 60 + end.minute;
 
     if (nowMin >= startMin && nowMin < endMin) return _TimeCategory.current;
     if (nowMin < startMin) return _TimeCategory.upcoming;
@@ -880,14 +883,18 @@ class _SessionCard extends StatelessWidget {
 
   IconData get _statusIcon {
     switch (session.status) {
+      case 'running':
+        return Icons.play_circle_fill_rounded;
+      case 'pending':
+        return Icons.hourglass_top_rounded;
+      case 'coming':
+        return Icons.schedule;
       case 'completed':
         return Icons.check_circle;
       case 'cancelled':
         return Icons.cancel;
       case 'rescheduled':
         return Icons.update;
-      case 'waiting':
-        return Icons.error_outline_rounded;
       default:
         return category == _TimeCategory.current
             ? Icons.play_circle_fill_rounded
@@ -899,13 +906,17 @@ class _SessionCard extends StatelessWidget {
 
   Color get _statusColor {
     switch (session.status) {
+      case 'running':
+        return AppColors.success;
+      case 'pending':
+        return AppColors.amber;
+      case 'coming':
+        return const Color(0xFF448AFF);
       case 'completed':
         return AppColors.success;
       case 'cancelled':
         return AppColors.coral;
       case 'rescheduled':
-        return AppColors.amber;
-      case 'waiting':
         return AppColors.amber;
       default:
         return _accentColor;
@@ -914,14 +925,18 @@ class _SessionCard extends StatelessWidget {
 
   String get _statusLabel {
     switch (session.status) {
+      case 'running':
+        return 'جارية الآن';
+      case 'pending':
+        return 'معلّقة';
+      case 'coming':
+        return 'قادمة';
       case 'completed':
         return 'مكتملة';
       case 'cancelled':
         return 'ملغاة';
       case 'rescheduled':
         return 'مُعاد جدولتها';
-      case 'waiting':
-        return 'معلّقة';
       default:
         if (category == _TimeCategory.current) return 'جارية الآن';
         if (category == _TimeCategory.upcoming) return 'قادمة';
@@ -1180,8 +1195,7 @@ class _SessionCard extends StatelessWidget {
                     const PopupMenuItem(value: 'running', child: Row(children: [Icon(Icons.play_arrow, size: 16, color: Color(0xFF00E676)), SizedBox(width: 6), Text('جارية')])),
                     const PopupMenuItem(value: 'completed', child: Row(children: [Icon(Icons.check_circle, size: 16, color: Color(0xFF448AFF)), SizedBox(width: 6), Text('مكتملة')])),
                     const PopupMenuItem(value: 'cancelled', child: Row(children: [Icon(Icons.cancel, size: 16, color: Color(0xFFEF5350)), SizedBox(width: 6), Text('ملغاة')])),
-                    const PopupMenuItem(value: 'pending', child: Row(children: [Icon(Icons.schedule, size: 16, color: Color(0xFFFFB74D)), SizedBox(width: 6), Text('معلّقة')])),
-                    const PopupMenuItem(value: 'scheduled', child: Row(children: [Icon(Icons.event, size: 16, color: Color(0xFF8696A0)), SizedBox(width: 6), Text('مجدولة')])),
+                    const PopupMenuItem(value: 'pending', child: Row(children: [Icon(Icons.hourglass_top_rounded, size: 16, color: Color(0xFFFFB74D)), SizedBox(width: 6), Text('معلّقة')])),
                     const PopupMenuItem(value: 'rescheduled', child: Row(children: [Icon(Icons.calendar_month, size: 16, color: Color(0xFF26C6DA)), SizedBox(width: 6), Text('إعادة الجدولة')])),
                   ],
                   onSelected: onStatusChange,

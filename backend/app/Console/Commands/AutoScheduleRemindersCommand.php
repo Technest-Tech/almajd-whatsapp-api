@@ -23,10 +23,10 @@ class AutoScheduleRemindersCommand extends Command
         $todayLocal = Carbon::today($academyTz); // The local date e.g. 2026-03-15
         $now = Carbon::now('UTC');
 
-        // Get all scheduled sessions for today that haven't been cancelled
+        // Get all relevant sessions for today that haven't been cancelled
         $sessions = ClassSession::with(['student.guardian', 'teacher'])
             ->where('session_date', $todayLocal->toDateString())
-            ->whereIn('status', ['scheduled', 'rescheduled', 'pending', 'running'])
+            ->whereIn('status', ['scheduled', 'rescheduled', 'coming', 'pending', 'running'])
             ->get();
 
         // Load approved templates for automation (resolve by logical key + optional config name/SID)
@@ -34,6 +34,11 @@ class AutoScheduleRemindersCommand extends Command
 
         // ── Round-robin supervisor assignment ──
         $this->assignSupervisors($sessions);
+
+        // ── Transition today's 'scheduled' sessions to 'coming' ──
+        $sessions->where('status', 'scheduled')->each(function (ClassSession $s): void {
+            $s->update(['status' => 'coming']);
+        });
 
         $created = 0;
 
@@ -150,12 +155,6 @@ class AutoScheduleRemindersCommand extends Command
                 }
             }
 
-            // ── Phase 5: 15 min AFTER class start — mark waiting if no reply ──
-            if ($sessionStart->copy()->addMinutes(15)->isBefore($now) && $session->status === 'pending') {
-                $session->update([
-                    'status' => 'waiting',
-                ]);
-            }
         }
 
         $this->info("✅ Scheduled {$created} reminders for " . $sessions->count() . " sessions.");

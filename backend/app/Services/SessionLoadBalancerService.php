@@ -17,12 +17,12 @@ class SessionLoadBalancerService
     /**
      * Session statuses considered for load/cap calculations and reassignment.
      */
-    private const LOAD_STATUSES = ['scheduled', 'rescheduled', 'pending', 'waiting', 'running'];
+    private const LOAD_STATUSES = ['scheduled', 'coming', 'rescheduled', 'pending', 'running'];
 
     /**
      * Session statuses considered when determining inactivity and rebalancing.
      */
-    private const INACTIVE_STATUSES = ['scheduled', 'pending', 'waiting'];
+    private const INACTIVE_STATUSES = ['scheduled', 'coming', 'pending'];
 
     /**
      * Assign supervisor_id for sessions that have no supervisor yet.

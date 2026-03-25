@@ -55,7 +55,7 @@ class SessionController extends Controller
     public function updateStatus(Request $request, int $id): JsonResponse
     {
         $data = $request->validate([
-            'status' => 'required|in:scheduled,completed,cancelled,running,pending,rescheduled',
+            'status' => 'required|in:scheduled,coming,completed,cancelled,running,pending,rescheduled',
             'attendance_status' => 'nullable|in:pending,teacher_joined,student_absent,both_joined,no_show',
             'cancellation_reason' => 'nullable|string|max:500',
             'rescheduled_date' => 'nullable|date',

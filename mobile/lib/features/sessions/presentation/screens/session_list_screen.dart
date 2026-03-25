@@ -26,6 +26,9 @@ class _SessionListView extends StatelessWidget {
 
   static const _filters = [
     {'key': 'all', 'label': 'الكل'},
+    {'key': 'coming', 'label': 'قادمة'},
+    {'key': 'pending', 'label': 'معلّقة'},
+    {'key': 'running', 'label': 'جارية'},
     {'key': 'scheduled', 'label': 'مجدولة'},
     {'key': 'completed', 'label': 'مكتملة'},
     {'key': 'cancelled', 'label': 'ملغاة'},
@@ -167,12 +170,20 @@ class _SessionCard extends StatelessWidget {
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'scheduled':
+      case 'coming':
+        return const Color(0xFF448AFF);
+      case 'pending':
         return AppColors.amber;
+      case 'running':
+        return AppColors.success;
+      case 'scheduled':
+        return AppColors.textSecondary;
       case 'completed':
         return AppColors.success;
       case 'cancelled':
         return AppColors.coral;
+      case 'rescheduled':
+        return AppColors.amber;
       default:
         return AppColors.textSecondary;
     }
@@ -180,12 +191,20 @@ class _SessionCard extends StatelessWidget {
 
   IconData _statusIcon(String status) {
     switch (status) {
-      case 'scheduled':
+      case 'coming':
         return Icons.schedule;
+      case 'pending':
+        return Icons.hourglass_top_rounded;
+      case 'running':
+        return Icons.play_circle_fill_rounded;
+      case 'scheduled':
+        return Icons.event_outlined;
       case 'completed':
         return Icons.check_circle_outline;
       case 'cancelled':
         return Icons.cancel_outlined;
+      case 'rescheduled':
+        return Icons.update;
       default:
         return Icons.circle_outlined;
     }

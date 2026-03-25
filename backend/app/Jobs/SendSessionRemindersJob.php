@@ -73,10 +73,10 @@ class SendSessionRemindersJob implements ShouldQueue
                     'sent_at' => now(),
                 ]);
                 
-                // If this is the "at_start" reminder, strictly transition the class to pending
+                // At class start time, move to 'pending' so supervisor/teacher can act
                 if ($reminder->reminder_phase === 'at_start') {
                     $session = clone $reminder->classSession;
-                    if ($session && in_array($session->status, ['scheduled', 'rescheduled'])) {
+                    if ($session && in_array($session->status, ['scheduled', 'rescheduled', 'coming'], true)) {
                         $session->update(['status' => 'pending']);
                     }
                 }
@@ -182,10 +182,9 @@ class SendSessionRemindersJob implements ShouldQueue
             return true;
         }
 
-        // Teacher "after" only if class moved past pure "scheduled" (at_start already fired or equivalent)
+        // Teacher "after" only if session has moved to pending/running (at_start fired)
         if ($reminder->reminder_phase === 'after' && $reminder->recipient_type === 'teacher') {
-            $started = in_array($session->status, ['pending', 'running', 'waiting', 'rescheduled'], true);
-            if (!$started && $session->status === 'scheduled') {
+            if (!in_array($session->status, ['pending', 'running'], true)) {
                 return true;
             }
         }
