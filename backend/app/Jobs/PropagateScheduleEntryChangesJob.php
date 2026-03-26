@@ -13,10 +13,10 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Propagates ScheduleEntry changes to all upcoming 'scheduled' class sessions.
+ * Propagates ScheduleEntry changes to all upcoming 'scheduled'/'coming' class sessions.
  * 
  * Rules:
- * - Only updates sessions with status = 'scheduled' (preserves rescheduled/cancelled)
+ * - Only updates sessions with status = 'scheduled' or 'coming' (preserves rescheduled/cancelled/pending/running)
  * - Only updates sessions from TODAY onwards
  * - Updates: title, start_time, end_time, teacher_id
  */
@@ -39,7 +39,7 @@ class PropagateScheduleEntryChangesJob implements ShouldQueue
     {
         ClassSession::where('schedule_entry_id', $this->scheduleEntryId)
             ->where('session_date', '>=', now()->toDateString())
-            ->where('status', 'scheduled') // ← preserve manually rescheduled/cancelled sessions
+            ->whereIn('status', ['scheduled', 'coming']) // preserve manually adjusted sessions
             ->update([
                 'title'      => $this->title,
                 'start_time' => $this->startTime,

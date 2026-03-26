@@ -135,6 +135,14 @@ class StudentController extends CrudController
     public function destroyScheduleEntry(int $id, int $entryId): JsonResponse
     {
         $entry = ScheduleEntry::where('student_id', $id)->findOrFail($entryId);
+        
+        // When deleting a timetable entry, also delete any upcoming sessions generated from it.
+        // Keep history (completed/cancelled/rescheduled/running/pending) untouched.
+        ClassSession::where('schedule_entry_id', $entry->id)
+            ->where('session_date', '>=', Carbon::today())
+            ->whereIn('status', ['scheduled', 'coming'])
+            ->delete();
+
         $entry->delete();
 
         return $this->response->success(null, 'تم حذف الحصة بنجاح');
