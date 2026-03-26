@@ -252,13 +252,32 @@ class AutoScheduleRemindersCommand extends Command
         ?array $templateParams,
         ?string $confirmationStatus = null
     ): void {
-        $exists = Reminder::where('class_session_id', $session->id)
+        // ── Strict dedup: skip if ANY non-cancelled reminder exists for this combo ──
+        $existing = Reminder::where('class_session_id', $session->id)
             ->where('recipient_type', $recipientType)
             ->where('reminder_phase', $phase)
             ->where('recipient_phone', $phone)
+            ->whereNotIn('status', ['cancelled'])
             ->exists();
 
-        if ($exists) return;
+        if ($existing) {
+            return;
+        }
+
+        // ── Skip if teacher already confirmed for this session (any earlier phase) ──
+        $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
+            ->where('confirmation_status', 'confirmed')
+            ->exists();
+
+        if ($alreadyConfirmed) {
+            return;
+        }
+
+        // ── Skip if session already completed/cancelled/running ──
+        $session->refresh();
+        if (in_array($session->status, ['completed', 'cancelled', 'running'], true)) {
+            return;
+        }
 
         Reminder::create([
             'type'                => 'session_reminder',

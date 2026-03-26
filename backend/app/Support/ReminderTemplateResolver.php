@@ -50,12 +50,6 @@ final class ReminderTemplateResolver
             $zoomSlot = '3';
         }
 
-        $params = match (true) {
-            $max === 2 => self::studentParamsTwoSlots($body, $title, $time, $teacher, $zoomUrl, $zoomSlot),
-            $max === 3 => self::studentParamsThreeSlots($body, $title, $time, $teacher, $zoomUrl, $zoomSlot),
-            default => self::studentParamsFourOrMoreSlots($title, $time, $teacher, $zoomUrl, $zoomSlot),
-        };
-
         if ($max <= 0) {
             return [
                 '1' => $title,
@@ -64,6 +58,13 @@ final class ReminderTemplateResolver
                 '4' => $zoomUrl,
             ];
         }
+
+        $params = match (true) {
+            $max === 1 => self::studentParamsOneSlot($body, $title, $zoomUrl, $zoomSlot),
+            $max === 2 => self::studentParamsTwoSlots($body, $title, $time, $teacher, $zoomUrl, $zoomSlot),
+            $max === 3 => self::studentParamsThreeSlots($body, $title, $time, $teacher, $zoomUrl, $zoomSlot),
+            default    => self::studentParamsFourOrMoreSlots($title, $time, $teacher, $zoomUrl, $zoomSlot),
+        };
 
         $filtered = [];
         for ($i = 1; $i <= $max; $i++) {
@@ -74,6 +75,30 @@ final class ReminderTemplateResolver
         }
 
         return $filtered;
+    }
+
+    /**
+     * Template has exactly one variable slot. If that slot is on a zoom/link line, it gets the zoom URL.
+     * Otherwise it gets the session title as fallback.
+     *
+     * @return array<string, string>
+     */
+    private static function studentParamsOneSlot(
+        string $body,
+        string $title,
+        string $zoomUrl,
+        ?string $zoomSlot,
+    ): array {
+        // The single slot is zoom if detect says so, or if the body line holding {{1}} looks like a link
+        $isZoomSlot = $zoomSlot === '1'
+            || self::bodySuggestsFirstSlotIsZoom($body);
+
+        if ($isZoomSlot) {
+            // Use the actual zoom URL, or a user-friendly placeholder — never the session title
+            return ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
+        }
+
+        return ['1' => $title];
     }
 
     /**
@@ -192,6 +217,20 @@ final class ReminderTemplateResolver
         return (bool) preg_match('/(?:رابط|زوم|zoom).*\{\{3\}\}|\{\{3\}\}.*(?:رابط|زوم|zoom)/usiu', $body);
     }
 
+    private static function bodySuggestsFirstSlotIsZoom(string $body): bool
+    {
+        // Matches: "Zoom Link: {{1}}" or "{{1}}" on a line that looks like a zoom/link line
+        if (preg_match('/(?:رابط|زوم|zoom|link|join)[^\n]*\{\{1\}\}/iu', $body)) {
+            return true;
+        }
+        foreach (preg_split('/\R/u', $body) ?: [] as $line) {
+            if (str_contains($line, '{{1}}') && self::lineLooksLikeZoomLine($line)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * @param  Collection<int, WhatsappTemplate>  $approved  All approved templates (not pre-keyed).
      */
@@ -241,6 +280,36 @@ final class ReminderTemplateResolver
             $body = str_replace('{{' . $key . '}}', (string) $val, $body);
         }
 
+        // Auto-extract readable text from JSON template bodies (twilio/quick-reply etc.)
+        $body = self::extractReadableFromJson($body);
+
         return $body;
+    }
+
+    /**
+     * Extract human-readable body text from Twilio JSON template formats.
+     */
+    private static function extractReadableFromJson(string $raw): string
+    {
+        if (!str_starts_with(trim($raw), '{')) {
+            return $raw;
+        }
+
+        $data = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
+            return $raw;
+        }
+
+        if (isset($data['twilio/quick-reply']['body'])) {
+            return $data['twilio/quick-reply']['body'];
+        }
+        if (isset($data['twilio/call-to-action']['body'])) {
+            return $data['twilio/call-to-action']['body'];
+        }
+        if (isset($data['body'])) {
+            return $data['body'];
+        }
+
+        return $raw;
     }
 }

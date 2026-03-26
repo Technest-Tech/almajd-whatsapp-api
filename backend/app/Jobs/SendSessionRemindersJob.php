@@ -72,10 +72,10 @@ class SendSessionRemindersJob implements ShouldQueue
                     'status'  => 'sent',
                     'sent_at' => now(),
                 ]);
-                
-                // At class start time, move to 'pending' so supervisor/teacher can act
+
+                // At class start time, move to 'pending' so supervisor/teacher can mark as running
                 if ($reminder->reminder_phase === 'at_start') {
-                    $session = clone $reminder->classSession;
+                    $session = $reminder->classSession;
                     if ($session && in_array($session->status, ['scheduled', 'rescheduled', 'coming'], true)) {
                         $session->update(['status' => 'pending']);
                     }
@@ -135,6 +135,8 @@ class SendSessionRemindersJob implements ShouldQueue
                 ]);
             }
 
+            $readableContent = $this->extractReadableText($reminder->message_body);
+            
             // Create outbound message
             $twilioNumber = config('whatsapp.twilio.from_number', env('TWILIO_FROM_NUMBER'));
             $whatsappMsg = WhatsappMessage::create([
@@ -144,13 +146,13 @@ class SendSessionRemindersJob implements ShouldQueue
                 'from_number'     => $twilioNumber,
                 'to_number'       => $phoneWithPlus,
                 'message_type'    => MessageType::Text,
-                'content'         => $reminder->message_body,
+                'content'         => $readableContent,
                 'delivery_status' => DeliveryStatus::Sent,
                 'timestamp'       => now(),
             ]);
 
             // Update ticket preview
-            $preview = Str::limit($reminder->message_body ?? 'تذكير بالحصة', 80);
+            $preview = Str::limit($readableContent ?: 'تذكير بالحصة', 80);
             $ticket->update([
                 'last_message_preview' => $preview,
                 'last_message_at'      => now(),
@@ -178,7 +180,17 @@ class SendSessionRemindersJob implements ShouldQueue
             return true;
         }
 
-        if (in_array($session->status, ['completed', 'cancelled'], true)) {
+        // Skip if session is already completed, cancelled, or running
+        if (in_array($session->status, ['completed', 'cancelled', 'running'], true)) {
+            return true;
+        }
+
+        // Skip if a confirmed reminder already exists for this session (teacher said "Yes")
+        $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
+            ->where('confirmation_status', 'confirmed')
+            ->exists();
+
+        if ($alreadyConfirmed) {
             return true;
         }
 
@@ -190,5 +202,33 @@ class SendSessionRemindersJob implements ShouldQueue
         }
 
         return false;
+    }
+
+    /**
+     * Extracts readable text from a Twilio template JSON body so that the UI
+     * doesn't display raw JSON with buttons in the chat inbox.
+     */
+    private function extractReadableText(?string $rawBody): string
+    {
+        if (!$rawBody) {
+            return '';
+        }
+
+        if (str_starts_with(trim($rawBody), '{')) {
+            $data = json_decode($rawBody, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
+                if (isset($data['twilio/quick-reply']['body'])) {
+                    return $data['twilio/quick-reply']['body'];
+                }
+                if (isset($data['twilio/call-to-action']['body'])) {
+                    return $data['twilio/call-to-action']['body'];
+                }
+                if (isset($data['body'])) {
+                    return $data['body'];
+                }
+            }
+        }
+
+        return $rawBody;
     }
 }

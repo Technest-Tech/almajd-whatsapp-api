@@ -341,6 +341,22 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
                     'attendance_status' => 'teacher_joined',
                 ]);
             }
+
+            // ── Cancel ALL remaining pending reminders for this entire session ──
+            // This stops both teacher AND student from receiving further messages.
+            \App\Models\Reminder::where('class_session_id', $session->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status'         => 'cancelled',
+                    'failure_reason' => 'Teacher confirmed — session active',
+                ]);
+
+            // Also mark other awaiting reminders for the same session as no_reply
+            \App\Models\Reminder::where('class_session_id', $session->id)
+                ->where('confirmation_status', 'awaiting')
+                ->where('id', '!=', $reminder->id)
+                ->update(['confirmation_status' => 'no_reply']);
+
         } else {
             $reminder->update(['confirmation_status' => 'denied']);
 
@@ -358,13 +374,6 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
                 ]);
             }
         }
-
-        // Mark other awaiting reminders for same session+phase as resolved
-        \App\Models\Reminder::where('class_session_id', $session->id)
-            ->where('confirmation_status', 'awaiting')
-            ->where('id', '!=', $reminder->id)
-            ->where('reminder_phase', $phase)
-            ->update(['confirmation_status' => 'no_reply']);
 
         return true;
     }
