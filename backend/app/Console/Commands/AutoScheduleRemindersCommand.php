@@ -65,13 +65,8 @@ class AutoScheduleRemindersCommand extends Command
             if ($now->lt($sessionStart)) {
                 $sendAt = $beforeTime->gt($now) ? $beforeTime : $now->copy();
                 if ($studentPhone) {
-                    $studentVars = ReminderTemplateResolver::studentSessionReminderParams(
-                        ReminderTemplateResolver::resolve('student_before_reminder', $approvedTemplates),
-                        $session->title,
-                        $startTimeDisp,
-                        $teacherName,
-                        $zoomUrl,
-                    );
+                    // Student templates always have exactly 1 slot = zoom URL
+                    $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
                     $this->queueTemplate($session, 'student', 'before', $studentPhone, $studentName, $sendAt,
                         'student_before_reminder',
                         $studentVars,
@@ -91,13 +86,8 @@ class AutoScheduleRemindersCommand extends Command
             if ($now->lt($sessionEnd)) {
                 $sendAt = $sessionStart->gt($now) ? $sessionStart : $now->copy();
                 if ($studentPhone) {
-                    $studentVars = ReminderTemplateResolver::studentSessionReminderParams(
-                        ReminderTemplateResolver::resolve('student_at_start_reminder', $approvedTemplates),
-                        $session->title,
-                        $startTimeDisp,
-                        $teacherName,
-                        $zoomUrl,
-                    );
+                    // Student templates always have exactly 1 slot = zoom URL
+                    $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
                     $this->queueTemplate($session, 'student', 'at_start', $studentPhone, $studentName, $sendAt,
                         'student_at_start_reminder',
                         $studentVars,
@@ -119,13 +109,8 @@ class AutoScheduleRemindersCommand extends Command
             if ($now->lt($sessionEnd) && $now->lt($afterPhaseExpires)) {
                 $sendAt = $afterStartTime->gt($now) ? $afterStartTime : $now->copy();
                 if ($studentPhone) {
-                    $studentVars = ReminderTemplateResolver::studentSessionReminderParams(
-                        ReminderTemplateResolver::resolve('student_after_5m_alert', $approvedTemplates),
-                        $session->title,
-                        $startTimeDisp,
-                        $teacherName,
-                        $zoomUrl,
-                    );
+                    // Student templates always have exactly 1 slot = zoom URL
+                    $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
                     $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $sendAt,
                         'student_after_5m_alert',
                         $studentVars,
