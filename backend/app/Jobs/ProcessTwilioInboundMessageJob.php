@@ -328,7 +328,7 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
         if ($reply === '1') {
             $reminder->update(['confirmation_status' => 'confirmed']);
 
-            if ($phase === 'post_end') {
+            if (in_array($phase, ['post_end', 'post_end_2'])) {
                 // Post-end confirmation → class completed
                 $session->update([
                     'status' => 'completed',
@@ -362,11 +362,12 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
         } else {
             $reminder->update(['confirmation_status' => 'denied']);
 
-            if ($phase === 'post_end') {
-                // Teacher says class didn't complete → keep pending for supervisor
+            if (in_array($phase, ['post_end', 'post_end_2'])) {
+                // Teacher says class didn't complete yet (still running)
+                // We keep it as running. If it's the first time, Phase 5 will trigger it again.
+                // If it's the second time, it stays running endlessly as requested.
                 $session->update([
-                    'status' => 'pending',
-                    'attendance_status' => 'teacher_joined',
+                    'status' => 'running',
                 ]);
             } else {
                 // Teacher says student didn't join

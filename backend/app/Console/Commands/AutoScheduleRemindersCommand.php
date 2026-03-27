@@ -148,6 +148,25 @@ class AutoScheduleRemindersCommand extends Command
                 }
             }
 
+            // ── Phase 5: 10 min AFTER class END — repeated completion confirmation ──
+            // Only trigger if Phase 4 was explicitly denied (No)
+            $afterEndTime10 = $sessionEnd->copy()->addMinutes(10);
+            if ($now->lt($sessionEnd->copy()->addDay())) {
+                $firstPostEndDenied = \App\Models\Reminder::where('class_session_id', $session->id)
+                    ->where('reminder_phase', 'post_end')
+                    ->where('confirmation_status', 'denied')
+                    ->exists();
+
+                if ($firstPostEndDenied && $teacherPhone) {
+                    $sendAt = $afterEndTime10->gt($now) ? $afterEndTime10 : $now->copy();
+                    $this->queueTemplate($session, 'teacher', 'post_end_2', $teacherPhone, $teacherName, $sendAt,
+                        'teacher_post_end_request',
+                        [],
+                        $approvedTemplates, "🏁 تذكير: حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، ما زالت مستمرة", 'awaiting');
+                    $created++;
+                }
+            }
+
         }
 
         $this->info("✅ Scheduled {$created} reminders for " . $sessions->count() . " sessions.");
