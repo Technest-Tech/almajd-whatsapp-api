@@ -335,10 +335,10 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
                     'attendance_status' => 'both_joined',
                 ]);
             } else {
-                // At start / after start → class is running
+                // At start / after start → both teacher and student are confirmed joined
                 $session->update([
                     'status' => 'running',
-                    'attendance_status' => 'teacher_joined',
+                    'attendance_status' => 'both_joined',
                 ]);
             }
 

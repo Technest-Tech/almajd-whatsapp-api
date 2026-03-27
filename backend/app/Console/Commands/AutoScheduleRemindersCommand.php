@@ -153,6 +153,14 @@ class AutoScheduleRemindersCommand extends Command
                         $approvedTemplates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
                     $created++;
                 }
+                // ── Also notify the student that class time is over ──
+                if ($studentPhone) {
+                    $this->queueTemplate($session, 'student', 'post_end', $studentPhone, $studentName, $sendAt,
+                        'class_completion_status',
+                        [],
+                        $approvedTemplates, "🏁 انتهت حصة *{$session->title}*\nنتمنى أن تكون الحصة مثمرة ومباركة.\nجزاكم الله خيراً على الالتزام والحضور. 📚");
+                    $created++;
+                }
             }
 
         }
