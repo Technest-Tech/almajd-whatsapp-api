@@ -257,19 +257,26 @@ class AutoScheduleRemindersCommand extends Command
             return;
         }
 
-        // ── Skip if teacher already confirmed for this session (any earlier phase) ──
-        $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
-            ->where('confirmation_status', 'confirmed')
-            ->exists();
+        // ── Skip logic based on session status & teacher confirmation ──
+        $session->refresh();
 
-        if ($alreadyConfirmed) {
+        if (in_array($session->status, ['completed', 'cancelled'], true)) {
             return;
         }
 
-        // ── Skip if session already completed/cancelled/running ──
-        $session->refresh();
-        if (in_array($session->status, ['completed', 'cancelled', 'running'], true)) {
-            return;
+        if (in_array($phase, ['before', 'at_start', 'after'])) {
+            if ($session->status === 'running') {
+                return;
+            }
+
+            $alreadyConfirmedPreClass = Reminder::where('class_session_id', $session->id)
+                ->where('confirmation_status', 'confirmed')
+                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                ->exists();
+
+            if ($alreadyConfirmedPreClass) {
+                return;
+            }
         }
 
         Reminder::create([

@@ -342,10 +342,12 @@ class ProcessTwilioInboundMessageJob implements ShouldQueue
                 ]);
             }
 
-            // ── Cancel ALL remaining pending reminders for this entire session ──
-            // This stops both teacher AND student from receiving further messages.
+            // ── Cancel pre-class pending reminders for this session ──
+            // This stops both teacher AND student from receiving further start-time messages.
+            // We intentionally do NOT cancel 'post_end' reminders so they still fire at class end.
             \App\Models\Reminder::where('class_session_id', $session->id)
                 ->where('status', 'pending')
+                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
                 ->update([
                     'status'         => 'cancelled',
                     'failure_reason' => 'Teacher confirmed — session active',

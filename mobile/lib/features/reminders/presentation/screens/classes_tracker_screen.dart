@@ -214,11 +214,17 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   }
 
   Future<void> _sendReminder(int sessionId, String recipientType) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+    );
     try {
       await _apiClient.dio.post('/sessions/$sessionId/remind', data: {
         'recipient_type': recipientType,
       });
       if (mounted) {
+        Navigator.pop(context); // close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(recipientType == 'student' ? 'تم إرسال التذكير للطالب ✅' : 'تم إرسال التذكير للمعلم ✅'),
@@ -229,6 +235,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       }
     } catch (e) {
       if (mounted) {
+        Navigator.pop(context); // close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('فشل إرسال التذكير'), backgroundColor: AppColors.coral, behavior: SnackBarBehavior.floating),
         );

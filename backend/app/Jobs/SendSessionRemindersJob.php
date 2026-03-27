@@ -180,18 +180,26 @@ class SendSessionRemindersJob implements ShouldQueue
             return true;
         }
 
-        // Skip if session is already completed, cancelled, or running
-        if (in_array($session->status, ['completed', 'cancelled', 'running'], true)) {
+        // Skip if session is already completed or cancelled
+        if (in_array($session->status, ['completed', 'cancelled'], true)) {
             return true;
         }
 
-        // Skip if a confirmed reminder already exists for this session (teacher said "Yes")
-        $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
-            ->where('confirmation_status', 'confirmed')
-            ->exists();
+        if (in_array($reminder->reminder_phase, ['before', 'at_start', 'after'])) {
+            // Skip pre-class reminders if session is already running
+            if ($session->status === 'running') {
+                return true;
+            }
 
-        if ($alreadyConfirmed) {
-            return true;
+            // Skip pre-class reminders if a confirmed reminder exists for this session
+            $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
+                ->where('confirmation_status', 'confirmed')
+                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                ->exists();
+
+            if ($alreadyConfirmed) {
+                return true;
+            }
         }
 
         // Teacher "after" only if session has moved to pending/running (at_start fired)

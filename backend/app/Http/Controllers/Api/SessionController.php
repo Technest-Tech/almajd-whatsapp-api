@@ -136,13 +136,8 @@ class SessionController extends Controller
         $templateParams = [];
         if ($recipientType === 'student') {
             $zoomUrl = ReminderTemplateResolver::normalizeZoomLink($teacher?->zoom_link);
-            $templateParams = ReminderTemplateResolver::studentSessionReminderParams(
-                ReminderTemplateResolver::resolve($logicalTemplateKey, $approved),
-                $session->title,
-                $startDisp,
-                $teacherName,
-                $zoomUrl,
-            );
+            // Student templates always have exactly 1 slot = zoom URL
+            $templateParams = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
         }
         $waTemplate = ReminderTemplateResolver::resolve($logicalTemplateKey, $approved);
         $templateSid = $waTemplate?->content_sid;
