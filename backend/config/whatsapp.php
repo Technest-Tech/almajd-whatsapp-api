@@ -6,7 +6,11 @@ return [
     |--------------------------------------------------------------------------
     | WhatsApp BSP Provider
     |--------------------------------------------------------------------------
-    | Supported: 'twilio', '360dialog'
+    | Supported: 'twilio', 'wasender', '360dialog'
+    |
+    | Switch by setting WHATSAPP_PROVIDER in .env.
+    | 'wasender' = QR-linked personal session (no per-message fees, no template approval)
+    | 'twilio'   = Meta BSP (official, green tick, per-message pricing)
     */
     'provider' => env('WHATSAPP_PROVIDER', 'twilio'),
 
@@ -19,6 +23,23 @@ return [
         'account_sid' => env('TWILIO_ACCOUNT_SID'),
         'auth_token'  => env('TWILIO_AUTH_TOKEN'),
         'from_number' => env('TWILIO_WHATSAPP_NUMBER'), // e.g. +201217770240 (production sender)
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | WasenderAPI Credentials
+    |--------------------------------------------------------------------------
+    | API key is generated per-session in the Wasender dashboard after
+    | connecting your WhatsApp account via QR code.
+    |
+    | Webhook secret is set in Session settings on the Wasender dashboard.
+    | Leave WASENDER_WEBHOOK_SECRET empty to skip signature verification (dev only).
+    */
+    'wasender' => [
+        'api_key'        => env('WASENDER_API_KEY'),
+        'base_url'       => env('WASENDER_BASE_URL', 'https://www.wasenderapi.com/api'),
+        'from_number'    => env('WASENDER_FROM_NUMBER'), // Your linked WA number e.g. +201234567890
+        'webhook_secret' => env('WASENDER_WEBHOOK_SECRET'),
     ],
 
     /*

@@ -24,11 +24,13 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
 
         $middleware->alias([
-            'role'              => \App\Http\Middleware\RoleMiddleware::class,
-            'permission'        => \App\Http\Middleware\PermissionMiddleware::class,
-            'webhook.signature' => \App\Http\Middleware\WebhookSignatureMiddleware::class,
-            'twilio.signature'  => \App\Http\Middleware\TwilioSignatureMiddleware::class,
-            'idempotency'       => \App\Http\Middleware\IdempotencyMiddleware::class,
+            'role'                  => \App\Http\Middleware\RoleMiddleware::class,
+            'permission'            => \App\Http\Middleware\PermissionMiddleware::class,
+            'webhook.signature'     => \App\Http\Middleware\WebhookSignatureMiddleware::class,
+            'twilio.signature'      => \App\Http\Middleware\TwilioSignatureMiddleware::class,
+            'idempotency'           => \App\Http\Middleware\IdempotencyMiddleware::class,
+            'wasender.signature'    => \App\Http\Middleware\WasenderSignatureMiddleware::class,
+            'wasender.idempotency'  => \App\Http\Middleware\WasenderIdempotencyMiddleware::class,
         ]);
 
         $middleware->throttleApi('200,1');

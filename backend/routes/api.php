@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\TemplateController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Webhook\WhatsAppWebhookController;
 use App\Http\Controllers\Webhook\TwilioWebhookController;
+use App\Http\Controllers\Webhook\WasenderWebhookController;
 
 /*
 |--------------------------------------------------------------------------
@@ -41,6 +42,13 @@ Route::prefix('webhooks/whatsapp')->group(function () {
     Route::post('status', [WhatsAppWebhookController::class, 'status'])
         ->middleware('webhook.signature');
 });
+
+// ── WasenderAPI Webhooks ──────────────────────────────────────
+// Configure this URL in your Wasender session settings:
+//   https://wasenderapi.com/dashboard → Sessions → Edit → Webhook URL
+// URL: https://your-domain.com/api/webhooks/wasender
+Route::post('webhooks/wasender', [WasenderWebhookController::class, 'receive'])
+    ->middleware(['wasender.signature', 'wasender.idempotency']);
 
 // ── Public Media ──────────────────────────────────────────
 Route::get('media/tickets/{ticket}/{filename}', [TicketMediaController::class, 'download'])
