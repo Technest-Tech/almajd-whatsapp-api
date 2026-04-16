@@ -173,14 +173,11 @@ class MessageBubble extends StatelessWidget {
   // ── Main Chat Bubble ──
   Widget _buildChatBubble(BuildContext context) {
     final isInbound = message.isInbound;
-    final isNote = message.isInternal;
 
     final alignment = isInbound ? Alignment.centerRight : Alignment.centerLeft;
-    final bgColor = isNote
-        ? AppColors.amber.withValues(alpha: 0.12)
-        : isInbound
-            ? const Color(0xFF1A2C34) // WhatsApp dark inbound
-            : const Color(0xFF005C4B); // WhatsApp dark outbound (teal)
+    final bgColor = isInbound
+        ? const Color(0xFF1A2C34)
+        : const Color(0xFF005C4B);
 
     final borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(12),
@@ -227,32 +224,10 @@ class MessageBubble extends StatelessWidget {
             decoration: BoxDecoration(
               color: bgColor,
               borderRadius: borderRadius,
-              border: isNote ? Border.all(color: AppColors.amber.withValues(alpha: 0.3)) : null,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Internal note badge
-                if (isNote)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.lock_outline, size: 11, color: AppColors.amber),
-                        const SizedBox(width: 3),
-                        Text(
-                          'ملاحظة داخلية',
-                          style: TextStyle(
-                            color: AppColors.amber.withValues(alpha: 0.8),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
                 // Sender name (for inbound)
                 if (isInbound && message.senderName != null)
                   Padding(
@@ -277,7 +252,7 @@ class MessageBubble extends StatelessWidget {
                   const SizedBox(height: 4),
                 ],
 
-                // Message body + time in one flow
+                // Message body + time
                 if (message.body.isNotEmpty)
                   _buildBodyWithTime(isInbound)
                 else

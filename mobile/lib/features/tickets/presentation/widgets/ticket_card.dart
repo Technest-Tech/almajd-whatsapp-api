@@ -260,7 +260,7 @@ class TicketDivider extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Keep StatusBadge + SlaTimerPill for detail screen
+// Status Badge
 // ─────────────────────────────────────────────────────────────
 class StatusBadge extends StatelessWidget {
   final String status;
@@ -297,76 +297,5 @@ class StatusBadge extends StatelessWidget {
       case 'escalated':  return AppColors.statusEscalated;
       default:           return AppColors.textSecondary;
     }
-  }
-}
-
-class SlaTimerPill extends StatefulWidget {
-  final DateTime deadline;
-  const SlaTimerPill({super.key, required this.deadline});
-
-  @override
-  State<SlaTimerPill> createState() => _SlaTimerPillState();
-}
-
-class _SlaTimerPillState extends State<SlaTimerPill> {
-  late Timer _timer;
-  Duration _remaining = Duration.zero;
-
-  @override
-  void initState() {
-    super.initState();
-    _updateRemaining();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateRemaining());
-  }
-
-  @override
-  void dispose() { _timer.cancel(); super.dispose(); }
-
-  void _updateRemaining() {
-    final diff = widget.deadline.difference(DateTime.now());
-    setState(() { _remaining = diff.isNegative ? Duration.zero : diff; });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hours   = _remaining.inHours.toString().padLeft(2, '0');
-    final minutes = (_remaining.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (_remaining.inSeconds % 60).toString().padLeft(2, '0');
-    final isBreached = _remaining == Duration.zero;
-
-    final color = isBreached
-        ? AppColors.slaRed
-        : _remaining.inMinutes < 30
-            ? AppColors.slaRed
-            : _remaining.inHours < 2
-                ? AppColors.slaYellow
-                : AppColors.slaGreen;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(isBreached ? Icons.warning_amber_rounded : Icons.timer_outlined,
-              size: 12, color: color),
-          const SizedBox(width: 4),
-          Text(
-            isBreached ? 'منتهي' : '$hours:$minutes:$seconds',
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
