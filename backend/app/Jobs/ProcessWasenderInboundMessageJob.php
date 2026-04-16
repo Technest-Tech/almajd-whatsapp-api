@@ -557,21 +557,21 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 continue;
             }
 
-            $mediaObj  = $rawMessage[$key];
-            $encUrl    = $mediaObj['url']      ?? null;
-            $mediaKey  = $mediaObj['mediaKey'] ?? null;
-            $mime      = $mediaObj['mimetype'] ?? null;
+            $mediaObj = $rawMessage[$key];
+            $encUrl   = $mediaObj['url']      ?? null;
+            $mediaKey = $mediaObj['mediaKey'] ?? null;
+            $mime     = $mediaObj['mimetype'] ?? null;
 
             if (!$encUrl || !$mediaKey) {
-                // Encrypted media without keys — store the raw URL as fallback
+                // No keys to decrypt — store raw URL as fallback
                 return [$encUrl, $mime, $msgType];
             }
 
-            // Use Wasender decrypt API to get a public URL (valid for 1 hour)
-            $publicUrl = $this->decryptMediaViaApi($encUrl, $mediaKey, $mediaType);
+            // Pass the FULL messages payload — Wasender decrypt-media requires it
+            $publicUrl = $this->decryptMediaViaApi($messages);
 
             if ($publicUrl) {
-                // Download and store locally so we own the file permanently
+                // Download and store permanently on our server
                 $storedUrl = $this->downloadAndStore($publicUrl, $mime ?? 'application/octet-stream', $messageId);
                 return [$storedUrl ?? $publicUrl, $mime, $msgType];
             }
@@ -584,25 +584,28 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
     /**
      * Call Wasender's /api/decrypt-media endpoint to get a temporary public URL.
+     *
+     * The API requires the FULL original webhook messages object:
+     *   POST /api/decrypt-media
+     *   Body: { "data": { "messages": { ...full messages payload... } } }
+     *
      * Logs full request/response to webhook_debug.log for diagnostics.
      */
-    private function decryptMediaViaApi(string $url, string $mediaKey, string $mediaType): ?string
+    private function decryptMediaViaApi(array $messagesPayload): ?string
     {
         $apiKey  = config('whatsapp.wasender.api_key');
         $baseUrl = config('whatsapp.wasender.base_url', 'https://www.wasenderapi.com/api');
 
+        $requestBody = ['data' => ['messages' => $messagesPayload]];
+
         $debugLog = storage_path('logs/webhook_debug.log');
-        file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-REQ | type={$mediaType} mediaKey=" . substr($mediaKey, 0, 20) . " url=" . substr($url, 0, 80) . "\n", FILE_APPEND);
+        file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-REQ | " . substr(json_encode($messagesPayload), 0, 120) . "\n", FILE_APPEND);
 
         try {
             $response = Http::withToken($apiKey)
                 ->asJson()
                 ->timeout(20)
-                ->post("{$baseUrl}/decrypt-media", [
-                    'url'       => $url,
-                    'mediaKey'  => $mediaKey,
-                    'mediaType' => $mediaType,
-                ]);
+                ->post("{$baseUrl}/decrypt-media", $requestBody);
 
             $body = substr($response->body(), 0, 500);
             file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-RES | status={$response->status()} body={$body}\n", FILE_APPEND);
