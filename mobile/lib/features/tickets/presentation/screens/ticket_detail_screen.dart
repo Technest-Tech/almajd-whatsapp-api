@@ -32,7 +32,7 @@ class TicketDetailScreen extends StatefulWidget {
 
 class _TicketDetailScreenState extends State<TicketDetailScreen>
     with SingleTickerProviderStateMixin {
-  static const int _chatPageSize = 30;
+  static const int _chatPageSize = 10;
 
   // ── Controllers ──
   final _messageController = TextEditingController();
@@ -108,10 +108,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       setState(() => _showScrollToBottom = !atBottom);
     }
 
-    // Load older messages when near the top
+    // Load older messages when user scrolls near the top (200px threshold)
     if (_scrollController.hasClients &&
         _scrollController.position.pixels <=
-            _scrollController.position.minScrollExtent + 100 &&
+            _scrollController.position.minScrollExtent + 200 &&
         !_isLoadingMore &&
         _currentPage < _lastPage) {
       _loadOlderMessages();
@@ -242,7 +242,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       final result = await repo.getMessages(
         widget.ticketId,
         page: 1,
-        perPage: _chatPageSize,
+        perPage: 10, // always poll latest 10
       );
       final latestMessages = result['messages'] as List<MessageModel>;
 
@@ -251,7 +251,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       final existingIds = _messages.map((m) => m.id).toSet();
       final newMessages = latestMessages.where((m) => !existingIds.contains(m.id)).toList();
 
-      if (newMessages.isEmpty) return; // ← No unnecessary rebuilds
+      if (newMessages.isEmpty) return;
 
       setState(() => _messages.addAll(newMessages));
       _scrollToBottom();
@@ -272,14 +272,16 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   Future<void> _loadData() async {
     try {
       final repo = getIt<TicketRepository>();
-      final ticket = await repo.getTicket(widget.ticketId);
-      final result = await repo.getMessages(
-        widget.ticketId,
-        page: 1,
-        perPage: _chatPageSize,
-      );
+
+      // Parallel load: ticket info + latest messages simultaneously
+      final results = await Future.wait([
+        repo.getTicket(widget.ticketId),
+        repo.getMessages(widget.ticketId, page: 1, perPage: _chatPageSize),
+      ]);
 
       if (mounted) {
+        final ticket = results[0] as TicketModel;
+        final result = results[1] as Map<String, dynamic>;
         setState(() {
           _ticket = ticket;
           _messages
@@ -292,9 +294,11 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         _setupWebSocket();
         _startPolling();
 
-        // Instant scroll to bottom
+        // Instant scroll to bottom — use two frames for reliability
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToBottom(instant: true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToBottom(instant: true);
+          });
         });
       }
     } catch (e) {
@@ -307,19 +311,28 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     }
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Load older messages (scroll-up pagination)
+  // Backend: page 1 = latest, page 2 = older, page N = oldest
+  // So "load older" means incrementing the page number.
+  // Guard: stop when currentPage == lastPage (no more older pages).
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Future<void> _loadOlderMessages() async {
     if (_isLoadingMore || _currentPage >= _lastPage) return;
 
     setState(() => _isLoadingMore = true);
 
-    // Save scroll position relative to content height
-    final oldMaxScroll = _scrollController.position.maxScrollExtent;
+    // Remember scroll offset before prepending so position is preserved
+    final oldExtent = _scrollController.hasClients
+        ? _scrollController.position.maxScrollExtent
+        : 0.0;
 
     try {
       final repo = getIt<TicketRepository>();
+      final nextPage = _currentPage + 1;
       final result = await repo.getMessages(
         widget.ticketId,
-        page: _currentPage + 1,
+        page: nextPage,
         perPage: _chatPageSize,
       );
       final olderMessages = result['messages'] as List<MessageModel>;
@@ -330,23 +343,26 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         setState(() {
           _isLoadingMore = false;
           _currentPage = result['current_page'] as int;
-          _lastPage = result['last_page'] as int;
+          _lastPage    = result['last_page'] as int;
         });
         return;
       }
 
+      // Deduplicate before inserting
+      final existingIds = _messages.map((m) => m.id).toSet();
+      final freshOlder = olderMessages.where((m) => !existingIds.contains(m.id)).toList();
+
       setState(() {
-        _messages.insertAll(0, olderMessages);
+        _messages.insertAll(0, freshOlder);
         _currentPage = result['current_page'] as int;
-        _lastPage = result['last_page'] as int;
+        _lastPage    = result['last_page'] as int;
         _isLoadingMore = false;
       });
 
-      // Maintain scroll position after prepending
+      // Keep the user's scroll position steady after the prepend
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scrollController.hasClients) return;
-        final newMaxScroll = _scrollController.position.maxScrollExtent;
-        final diff = newMaxScroll - oldMaxScroll;
+        final diff = _scrollController.position.maxScrollExtent - oldExtent;
         _scrollController.jumpTo(_scrollController.offset + diff);
       });
     } catch (_) {
@@ -430,29 +446,73 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       );
     }
 
+    // Total items = messages + optional top loader + optional top end-marker
+    final hasMoreOlder = _currentPage < _lastPage;
+    // Slots: [0] = loader/end-banner (if applicable), then messages
+    final showTopSlot = _isLoadingMore || (!hasMoreOlder && _messages.isNotEmpty);
+    final itemCount = _messages.length + (showTopSlot ? 1 : 0);
+
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
+      itemCount: itemCount,
       itemBuilder: (context, index) {
-        // Loading indicator at top
-        if (_isLoadingMore && index == 0) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFF00A884),
+        // ── Top slot: loading spinner or end-of-history banner ──
+        if (showTopSlot && index == 0) {
+          if (_isLoadingMore) {
+            return Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A2C34),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFF00A884),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'جاري تحميل الرسائل...',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          );
+            );
+          } else {
+            // End of history reached
+            return Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A2C34),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'بداية المحادثة',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.35),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            );
+          }
         }
 
-        final msgIndex = _isLoadingMore ? index - 1 : index;
+        final msgIndex = showTopSlot ? index - 1 : index;
         if (msgIndex < 0 || msgIndex >= _messages.length) {
           return const SizedBox.shrink();
         }
@@ -729,31 +789,82 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
 
   // ── Recording UI ──
   Widget _buildRecordingSlider() {
-    return SizedBox(
-      height: 50,
+    return Container(
+      height: 58,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2C34),
+        borderRadius: BorderRadius.circular(30),
+      ),
       child: Row(
         children: [
+          // Delete button
           GestureDetector(
             onTap: _cancelRecording,
-            child: const _CircleBtn(color: Color(0xFF2A3942), child: Icon(Icons.delete_outline_rounded, color: AppColors.coral, size: 22)),
+            child: Container(
+              width: 44,
+              height: 44,
+              margin: const EdgeInsets.only(left: 4),
+              decoration: const BoxDecoration(
+                color: Color(0xFF2A3942),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350), size: 22),
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
+
+          // Pulsing red dot
           const _PulsingDot(),
           const SizedBox(width: 8),
-          Text(_formatDuration(_recordDuration), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 1)),
+
+          // Duration counter
+          SizedBox(
+            width: 44,
+            child: Text(
+              _formatDuration(_recordDuration),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+
+          // Swipe-to-cancel animated hint
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.chevron_left_rounded, color: Colors.white.withValues(alpha: 0.35), size: 20),
-                Icon(Icons.chevron_left_rounded, color: Colors.white.withValues(alpha: 0.2), size: 20),
-                Text('اسحب للإلغاء', style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 13)),
+                _AnimatedChevron(delay: 0),
+                _AnimatedChevron(delay: 150),
+                _AnimatedChevron(delay: 300),
+                const SizedBox(width: 4),
+                Text(
+                  'اسحب للإلغاء',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    fontSize: 12.5,
+                  ),
+                ),
               ],
             ),
           ),
+
+          // Lock button
           GestureDetector(
             onTap: () => setState(() => _isRecordLocked = true),
-            child: const _CircleBtn(color: Color(0xFF2A3942), child: Icon(Icons.lock_outline_rounded, color: Color(0xFF8696A0), size: 20)),
+            child: Container(
+              width: 44,
+              height: 44,
+              margin: const EdgeInsets.only(right: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A3942),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF00A884).withValues(alpha: 0.4), width: 1.5),
+              ),
+              child: const Icon(Icons.lock_outline_rounded, color: Color(0xFF00A884), size: 20),
+            ),
           ),
         ],
       ),
@@ -761,22 +872,79 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   }
 
   Widget _buildLockedRecordingUI() {
-    return SizedBox(
-      height: 50,
+    return Container(
+      height: 58,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2C34),
+        borderRadius: BorderRadius.circular(30),
+      ),
       child: Row(
         children: [
+          // Delete / cancel
           GestureDetector(
             onTap: _cancelRecording,
-            child: const _CircleBtn(color: Color(0xFF2A3942), child: Icon(Icons.delete_outline_rounded, color: AppColors.coral, size: 22)),
+            child: Container(
+              width: 44,
+              height: 44,
+              margin: const EdgeInsets.only(left: 4),
+              decoration: const BoxDecoration(
+                color: Color(0xFF2A3942),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350), size: 22),
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
+
+          // Pulsing dot
           const _PulsingDot(),
           const SizedBox(width: 8),
-          Text(_formatDuration(_recordDuration), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 1)),
+
+          // Duration
+          Text(
+            _formatDuration(_recordDuration),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+
           const Spacer(),
+
+          // Locked badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00A884).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF00A884).withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_rounded, size: 12, color: Color(0xFF00A884)),
+                const SizedBox(width: 4),
+                Text('مقفل', style: TextStyle(color: const Color(0xFF00A884), fontSize: 11, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+
+          // Send button
           GestureDetector(
             onTap: _stopRecording,
-            child: const _CircleBtn(color: Color(0xFF00A884), child: Icon(Icons.send_rounded, color: Colors.white, size: 20)),
+            child: Container(
+              width: 46,
+              height: 46,
+              margin: const EdgeInsets.only(right: 4),
+              decoration: const BoxDecoration(
+                color: Color(0xFF00A884),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+            ),
           ),
         ],
       ),
@@ -1059,6 +1227,48 @@ class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderState
         width: 11, height: 11,
         decoration: const BoxDecoration(color: AppColors.coral, shape: BoxShape.circle),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Animated chevron for swipe-to-cancel hint
+// ─────────────────────────────────────────────────────────────
+class _AnimatedChevron extends StatefulWidget {
+  final int delay;
+  const _AnimatedChevron({required this.delay});
+  @override
+  State<_AnimatedChevron> createState() => _AnimatedChevronState();
+}
+
+class _AnimatedChevronState extends State<_AnimatedChevron>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _opacity = Tween(begin: 0.15, end: 0.7).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+    Future.delayed(Duration(milliseconds: widget.delay), () {
+      if (mounted) _ctrl.repeat(reverse: true);
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: const Icon(Icons.chevron_left_rounded, color: Colors.white, size: 18),
     );
   }
 }

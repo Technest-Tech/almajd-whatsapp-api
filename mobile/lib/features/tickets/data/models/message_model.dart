@@ -38,18 +38,19 @@ class MessageModel {
 
   factory MessageModel.fromJson(Map<String, dynamic> json) {
     final rawDate = json['created_at'] ?? json['timestamp'];
+    final dir = json['direction'] as String? ?? 'inbound';
     return MessageModel(
       id: json['id'],
       ticketId: json['ticket_id'],
       body: json['content'] ?? json['body'] ?? '',
-      direction: json['direction'] ?? 'inbound',
+      direction: dir,
       type: json['message_type'] ?? json['type'] ?? 'text',
       senderName: json['sender_name'] ?? json['sender']?['name'],
       mediaUrl: json['media_url'],
       mediaType: json['media_type'],
-      deliveryStatus: json['delivery_status'] ?? 'delivered',
+      deliveryStatus: json['delivery_status'] ?? (dir == 'outbound' ? 'sent' : 'delivered'),
       isInternal: json['is_internal'] ?? false,
-      createdAt: rawDate != null ? DateTime.parse(rawDate) : DateTime.now(),
+      createdAt: rawDate != null ? DateTime.parse(rawDate).toLocal() : DateTime.now(),
       replyToId: json['reply_to_id'],
       replyToBody: json['reply_to_body'],
       replyToSender: json['reply_to_sender'],

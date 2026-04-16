@@ -515,7 +515,7 @@ class MessageBubble extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Audio Message Widget (WhatsApp-style)
+// Audio Message Widget (Premium Telegram/WhatsApp style)
 // ─────────────────────────────────────────────
 class AudioMessageWidget extends StatefulWidget {
   final String url;
@@ -529,14 +529,19 @@ class AudioMessageWidget extends StatefulWidget {
 class _AudioMessageWidgetState extends State<AudioMessageWidget> {
   final _audioPlayer = AudioPlayer();
   bool _isPlaying = false;
+  bool _isLoading = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
+  double _speed = 1.0;
+
+  // Cycle: 1.0 → 1.5 → 2.0 → 1.0
+  static const List<double> _speeds = [1.0, 1.5, 2.0];
 
   @override
   void initState() {
     super.initState();
-    _audioPlayer.onPlayerStateChanged.listen((state) {
-      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+    _audioPlayer.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _isPlaying = s == PlayerState.playing);
     });
     _audioPlayer.onDurationChanged.listen((d) {
       if (mounted) setState(() => _duration = d);
@@ -544,16 +549,40 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
     _audioPlayer.onPositionChanged.listen((p) {
       if (mounted) setState(() => _position = p);
     });
-    _audioPlayer.setSourceUrl(widget.url);
+    _audioPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() { _position = Duration.zero; _isPlaying = false; });
+    });
   }
 
   @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
+  void dispose() { _audioPlayer.dispose(); super.dispose(); }
+
+  Future<void> _togglePlay() async {
+    if (_isPlaying) {
+      await _audioPlayer.pause();
+    } else {
+      setState(() => _isLoading = true);
+      try {
+        await _audioPlayer.play(UrlSource(widget.url));
+        await _audioPlayer.setPlaybackRate(_speed);
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
   }
 
-  String _formatDuration(Duration d) {
+  Future<void> _seekTo(double fraction) async {
+    final target = Duration(milliseconds: (_duration.inMilliseconds * fraction).round());
+    await _audioPlayer.seek(target);
+  }
+
+  Future<void> _cycleSpeed() async {
+    final next = _speeds[(_speeds.indexOf(_speed) + 1) % _speeds.length];
+    setState(() => _speed = next);
+    await _audioPlayer.setPlaybackRate(next);
+  }
+
+  String _fmt(Duration d) {
     final m = d.inMinutes.toString().padLeft(1, '0');
     final s = (d.inSeconds % 60).toString().padLeft(2, '0');
     return '$m:$s';
@@ -561,66 +590,123 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final maxSecs = _duration.inSeconds.toDouble() > 0 ? _duration.inSeconds.toDouble() : 1.0;
-    final currentSecs = _position.inSeconds.toDouble().clamp(0.0, maxSecs);
+    final maxSecs = _duration.inSeconds.toDouble().clamp(1.0, double.infinity);
+    final progress = (_position.inSeconds.toDouble() / maxSecs).clamp(0.0, 1.0);
+    final timeStr = _isPlaying ? _fmt(_position) : _fmt(_duration);
+    final speedLabel = _speed == 1.0 ? '1×' : (_speed == 1.5 ? '1.5×' : '2×');
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Play/Pause button
-        GestureDetector(
-          onTap: () {
-            if (_isPlaying) {
-              _audioPlayer.pause();
-            } else {
-              _audioPlayer.play(UrlSource(widget.url));
-            }
-          },
-          child: Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFF53BDEB),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _isPlaying ? Icons.pause : Icons.play_arrow,
-              color: Colors.white,
-              size: 22,
+    return SizedBox(
+      width: 220,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // ── Play/Pause circle ──
+          GestureDetector(
+            onTap: _togglePlay,
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: widget.isInbound
+                    ? const Color(0xFF00A884)
+                    : Colors.white.withValues(alpha: 0.9),
+                shape: BoxShape.circle,
+              ),
+              child: _isLoading
+                  ? Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: widget.isInbound ? Colors.white : const Color(0xFF005C4B),
+                      ),
+                    )
+                  : Icon(
+                      _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      color: widget.isInbound ? Colors.white : const Color(0xFF005C4B),
+                      size: 24,
+                    ),
             ),
           ),
-        ),
-        const SizedBox(width: 6),
+          const SizedBox(width: 10),
 
-        // Waveform-style bars + time
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Waveform bars
-              SizedBox(
-                height: 28,
-                child: CustomPaint(
-                  painter: _WaveformPainter(
-                    progress: maxSecs > 0 ? currentSecs / maxSecs : 0,
-                    activeColor: const Color(0xFF53BDEB),
-                    inactiveColor: Colors.white.withValues(alpha: 0.2),
+          // ── Waveform + time ──
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Waveform (tap to seek)
+                GestureDetector(
+                  onTapDown: (d) {
+                    final box = context.findRenderObject() as RenderBox?;
+                    if (box == null) return;
+                    final local = box.globalToLocal(d.globalPosition);
+                    final waveStart = 52.0; // approx play btn + gap
+                    final waveWidth = box.size.width - waveStart - 36;
+                    final fraction = ((local.dx - waveStart) / waveWidth).clamp(0.0, 1.0);
+                    _seekTo(fraction);
+                  },
+                  child: SizedBox(
+                    height: 30,
+                    child: CustomPaint(
+                      painter: _WaveformPainter(
+                        progress: progress,
+                        activeColor: widget.isInbound
+                            ? const Color(0xFF00A884)
+                            : Colors.white.withValues(alpha: 0.9),
+                        inactiveColor: widget.isInbound
+                            ? Colors.white.withValues(alpha: 0.25)
+                            : Colors.white.withValues(alpha: 0.3),
+                      ),
+                      size: Size.infinite,
+                    ),
                   ),
-                  size: Size.infinite,
                 ),
-              ),
-              const SizedBox(height: 2),
-              // Duration
-              Text(
-                _isPlaying ? _formatDuration(_position) : _formatDuration(_duration),
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: 10,
+
+                // Time + speed
+                Row(
+                  children: [
+                    Text(
+                      timeStr,
+                      style: TextStyle(
+                        color: widget.isInbound
+                            ? Colors.white.withValues(alpha: 0.55)
+                            : Colors.white.withValues(alpha: 0.6),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: _cycleSpeed,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: (widget.isInbound
+                                  ? const Color(0xFF00A884)
+                                  : Colors.white)
+                              .withValues(alpha: _speed != 1.0 ? 0.2 : 0.0),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          speedLabel,
+                          style: TextStyle(
+                            color: widget.isInbound
+                                ? Colors.white.withValues(alpha: _speed != 1.0 ? 0.9 : 0.4)
+                                : Colors.white.withValues(alpha: _speed != 1.0 ? 1.0 : 0.5),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -635,30 +721,31 @@ class _WaveformPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const barWidth = 3.0;
-    const gap = 2.0;
+    const barWidth = 2.5;
+    const gap = 1.8;
     final totalBars = ((size.width + gap) / (barWidth + gap)).floor();
-    final rng = Random(42); // deterministic bars
+    final rng = Random(42);
 
     for (int i = 0; i < totalBars; i++) {
-      final h = 6.0 + rng.nextDouble() * (size.height - 8);
+      final heightFraction = 0.25 + rng.nextDouble() * 0.75;
+      final h = size.height * heightFraction;
       final x = i * (barWidth + gap);
       final y = (size.height - h) / 2;
       final filled = i / totalBars <= progress;
 
-      final paint = Paint()
-        ..color = filled ? activeColor : inactiveColor
-        ..strokeCap = StrokeCap.round;
-
       canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(x, y, barWidth, h), const Radius.circular(1.5)),
-        paint,
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, y, barWidth, h),
+          const Radius.circular(1.5),
+        ),
+        Paint()..color = filled ? activeColor : inactiveColor,
       );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _WaveformPainter old) => old.progress != progress;
+  bool shouldRepaint(covariant _WaveformPainter old) =>
+      old.progress != progress || old.activeColor != activeColor;
 }
 
 // ─────────────────────────────────────────────

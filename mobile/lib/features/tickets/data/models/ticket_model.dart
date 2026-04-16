@@ -50,10 +50,10 @@ class TicketModel {
       unreadCount: json['unread_count'] ?? 0,
       assignedToName: json['assigned_to']?['name'] ?? json['assigned_to_name'],
       assignedToId: json['assigned_to']?['id'] ?? json['assigned_to_id'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      createdAt: DateTime.parse(json['created_at']).toLocal(),
+      updatedAt: DateTime.parse(json['updated_at']).toLocal(),
       slaDeadline: json['sla_deadline'] != null
-          ? DateTime.parse(json['sla_deadline'])
+          ? DateTime.parse(json['sla_deadline']).toLocal()
           : null,
       tags: json['tags'] != null
           ? (json['tags'] as List).map((t) => t is String ? t : t['name'].toString()).toList()

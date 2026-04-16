@@ -121,8 +121,9 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
             $key = $msg['key'] ?? [];
 
-            // Skip outbound messages
-            if ($key['fromMe'] ?? true) continue;
+            // NOTE: fromMe=true means WE sent this from WhatsApp Business App
+            // We process BOTH directions — fromMe=false (inbound) and fromMe=true (outbound)
+            $fromMe = $key['fromMe'] ?? false;
 
             $messageId = $key['id'] ?? null;
             if (!$messageId) continue;
@@ -155,7 +156,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                     'messages' => [
                         'key' => [
                             'id'              => $messageId,
-                            'fromMe'          => false,
+                            'fromMe'          => $fromMe,
                             'remoteJid'       => $remoteJidAlt ?? $key['remoteJid'] ?? '',
                             'cleanedSenderPn' => $phone,
                         ],
@@ -166,7 +167,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ],
             ];
 
-            // Swap payload and process through the standard inbound handler
+            // Swap payload and process through the standard handler
             $originalPayload = $this->payload;
             $this->payload = $transformedPayload;
             $this->handleInboundMessage();
@@ -187,12 +188,12 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             return;
         }
 
-        $key = $messages['key'] ?? [];
+        $key    = $messages['key'] ?? [];
+        $fromMe = (bool) ($key['fromMe'] ?? false);
 
-        // Skip messages we sent ourselves
-        if ($key['fromMe'] ?? false) {
-            return;
-        }
+        // fromMe=true  → message WE sent from WhatsApp Business App → store as outbound
+        // fromMe=false → message customer sent → store as inbound
+        $direction = $fromMe ? MessageDirection::Outbound : MessageDirection::Inbound;
 
         $messageId = $key['id'] ?? null;
         if (!$messageId) {
@@ -206,58 +207,69 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             return;
         }
 
-        // ── Extract sender phone number ──────────────────────────────────────
-        // Use cleanedSenderPn for private chats, cleanedParticipantPn for groups.
-        // Do NOT use remoteJid — it may be a LID (ending in @lid).
-        $senderPhone = $key['cleanedParticipantPn']   // group sender
-            ?? $key['cleanedSenderPn']                 // private sender
-            ?? null;
+        // ── Resolve the CONTACT phone number ────────────────────────────────────
+        // For inbound: the sender IS the contact (cleanedSenderPn / cleanedParticipantPn)
+        // For outbound (fromMe): the contact is the RECIPIENT — use remoteJid
+        if ($fromMe) {
+            $remoteJid    = $key['remoteJid'] ?? '';
+            $contactPhone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '') ?: null;
+        } else {
+            $contactPhone = $key['cleanedParticipantPn']   // group sender
+                ?? $key['cleanedSenderPn']                 // private sender
+                ?? null;
 
-        if (!$senderPhone) {
-            // Last resort: try to extract from remoteJid if it looks like a number
-            $remoteJid = $key['remoteJid'] ?? '';
-            $possible  = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '');
-            $senderPhone = $possible ?: null;
+            if (!$contactPhone) {
+                // Last resort: try to extract from remoteJid if it looks like a number
+                $remoteJid    = $key['remoteJid'] ?? '';
+                $possible     = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '');
+                $contactPhone = $possible ?: null;
+            }
         }
 
-        if (!$senderPhone) {
-            Log::warning('WasenderAPI: Could not resolve sender phone number', ['key' => $key]);
+        if (!$contactPhone) {
+            Log::warning('WasenderAPI: Could not resolve contact phone number', ['key' => $key]);
             return;
         }
 
         // Normalise to E.164 with leading +
-        $senderPhone = str_starts_with($senderPhone, '+') ? $senderPhone : "+{$senderPhone}";
+        $contactPhone = str_starts_with($contactPhone, '+') ? $contactPhone : "+{$contactPhone}";
 
-        // ── Determine recipient (our number) ─────────────────────────────────
+        // ── Determine our number ─────────────────────────────────────────────
         $ourNumber = config('whatsapp.wasender.from_number', '');
 
-        // ── Extract unified text body ─────────────────────────────────────────
+        // from_number / to_number differ based on direction
+        $fromNumber = $fromMe ? $ourNumber : $contactPhone;
+        $toNumber   = $fromMe ? $contactPhone : $ourNumber;
+
+        // ── Extract unified text body ──────────────────────────────────────────
         $body = trim((string) ($messages['messageBody'] ?? ''));
 
-        // ── Detect teacher confirmation replies ──────────────────────────────
-        $this->maybeHandleTeacherConfirmation($senderPhone, $body);
+        // ── Detect teacher confirmation replies (inbound only) ─────────────────
+        if (!$fromMe) {
+            $this->maybeHandleTeacherConfirmation($contactPhone, $body);
+        }
 
-        // ── Extract media ─────────────────────────────────────────────────────
+        // ── Extract media ──────────────────────────────────────────────────────
         [$mediaUrl, $mediaMime, $msgType] = $this->extractMedia($messages, $messageId);
 
         // ── Resolve Guardian and Ticket ──────────────────────────────────────
-        $phoneWithoutPlus = ltrim($senderPhone, '+');
-        $guardian = Guardian::where('phone', $senderPhone)
+        $phoneWithoutPlus = ltrim($contactPhone, '+');
+        $guardian = Guardian::where('phone', $contactPhone)
             ->orWhere('phone', $phoneWithoutPlus)
             ->first();
 
         if (!$guardian) {
             $guardian = Guardian::create([
                 'name'  => 'Unknown Contact',
-                'phone' => $senderPhone,
+                'phone' => $contactPhone,
             ]);
         }
 
         // Auto-update guardian name if still unknown
         if ($guardian->name === 'Unknown Contact') {
-            $linked = Student::where('whatsapp_number', $senderPhone)->first()
+            $linked = Student::where('whatsapp_number', $contactPhone)->first()
                 ?? Student::where('whatsapp_number', $phoneWithoutPlus)->first()
-                ?? Teacher::where('whatsapp_number', $senderPhone)->first()
+                ?? Teacher::where('whatsapp_number', $contactPhone)->first()
                 ?? Teacher::where('whatsapp_number', $phoneWithoutPlus)->first();
 
             if ($linked) {
@@ -280,14 +292,17 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 'subject'       => 'New WhatsApp Inquiry',
             ]);
         } elseif ($ticket->status === TicketStatus::Pending) {
-            $ticket->update(['status' => TicketStatus::Open]);
+            // Re-open pending ticket on new inbound message only
+            if (!$fromMe) {
+                $ticket->update(['status' => TicketStatus::Open]);
+            }
         }
 
-        // Auto-link student/teacher to ticket
-        if (!$ticket->student_id && !$ticket->teacher_id) {
+        // Auto-link student/teacher to ticket (inbound only to avoid overrides)
+        if (!$fromMe && !$ticket->student_id && !$ticket->teacher_id) {
             $student = $guardian->students()->first()
-                ?? Student::where('whatsapp_number', $senderPhone)->first();
-            $teacher = Teacher::where('whatsapp_number', $senderPhone)->first();
+                ?? Student::where('whatsapp_number', $contactPhone)->first();
+            $teacher = Teacher::where('whatsapp_number', $contactPhone)->first();
 
             if ($student) {
                 $ticket->update(['student_id' => $student->id]);
@@ -296,8 +311,8 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             }
         }
 
-        // ── Resolve reply context ─────────────────────────────────────────────
-        $replyToMessageId  = null;
+        // ── Resolve reply context ────────────────────────────────────────────
+        $replyToMessageId = null;
         $quotedMsgId = $messages['message']['extendedTextMessage']['contextInfo']['stanzaId']
             ?? $messages['message']['imageMessage']['contextInfo']['stanzaId']
             ?? null;
@@ -309,61 +324,71 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             }
         }
 
-        // ── Store message ─────────────────────────────────────────────────────
+        // ── Store message ────────────────────────────────────────────────────
+        $deliveryStatus = $fromMe
+            ? DeliveryStatus::Sent       // outbound: at minimum it was sent
+            : DeliveryStatus::Delivered; // inbound: we received it
+
         $whatsappMessage = WhatsappMessage::create([
             'wa_message_id'       => $messageId,
             'ticket_id'           => $ticket->id,
-            'direction'           => MessageDirection::Inbound,
-            'from_number'         => $senderPhone,
-            'to_number'           => $ourNumber,
+            'direction'           => $direction,
+            'from_number'         => $fromNumber,
+            'to_number'           => $toNumber,
             'message_type'        => $msgType,
             'content'             => $body,
             'media_url'           => $mediaUrl,
             'media_mime_type'     => $mediaMime,
-            'delivery_status'     => DeliveryStatus::Delivered,
+            'delivery_status'     => $deliveryStatus,
             'reply_to_message_id' => $replyToMessageId,
             'timestamp'           => now(),
         ]);
 
-        $ticket->update([
+        // Update ticket preview — always; unread count only for inbound messages
+        $ticketUpdates = [
             'last_message_preview' => Str::limit($body ?: 'Media Message', 100),
             'last_message_at'      => now(),
-            'unread_count'         => ($ticket->unread_count ?? 0) + 1,
-        ]);
+        ];
+        if (!$fromMe) {
+            $ticketUpdates['unread_count'] = ($ticket->unread_count ?? 0) + 1;
+        }
+        $ticket->update($ticketUpdates);
 
-        // ── Notifications ─────────────────────────────────────────────────────
-        $senderName = $ticket->guardian?->name ?? $senderPhone;
-        $preview    = Str::limit($body ?: $this->mediaPreviewText($msgType), 80);
+        // ── Notifications (inbound only — no need to notify ourselves) ──────
+        if (!$fromMe) {
+            $senderName = $ticket->guardian?->name ?? $contactPhone;
+            $preview    = Str::limit($body ?: $this->mediaPreviewText($msgType), 80);
 
-        AppNotification::notifyAdmins(
-            type:  'message',
-            title: "رسالة جديدة من {$senderName}",
-            body:  $preview,
-            data:  ['ticket_id' => $ticket->id, 'guardian_name' => $senderName],
-        );
-
-        // Firebase push notification
-        try {
-            $fcmService = \App\Services\FcmService::getInstance();
-            $fcmService->sendToAllAdmins(
+            AppNotification::notifyAdmins(
+                type:  'message',
                 title: "رسالة جديدة من {$senderName}",
                 body:  $preview,
-                data:  [
-                    'type'      => 'message',
-                    'ticket_id' => (string) $ticket->id,
-                ],
+                data:  ['ticket_id' => $ticket->id, 'guardian_name' => $senderName],
             );
-        } catch (\Throwable $e) {
-            Log::warning('FCM push failed', ['error' => $e->getMessage()]);
+
+            try {
+                $fcmService = \App\Services\FcmService::getInstance();
+                $fcmService->sendToAllAdmins(
+                    title: "رسالة جديدة من {$senderName}",
+                    body:  $preview,
+                    data:  [
+                        'type'      => 'message',
+                        'ticket_id' => (string) $ticket->id,
+                    ],
+                );
+            } catch (\Throwable $e) {
+                Log::warning('FCM push failed', ['error' => $e->getMessage()]);
+            }
         }
 
-        // ── Real-time WebSocket event ──────────────────────────────────────────
+        // ── Real-time WebSocket event (both directions) ───────────────────
         event(new \App\Events\TicketMessageCreated($ticket, $whatsappMessage));
 
-        Log::info('WasenderAPI: Inbound message stored', [
-            'id'   => $whatsappMessage->id,
-            'from' => $senderPhone,
-            'type' => $msgType->value,
+        Log::info('WasenderAPI: Message stored', [
+            'id'        => $whatsappMessage->id,
+            'direction' => $direction->value,
+            'from'      => $fromNumber,
+            'type'      => $msgType->value,
         ]);
     }
 
