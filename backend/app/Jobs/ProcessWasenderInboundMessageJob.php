@@ -584,11 +584,15 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
     /**
      * Call Wasender's /api/decrypt-media endpoint to get a temporary public URL.
+     * Logs full request/response to webhook_debug.log for diagnostics.
      */
     private function decryptMediaViaApi(string $url, string $mediaKey, string $mediaType): ?string
     {
         $apiKey  = config('whatsapp.wasender.api_key');
         $baseUrl = config('whatsapp.wasender.base_url', 'https://www.wasenderapi.com/api');
+
+        $debugLog = storage_path('logs/webhook_debug.log');
+        file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-REQ | type={$mediaType} mediaKey=" . substr($mediaKey, 0, 20) . " url=" . substr($url, 0, 80) . "\n", FILE_APPEND);
 
         try {
             $response = Http::withToken($apiKey)
@@ -600,8 +604,19 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                     'mediaType' => $mediaType,
                 ]);
 
+            $body = substr($response->body(), 0, 500);
+            file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-RES | status={$response->status()} body={$body}\n", FILE_APPEND);
+
             if ($response->successful()) {
-                return $response->json('data.publicUrl');
+                // Try multiple possible JSON paths Wasender may return
+                $publicUrl = $response->json('data.publicUrl')
+                    ?? $response->json('publicUrl')
+                    ?? $response->json('data.url')
+                    ?? $response->json('url')
+                    ?? null;
+
+                file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-URL | " . ($publicUrl ?? 'NULL') . "\n", FILE_APPEND);
+                return $publicUrl;
             }
 
             Log::warning('WasenderAPI: decrypt-media failed', [
@@ -609,6 +624,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 'body'   => $response->body(),
             ]);
         } catch (\Throwable $e) {
+            file_put_contents($debugLog, '[' . date('Y-m-d H:i:s') . "] DECRYPT-EX | " . $e->getMessage() . "\n", FILE_APPEND);
             Log::warning('WasenderAPI: decrypt-media exception', ['error' => $e->getMessage()]);
         }
 
