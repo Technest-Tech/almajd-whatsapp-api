@@ -101,28 +101,55 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
      */
     private function handlePollVote(): void
     {
-        $messages  = $this->payload['data']['messages'] ?? [];
-        $key       = $messages['key'] ?? [];
-        $pollVote  = $messages['message']['pollUpdateMessage'] ?? [];
+        // ── Log the full raw payload so we can verify Wasender's structure ──
+        Log::info('WasenderAPI: pollUpdateMessage raw payload', [
+            'payload' => $this->payload,
+        ]);
+
+        $data     = $this->payload['data'] ?? [];
+
+        // Wasender may send `messages` as a single object OR as an array — handle both
+        $rawMsgs  = $data['messages'] ?? [];
+        $messages = isset($rawMsgs[0]) ? $rawMsgs[0] : $rawMsgs;
+
+        $key      = $messages['key'] ?? [];
+        $pollVote = $messages['message']['pollUpdateMessage'] ?? [];
 
         // The ID of the poll we originally sent
         $pollMsgId = $pollVote['pollCreationMessageKey']['id'] ?? null;
 
         if (!$pollMsgId) {
-            Log::warning('WasenderAPI: pollUpdateMessage missing pollCreationMessageKey.id');
+            Log::warning('WasenderAPI: pollUpdateMessage missing pollCreationMessageKey.id', [
+                'messages_keys' => array_keys($messages),
+                'message_keys'  => array_keys($messages['message'] ?? []),
+            ]);
             return;
         }
 
-        $voterPhone = $key['cleanedSenderPn'] ?? $key['cleanedParticipantPn'] ?? null;
+        // ── Resolve voter phone ───────────────────────────────────────────────
+        // Try multiple possible fields Wasender might provide
+        $voterPhone = $key['cleanedSenderPn']
+            ?? $key['cleanedParticipantPn']
+            ?? $key['participant']
+            ?? null;
+
         if (!$voterPhone) {
-            $remoteJid  = $key['remoteJid'] ?? '';
+            $remoteJid  = $key['remoteJid'] ?? $data['id'] ?? '';
             $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '') ?: null;
         }
+
+        // Also check sender at top-level
         if (!$voterPhone) {
-            Log::warning('WasenderAPI: pollUpdateMessage — could not resolve voter phone');
-            return;
+            $sender = $data['pushName'] ?? $data['notifyName'] ?? null;
+            Log::warning('WasenderAPI: could not resolve voter phone from key', [
+                'key'    => $key,
+                'data_keys' => array_keys($data),
+            ]);
         }
-        $voterPhone = str_starts_with($voterPhone, '+') ? $voterPhone : "+{$voterPhone}";
+
+        if ($voterPhone) {
+            $voterPhone = str_starts_with($voterPhone, '+') ? $voterPhone : "+{$voterPhone}";
+        }
 
         // ── Find the reminder that owns this poll ─────────────────────────────
         $reminder = \App\Models\Reminder::where('poll_message_id', $pollMsgId)

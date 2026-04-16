@@ -59,8 +59,7 @@ class SendSessionRemindersJob implements ShouldQueue
                 $pollMessageId = null;
 
                 if ($isTeacherConfirmation && $whatsAppService instanceof \App\Services\WhatsApp\WasenderWhatsAppService) {
-                    // ── Send as native WhatsApp Poll (equivalent to Twilio quick-reply buttons) ──
-                    // Teacher taps their answer directly — no typing required.
+                    // ── Send ONLY the poll — no extra text to avoid double-messaging ──
                     $pollQuestion = $this->buildPollQuestion($reminder);
                     $pollResult   = $whatsAppService->sendPoll(
                         to: $reminder->recipient_phone,
@@ -72,15 +71,6 @@ class SendSessionRemindersJob implements ShouldQueue
                     // Store the poll's WA message ID so we can match incoming votes
                     $pollMessageId = $pollResult['message_id'] ?? null;
 
-                    // Also send the text body so context is clear even on older clients
-                    $body = $reminder->message_body ?? '';
-                    if ($body) {
-                        $body .= "\n\n_يمكنك الرد بـ *1* للتأكيد أو *2* للنفي_";
-                        $whatsAppService->sendText(
-                            to: $reminder->recipient_phone,
-                            message: $body,
-                        );
-                    }
                 } else {
                     // ── Plain text for all other reminder types ──
                     $whatsAppService->sendText(
