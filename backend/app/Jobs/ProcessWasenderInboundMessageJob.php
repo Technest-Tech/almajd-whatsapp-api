@@ -67,15 +67,194 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
     public function handle(): void
     {
-        $event = $this->payload['event'] ?? '';
+        $event    = $this->payload['event'] ?? '';
+        $messages = $this->payload['data']['messages'] ?? [];
+
+        // Detect poll vote events — they arrive inside messages.upsert as pollUpdateMessage
+        $isPollVote = in_array($event, ['messages.received', 'messages.upsert'], true)
+            && isset($messages['message']['pollUpdateMessage']);
 
         // Route to appropriate handler based on event type
         match (true) {
+            $isPollVote                                                       => $this->handlePollVote(),
             in_array($event, ['messages.received', 'messages.upsert'], true) => $this->handleInboundMessage(),
             $event === 'chats.update'                                        => $this->handleChatsUpdate(),
             in_array($event, ['messages.update', 'message.update'], true)    => $this->handleStatusUpdate(),
             default => Log::debug('WasenderAPI webhook: unhandled event', ['event' => $event]),
         };
+    }
+
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Poll Vote Handler — teacher taps Yes/No on a session confirmation poll
+    // Fully supports the teacher changing their mind (Yes → No or No → Yes)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * WhatsApp poll votes arrive as messages.upsert with:
+     *   message.pollUpdateMessage.pollCreationMessageKey.id  → the original poll's WA message ID
+     *   message.pollUpdateMessage.vote.selectedOptions[]     → array of selected option SHA-256 hashes
+     *                                                           (empty array = deselected all / abstained)
+     *
+     * Wasender (as of 2024) may also provide a decoded `selectedOptionNames` array.
+     * We check for the decoded names first, then fall back to SHA-256 hash comparison.
+     */
+    private function handlePollVote(): void
+    {
+        $messages  = $this->payload['data']['messages'] ?? [];
+        $key       = $messages['key'] ?? [];
+        $pollVote  = $messages['message']['pollUpdateMessage'] ?? [];
+
+        // The ID of the poll we originally sent
+        $pollMsgId = $pollVote['pollCreationMessageKey']['id'] ?? null;
+
+        if (!$pollMsgId) {
+            Log::warning('WasenderAPI: pollUpdateMessage missing pollCreationMessageKey.id');
+            return;
+        }
+
+        $voterPhone = $key['cleanedSenderPn'] ?? $key['cleanedParticipantPn'] ?? null;
+        if (!$voterPhone) {
+            $remoteJid  = $key['remoteJid'] ?? '';
+            $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '') ?: null;
+        }
+        if (!$voterPhone) {
+            Log::warning('WasenderAPI: pollUpdateMessage — could not resolve voter phone');
+            return;
+        }
+        $voterPhone = str_starts_with($voterPhone, '+') ? $voterPhone : "+{$voterPhone}";
+
+        // ── Find the reminder that owns this poll ─────────────────────────────
+        $reminder = \App\Models\Reminder::where('poll_message_id', $pollMsgId)
+            ->where('recipient_phone', $voterPhone)
+            ->first();
+
+        // Fallback: match only by poll_message_id (in case phone format differs)
+        if (!$reminder) {
+            $reminder = \App\Models\Reminder::where('poll_message_id', $pollMsgId)->first();
+        }
+
+        if (!$reminder || !$reminder->class_session_id) {
+            Log::info('WasenderAPI: Poll vote received but no matching reminder found', [
+                'poll_msg_id' => $pollMsgId,
+                'voter'       => $voterPhone,
+            ]);
+            return;
+        }
+
+        // ── Determine which option was selected ───────────────────────────────
+        // Wasender may provide decoded names directly
+        $selectedNames   = $pollVote['vote']['selectedOptionNames'] ?? [];
+        $selectedHashes  = $pollVote['vote']['selectedOptions']     ?? [];
+
+        // If only hashes provided, compare SHA-256 of our known options
+        // WhatsApp hashes: SHA-256( lowercase(option_text) + nul + lowercase(poll_question) )
+        // But Wasender sometimes sends plain text option names too — check both.
+        if (empty($selectedNames) && !empty($selectedHashes)) {
+            $knownOptions = [
+                'نعم، انضم'   => 'yes',
+                'لا، لم ينضم' => 'no',
+            ];
+            $pollQuestion = $reminder->message_body ?? '';
+            foreach ($knownOptions as $optionText => $vote) {
+                $hash = hash('sha256', mb_strtolower($optionText) . "\0" . mb_strtolower($pollQuestion));
+                if (in_array($hash, $selectedHashes, true) ||
+                    in_array(base64_encode(hex2bin($hash)), $selectedHashes, true)) {
+                    $selectedNames[] = $optionText;
+                }
+            }
+        }
+
+        // Normalise: is the vote Yes, No, or cleared?
+        $voteValue = null;
+        foreach ($selectedNames as $name) {
+            $clean = trim($name);
+            if (str_contains($clean, 'نعم') || str_contains($clean, '1')) {
+                $voteValue = 'yes';
+                break;
+            }
+            if (str_contains($clean, 'لا') || str_contains($clean, '2')) {
+                $voteValue = 'no';
+                break;
+            }
+        }
+
+        Log::info('WasenderAPI: Poll vote received', [
+            'poll_msg_id'   => $pollMsgId,
+            'voter'         => $voterPhone,
+            'selected'      => $selectedNames,
+            'resolved_vote' => $voteValue,
+            'reminder_id'   => $reminder->id,
+            'phase'         => $reminder->reminder_phase,
+        ]);
+
+        // ── Apply session status change ───────────────────────────────────────
+        $session = \App\Models\ClassSession::find($reminder->class_session_id);
+        if (!$session || in_array($session->status, ['completed', 'cancelled'], true)) {
+            // Allow post_end confirmations even on "completed" — admin may have pre-closed it
+            if (!($session && $reminder->reminder_phase === 'post_end')) {
+                Log::info('WasenderAPI: Poll vote ignored — session already closed', [
+                    'session_id' => $reminder->class_session_id,
+                    'status'     => $session?->status,
+                ]);
+                return;
+            }
+        }
+
+        $phase = $reminder->reminder_phase;
+
+        if ($voteValue === 'yes') {
+            // ── Teacher confirmed: student joined / session completed ──────────
+            $reminder->update(['confirmation_status' => 'confirmed']);
+
+            if (in_array($phase, ['post_end', 'post_end_2'], true)) {
+                $session->update(['status' => 'completed', 'attendance_status' => 'both_joined']);
+            } else {
+                $session->update(['status' => 'running', 'attendance_status' => 'both_joined']);
+            }
+
+            // Cancel superseded pre-class reminders
+            \App\Models\Reminder::where('class_session_id', $session->id)
+                ->where('status', 'pending')
+                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                ->update(['status' => 'cancelled', 'failure_reason' => 'Teacher confirmed via poll']);
+
+            // Mark other awaiting reminders as no_reply
+            \App\Models\Reminder::where('class_session_id', $session->id)
+                ->where('confirmation_status', 'awaiting')
+                ->where('id', '!=', $reminder->id)
+                ->update(['confirmation_status' => 'no_reply']);
+
+            Log::info('WasenderAPI: Poll YES — session updated', [
+                'session_id' => $session->id,
+                'new_status' => $session->status,
+            ]);
+
+        } elseif ($voteValue === 'no') {
+            // ── Teacher denied: student did not join / session not completed ───
+            $reminder->update(['confirmation_status' => 'denied']);
+
+            if (in_array($phase, ['post_end', 'post_end_2'], true)) {
+                // Post-end denial — session was running but teacher says it's NOT done
+                $session->update(['status' => 'running']);
+            } else {
+                // At-start/after denial — student never joined
+                $session->update(['status' => 'pending', 'attendance_status' => 'no_show']);
+            }
+
+            Log::info('WasenderAPI: Poll NO — session updated', [
+                'session_id' => $session->id,
+                'new_status' => $session->status,
+            ]);
+
+        } else {
+            // Vote cleared / unknown option — log and leave session as-is
+            Log::info('WasenderAPI: Poll vote unclear or deselected', [
+                'selected'   => $selectedNames,
+                'session_id' => $session->id,
+            ]);
+            $reminder->update(['confirmation_status' => 'awaiting']);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ class Reminder extends Model
         'type', 'recipient_type', 'reminder_phase', 'class_session_id',
         'recipient_phone', 'recipient_name',
         'template_name', 'template_sid', 'template_params', 'message_body', 'scheduled_at', 'sent_at',
-        'status', 'confirmation_status', 'failure_reason',
+        'status', 'confirmation_status', 'failure_reason', 'poll_message_id',
     ];
 
     protected function casts(): array

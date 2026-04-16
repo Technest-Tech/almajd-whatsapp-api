@@ -56,16 +56,21 @@ class SendSessionRemindersJob implements ShouldQueue
                 $isTeacherConfirmation = $reminder->recipient_type === 'teacher'
                     && in_array($reminder->reminder_phase, ['at_start', 'after', 'post_end'], true);
 
+                $pollMessageId = null;
+
                 if ($isTeacherConfirmation && $whatsAppService instanceof \App\Services\WhatsApp\WasenderWhatsAppService) {
                     // ── Send as native WhatsApp Poll (equivalent to Twilio quick-reply buttons) ──
                     // Teacher taps their answer directly — no typing required.
                     $pollQuestion = $this->buildPollQuestion($reminder);
-                    $whatsAppService->sendPoll(
+                    $pollResult   = $whatsAppService->sendPoll(
                         to: $reminder->recipient_phone,
                         name: $pollQuestion,
-                        options: ['✅ نعم، انضم', '❌ لا، لم ينضم'],
+                        options: ['نعم، انضم', 'لا، لم ينضم'],
                         selectableCount: 1,
                     );
+
+                    // Store the poll's WA message ID so we can match incoming votes
+                    $pollMessageId = $pollResult['message_id'] ?? null;
 
                     // Also send the text body so context is clear even on older clients
                     $body = $reminder->message_body ?? '';
@@ -85,9 +90,11 @@ class SendSessionRemindersJob implements ShouldQueue
                 }
 
                 $reminder->update([
-                    'status'  => 'sent',
-                    'sent_at' => now(),
+                    'status'          => 'sent',
+                    'sent_at'         => now(),
+                    'poll_message_id' => $pollMessageId, // null for non-poll reminders
                 ]);
+
 
                 // At class start time, move session to 'pending'
                 if ($reminder->reminder_phase === 'at_start') {
