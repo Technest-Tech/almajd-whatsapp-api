@@ -67,7 +67,7 @@ class TicketMediaController extends Controller
                     'status'  => 'success',
                     'message' => 'Audio converted and uploaded successfully',
                     'data'    => [
-                        'media_url' => route('ticket.media.download', ['ticket' => $ticketModel->id, 'filename' => $filename]),
+                        'media_url' => url(Storage::url($path)), // public URL — no auth needed
                         'mime_type' => 'audio/ogg; codecs=opus',
                         'size'      => Storage::disk('public')->size($path),
                     ],
@@ -97,7 +97,7 @@ class TicketMediaController extends Controller
             'status'  => 'success',
             'message' => 'File uploaded successfully',
             'data'    => [
-                'media_url' => route('ticket.media.download', ['ticket' => $ticketModel->id, 'filename' => $filename]),
+                'media_url' => url(Storage::url($path)), // public URL — no auth needed
                 'mime_type' => $file->getMimeType(),
                 'size'      => $file->getSize(),
             ],
@@ -116,13 +116,14 @@ class TicketMediaController extends Controller
     {
         $outputPath = sys_get_temp_dir() . '/' . Str::ulid() . '.ogg';
 
-        // -y          overwrite output without asking
-        // -c:a libopus  encode with Opus codec (WhatsApp native voice format)
-        // -b:a 64k    64kbps — excellent quality for voice
-        // -vbr on     variable bitrate encoding
-        // -application voip  tune encoder for voice
+        // -y           overwrite output without asking
+        // -ac 1        MONO — WhatsApp voice notes require mono audio (stereo = 'audio not available')
+        // -c:a libopus encode with Opus codec (WhatsApp PTT format)
+        // -b:a 32k     32kbps is enough for voice (mono)
+        // -vbr on      variable bitrate
+        // -application voip  tune encoder specifically for voice
         $cmd = sprintf(
-            'ffmpeg -y -i %s -c:a libopus -b:a 64k -vbr on -application voip %s 2>&1',
+            'ffmpeg -y -i %s -ac 1 -c:a libopus -b:a 32k -vbr on -application voip %s 2>&1',
             escapeshellarg($inputPath),
             escapeshellarg($outputPath)
         );
