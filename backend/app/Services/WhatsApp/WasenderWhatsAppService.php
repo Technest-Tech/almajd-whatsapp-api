@@ -238,17 +238,25 @@ class WasenderWhatsAppService implements WhatsAppServiceInterface
     }
 
     /**
-     * Normalise a phone number or JID for Wasender.
+     * Normalise a phone number to a valid Wasender JID.
      *
-     * Wasender accepts E.164 numbers (e.g. +201234567890) or full JIDs
-     * (e.g. 201234567890@s.whatsapp.net). Strip any existing whatsapp: prefix.
+     * Wasender requires the format: 201234567890@s.whatsapp.net
+     * It does NOT accept E.164 (+201234567890) or plain numbers for media.
      */
     private function normalizeJid(string $to): string
     {
-        // Strip Twilio-style "whatsapp:" prefix if present
+        // Strip any existing whatsapp: prefix (Twilio legacy)
         $to = str_replace('whatsapp:', '', $to);
 
-        return $to;
+        // If already a full JID, return as-is
+        if (str_contains($to, '@')) {
+            return $to;
+        }
+
+        // Strip leading + to get numeric-only
+        $digits = ltrim($to, '+');
+
+        return $digits . '@s.whatsapp.net';
     }
 
     /**
