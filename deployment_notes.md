@@ -59,9 +59,12 @@ php artisan event:cache
 Restart long-running PHP processes so workers pick up code and `.env`:
 
 ```bash
-# If using Supervisor (names may vary — check /etc/supervisor/conf.d/)
-sudo supervisorctl restart almajd-worker
-sudo supervisorctl restart almajd-reverb
+# CRITICAL: Restart PHP-FPM to clear OPcache (without this, webhooks use stale code!)
+sudo systemctl restart php8.2-fpm
+
+# Restart queue worker and WebSocket server (Supervisor)
+sudo supervisorctl restart almajd-worker:almajd-worker_00
+sudo supervisorctl restart almajd-reverb:almajd-reverb_00
 # Optional: scheduler / other program names you configured
 ```
 
