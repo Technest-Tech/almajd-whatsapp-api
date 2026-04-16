@@ -220,7 +220,7 @@ class MessageBubble extends StatelessWidget {
               top: 1,
               bottom: 1,
             ),
-            padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
             decoration: BoxDecoration(
               color: bgColor,
               borderRadius: borderRadius,
@@ -317,20 +317,45 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  // ── Language Direction Helper ──
+  bool _isRtlText(String text) {
+    if (text.isEmpty) return true;
+    for (int i = 0; i < text.length; i++) {
+        final code = text.codeUnitAt(i);
+        // Arabic, Hebrew, Persian range (RTL)
+        if (code >= 0x0590 && code <= 0x08FF) return true;
+        // Latin, Cyrillic, Greek range (LTR)
+        if ((code >= 0x0041 && code <= 0x005A) || 
+            (code >= 0x0061 && code <= 0x007A) ||
+            (code >= 0x00C0 && code <= 0x02AF)) return false;
+    }
+    return true; // Default RTL
+  }
+
   // ── Body Text with Time Below ──
   Widget _buildBodyWithTime(bool isInbound) {
+    final isRtl = _isRtlText(message.body);
+    // Since the app globally has an RTL text direction:
+    // CrossAxisAlignment.start aligns to the logical start (which is Right)
+    // CrossAxisAlignment.end aligns to the logical end (which is Left)
+    final crossAlign = isRtl ? CrossAxisAlignment.start : CrossAxisAlignment.end;
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: crossAlign,
       children: [
-        Text(
-          message.body,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.93),
-            fontSize: 14.5,
-            height: 1.35,
+        Directionality(
+          textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+          child: Text(
+            message.body,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15.5,
+              height: 1.45,
+              letterSpacing: 0.2,
+            ),
           ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 4),
         Row(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.end,
@@ -338,12 +363,12 @@ class MessageBubble extends StatelessWidget {
             Text(
               message.timeFormatted,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.45),
-                fontSize: 10.5,
+                color: Colors.white.withValues(alpha: 0.55),
+                fontSize: 11,
               ),
             ),
             if (!isInbound) ...[
-              const SizedBox(width: 3),
+              const SizedBox(width: 4),
               _deliveryIcon(),
             ],
           ],
