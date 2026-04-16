@@ -68,6 +68,9 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   // ── WebSocket Channel ──
   Channel? _channel;
 
+  // ── Polling fallback (in case WebSocket is unreliable) ──
+  Timer? _pollTimer;
+
   // ── Animation ──
   late final AnimationController _sendBtnController;
   late final Animation<double> _sendBtnAnimation;
@@ -134,6 +137,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _channel?.unsubscribe();
     _messageController.dispose();
     _focusNode.dispose();
@@ -232,6 +236,53 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     channel.subscribe();
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Polling Fallback (WebSocket may be unreliable on mobile)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted && !_isLoading) _pollForNewMessages();
+    });
+  }
+
+  /// Lightweight poll: fetch page 1 and merge any messages we don't already have.
+  Future<void> _pollForNewMessages() async {
+    try {
+      final repo = getIt<TicketRepository>();
+      final result = await repo.getMessages(
+        widget.ticketId,
+        page: 1,
+        perPage: _chatPageSize,
+      );
+      final latestMessages = result['messages'] as List<MessageModel>;
+
+      if (!mounted) return;
+
+      // Find messages not already in the local list
+      final existingIds = _messages.map((m) => m.id).toSet();
+      final newMessages = latestMessages.where((m) => !existingIds.contains(m.id)).toList();
+
+      if (newMessages.isEmpty) return;
+
+      setState(() {
+        _messages.addAll(newMessages);
+      });
+      _scrollToBottom();
+
+      // Update inbox preview
+      final newest = newMessages.last;
+      context.read<TicketListBloc>().add(
+        TicketListMessageReceived(
+          ticketId: widget.ticketId,
+          messagePreview: newest.body ?? '',
+        ),
+      );
+    } catch (_) {
+      // Silently ignore polling errors
+    }
+  }
+
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Data Loading
@@ -259,6 +310,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           _lastPage = result['last_page'] as int;
         });
         _setupWebSocket();
+        _startPolling();
 
         // Show content immediately, scroll to bottom, then hide loader
         WidgetsBinding.instance.addPostFrameCallback((_) {
