@@ -50,15 +50,17 @@ class TicketMediaController extends Controller
         $mime        = $file->getMimeType() ?? '';
         $extension   = strtolower($file->getClientOriginalExtension() ?: 'bin');
 
-        // ── Audio: convert to OGG/Opus for WhatsApp compatibility ─────────────
+        // ── Audio: convert to MP3 for WhatsApp compatibility ──────────────────
+        // WhatsApp audioUrl attachments only play reliably as MP3.
+        // OGG/Opus is used internally for PTT voice notes but fails as audio attachments.
         $isAudio = str_contains($mime, 'audio')
             || in_array($extension, ['m4a', 'mp3', 'ogg', 'wav', 'aac', 'opus', 'webm'], true);
 
-        if ($isAudio && $extension !== 'ogg') {
-            $converted = $this->convertAudioToOgg($file->getRealPath());
+        if ($isAudio && $extension !== 'mp3') {
+            $converted = $this->convertAudioToMp3($file->getRealPath());
 
             if ($converted !== null) {
-                $filename = Str::ulid() . '.ogg';
+                $filename = Str::ulid() . '.mp3';
                 $path     = 'tickets/' . $ticketModel->id . '/' . $filename;
                 Storage::disk('public')->put($path, file_get_contents($converted));
                 @unlink($converted); // delete temp file
@@ -67,15 +69,14 @@ class TicketMediaController extends Controller
                     'status'  => 'success',
                     'message' => 'Audio converted and uploaded successfully',
                     'data'    => [
-                        'media_url' => url(Storage::url($path)), // public URL — no auth needed
-                        'mime_type' => 'audio/ogg; codecs=opus',
+                        'media_url' => url(Storage::url($path)),
+                        'mime_type' => 'audio/mpeg',
                         'size'      => Storage::disk('public')->size($path),
                     ],
                 ], 201);
             }
 
-            // Conversion failed — fall through and store original
-            Log::warning('TicketMediaController: audio OGG conversion failed, storing original', [
+            Log::warning('TicketMediaController: audio MP3 conversion failed, storing original', [
                 'ticket' => $ticket,
                 'mime'   => $mime,
                 'ext'    => $extension,
@@ -109,21 +110,19 @@ class TicketMediaController extends Controller
     // ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * Convert any audio file to OGG/Opus using ffmpeg.
-     * Returns the path to the temp OGG file, or null on failure.
+     * Convert any audio file to MP3 using ffmpeg.
+     * WhatsApp audioUrl attachments only play MP3 reliably.
+     * Returns the path to the temp MP3 file, or null on failure.
      */
-    private function convertAudioToOgg(string $inputPath): ?string
+    private function convertAudioToMp3(string $inputPath): ?string
     {
-        $outputPath = sys_get_temp_dir() . '/' . Str::ulid() . '.ogg';
+        $outputPath = sys_get_temp_dir() . '/' . Str::ulid() . '.mp3';
 
-        // -y           overwrite output without asking
-        // -ac 1        MONO — WhatsApp voice notes require mono audio (stereo = 'audio not available')
-        // -c:a libopus encode with Opus codec (WhatsApp PTT format)
-        // -b:a 32k     32kbps is enough for voice (mono)
-        // -vbr on      variable bitrate
-        // -application voip  tune encoder specifically for voice
+        // -ac 1          mono (voice)
+        // -c:a libmp3lame MP3 codec
+        // -b:a 64k       64kbps — good quality for voice
         $cmd = sprintf(
-            'ffmpeg -y -i %s -ac 1 -c:a libopus -b:a 32k -vbr on -application voip %s 2>&1',
+            'ffmpeg -y -i %s -ac 1 -c:a libmp3lame -b:a 64k %s 2>&1',
             escapeshellarg($inputPath),
             escapeshellarg($outputPath)
         );
