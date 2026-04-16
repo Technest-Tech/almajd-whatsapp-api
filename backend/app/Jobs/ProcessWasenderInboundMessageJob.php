@@ -60,7 +60,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
     public array $backoff = [10, 30, 60, 120, 300];
 
     public function __construct(
-        private readonly array $payload
+        private array $payload
     ) {
         $this->onQueue('high');
     }
@@ -72,9 +72,106 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         // Route to appropriate handler based on event type
         match (true) {
             in_array($event, ['messages.received', 'messages.upsert'], true) => $this->handleInboundMessage(),
+            $event === 'chats.update'                                        => $this->handleChatsUpdate(),
             in_array($event, ['messages.update', 'message.update'], true)    => $this->handleStatusUpdate(),
             default => Log::debug('WasenderAPI webhook: unhandled event', ['event' => $event]),
         };
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // chats.update → extract inbound messages and process them
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Wasender often delivers inbound messages via "chats.update" instead of
+     * "messages.received". The payload structure is:
+     *
+     * {
+     *   "event": "chats.update",
+     *   "data": {
+     *     "chats": {
+     *       "id": "…@lid",
+     *       "messages": [
+     *         {
+     *           "message": {
+     *             "key": { "id": "…", "fromMe": false, "remoteJid": "…@lid", "remoteJidAlt": "201…@s.whatsapp.net" },
+     *             "message": { "conversation": "reply text" },
+     *             "pushName": "Contact Name",
+     *             "messageTimestamp": 123456789
+     *           }
+     *         }
+     *       ]
+     *     }
+     *   }
+     * }
+     *
+     * We transform each inbound message into the same structure that
+     * handleInboundMessage() expects (data.messages format) and process it.
+     */
+    private function handleChatsUpdate(): void
+    {
+        $chats = $this->payload['data']['chats'] ?? null;
+        if (!$chats || empty($chats['messages'])) {
+            return;
+        }
+
+        foreach ($chats['messages'] as $chatMsg) {
+            $msg = $chatMsg['message'] ?? null;
+            if (!$msg) continue;
+
+            $key = $msg['key'] ?? [];
+
+            // Skip outbound messages
+            if ($key['fromMe'] ?? true) continue;
+
+            $messageId = $key['id'] ?? null;
+            if (!$messageId) continue;
+
+            // Dedup guard
+            if (WhatsappMessage::where('wa_message_id', $messageId)->exists()) continue;
+
+            // Extract phone from remoteJidAlt or remoteJid
+            $phone = null;
+            $remoteJidAlt = $key['remoteJidAlt'] ?? null;
+            if ($remoteJidAlt && str_contains($remoteJidAlt, '@s.whatsapp.net')) {
+                $phone = preg_replace('/[^0-9]/', '', explode('@', $remoteJidAlt)[0]);
+            }
+            if (!$phone) {
+                $remoteJid = $key['remoteJid'] ?? '';
+                if (str_contains($remoteJid, '@s.whatsapp.net')) {
+                    $phone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0]);
+                }
+            }
+            if (!$phone) continue;
+
+            // Build a normalised payload matching what handleInboundMessage expects
+            $textBody = $msg['message']['conversation']
+                ?? $msg['message']['extendedTextMessage']['text']
+                ?? '';
+
+            $transformedPayload = [
+                'event' => 'messages.received',
+                'data'  => [
+                    'messages' => [
+                        'key' => [
+                            'id'              => $messageId,
+                            'fromMe'          => false,
+                            'remoteJid'       => $remoteJidAlt ?? $key['remoteJid'] ?? '',
+                            'cleanedSenderPn' => $phone,
+                        ],
+                        'messageBody' => $textBody,
+                        'message'     => $msg['message'] ?? [],
+                        'pushName'    => $msg['pushName'] ?? '',
+                    ],
+                ],
+            ];
+
+            // Swap payload and process through the standard inbound handler
+            $originalPayload = $this->payload;
+            $this->payload = $transformedPayload;
+            $this->handleInboundMessage();
+            $this->payload = $originalPayload;
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
