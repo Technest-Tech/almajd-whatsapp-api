@@ -2,7 +2,8 @@
 
 ## Server & Domain
 - **Server IP:** `64.225.63.111`
-- **Domain:** `whatsapp.almajd.info` (directs to IP)
+- **Live Domain:** `cloud.almajd.info` → resolves to server IP ✅ (used by mobile app)
+- **Note:** `whatsapp.almajd.info` is listed in older notes but is **not in DNS** — do not use it.
 
 ## Firebase Configuration
 - **App ID:** `1:449886354083:android:132e69019a227039421d16`
@@ -16,8 +17,16 @@
 - **GitHub:** Access to be provided for deployment synchronization.
 
 ## Domains (verify in server Nginx / `.env`)
-- **Public / app:** `whatsapp.almajd.info` → server IP above.
-- **API / Reverb (production env example):** `cloud.almajd.info` — set `APP_URL`, `REVERB_HOST`, and mobile API base URL to match what Nginx serves.
+- **API / App / Reverb (production):** `cloud.almajd.info` → server IP `64.225.63.111` ✅
+  - Set `APP_URL=https://cloud.almajd.info` in `/var/www/almajd/backend/.env`
+  - Mobile app `ApiClient._baseUrl = 'https://cloud.almajd.info/api'` ← confirmed
+- **`whatsapp.almajd.info`** — not in DNS; ignore for now.
+
+## WasenderAPI Webhook URL
+```
+https://cloud.almajd.info/api/webhooks/wasender
+```
+Paste this in: Wasender Dashboard → Sessions → Edit → Webhook URL
 
 ## Next Deployment Steps (first-time)
 1. Setup SSH connection to `root@64.225.63.111`.

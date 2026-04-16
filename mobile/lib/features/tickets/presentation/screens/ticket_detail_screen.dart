@@ -22,7 +22,6 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../../core/di/injection.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/ticket_card.dart';
-import '../widgets/start_conversation_banner.dart';
 import '../../../../core/api/websockets_client.dart';
 import 'package:dart_pusher_channels/dart_pusher_channels.dart';
 
@@ -615,28 +614,8 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // INPUT AREA
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  /// True when the contact has sent at least one inbound message within the last 24 hours.
-  /// (Meaning WhatsApp's 24h session window is open).
-  bool get _is24HourWindowActive {
-    final now = DateTime.now();
-    for (final m in _messages.reversed) {
-      if (m.direction == 'inbound') {
-        final diff = now.difference(m.createdAt);
-        return diff.inHours < 24;
-      }
-    }
-    return false;
-  }
-
   Widget _buildInputArea() {
-    // If this is a new contact or 24 hour window has elapsed, show template banner
-    if (!_isLoading && !_is24HourWindowActive) {
-      return StartConversationBanner(
-        ticketId: widget.ticketId,
-        onTemplateSent: _loadData,
-      );
-    }
-
+    // WasenderAPI has no 24-hour session window — the text input is always available.
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [

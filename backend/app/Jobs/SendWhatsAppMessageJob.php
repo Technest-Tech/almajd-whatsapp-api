@@ -30,7 +30,10 @@ class SendWhatsAppMessageJob implements ShouldQueue
 
     /**
      * Send an outbound WhatsApp message.
-     * Uses text within session window, template outside it.
+     *
+     * With WasenderAPI (QR-linked personal session) there is no 24-hour window
+     * restriction and no Meta template approval needed — all messages are sent
+     * as plain text or media regardless of when the recipient last wrote to us.
      */
     public function handle(WhatsAppServiceInterface $whatsAppService): void
     {
@@ -41,32 +44,29 @@ class SendWhatsAppMessageJob implements ShouldQueue
         }
 
         try {
-            $inSessionWindow = $whatsAppService->isWithinSessionWindow($message->to_number);
-            
-            // Resolve Twilio SID for replies
+            // Build reply context (Wasender supports native quoted messages)
             $replyToMessageSid = null;
             $finalContent = $message->content ?? '';
 
             if ($message->reply_to_message_id) {
-                // Determine quote text to prepend (since native Twilio WB API outbound quotes are unsupported)
-                $sender = $message->reply_to_sender ?? 'رسالة';
-                $bodyQuote = $message->reply_to_body ?: ($message->reply_to_type === 'image' ? '📷 صورة' : ($message->reply_to_type === 'audio' ? '🎵 صوت' : '📄 مستند'));
+                $sender    = $message->reply_to_sender ?? 'رسالة';
+                $bodyQuote = $message->reply_to_body
+                    ?: ($message->reply_to_type === 'image'    ? '📷 صورة'
+                        : ($message->reply_to_type === 'audio' ? '🎵 صوت' : '📄 مستند'));
                 $bodyQuote = \Illuminate\Support\Str::limit((string) $bodyQuote, 60);
-                
-                $prefix = "💬 *رد على ({$sender}):*\n\"{$bodyQuote}\"\n\n";
-                // Only prepend if there's actual text content to send, or if it's a media caption
-                $finalContent = $prefix . $finalContent;
+                $finalContent = "💬 *رد على ({$sender}):*\n\"{$bodyQuote}\"\n\n" . $finalContent;
 
                 $parentMessage = WhatsappMessage::find($message->reply_to_message_id);
-                if ($parentMessage && $parentMessage->wa_message_id) {
+                if ($parentMessage?->wa_message_id) {
                     $replyToMessageSid = $parentMessage->wa_message_id;
                 }
             }
 
+            // Send — no session-window check needed with Wasender
             if ($message->media_url) {
                 $type = 'image';
-                if ($message->message_type === \App\Enums\MessageType::Audio) $type = 'audio';
-                elseif ($message->message_type === \App\Enums\MessageType::Video) $type = 'video';
+                if ($message->message_type === \App\Enums\MessageType::Audio)    $type = 'audio';
+                elseif ($message->message_type === \App\Enums\MessageType::Video)    $type = 'video';
                 elseif ($message->message_type === \App\Enums\MessageType::Document) $type = 'document';
 
                 $result = $whatsAppService->sendMedia(
@@ -74,26 +74,15 @@ class SendWhatsAppMessageJob implements ShouldQueue
                     mediaUrl: $message->media_url,
                     type: $type,
                     caption: $finalContent,
-                    replyToMessageSid: $replyToMessageSid
-                );
-            } elseif ($inSessionWindow && $finalContent) {
-                $result = $whatsAppService->sendText(
-                    to: $message->to_number,
-                    message: $finalContent,
-                    idempotencyKey: $message->idempotency_key,
-                    replyToMessageSid: $replyToMessageSid
-                );
-            } elseif ($message->template_name) {
-                $result = $whatsAppService->sendTemplate(
-                    to: $message->to_number,
-                    templateName: $message->template_name,
-                    params: $message->template_variables ?? [],
+                    replyToMessageSid: $replyToMessageSid,
                 );
             } else {
-                // Fallback: attempt text send even outside window (BSP will reject with error)
+                // Plain text — always allowed with Wasender (no 24-h window, no template approval)
                 $result = $whatsAppService->sendText(
                     to: $message->to_number,
-                    message: $message->content ?? '',
+                    message: $finalContent ?: ($message->template_name ?? ''),
+                    idempotencyKey: $message->idempotency_key,
+                    replyToMessageSid: $replyToMessageSid,
                 );
             }
 

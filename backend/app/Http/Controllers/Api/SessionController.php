@@ -15,11 +15,9 @@ use App\Models\Guardian;
 use App\Models\Reminder;
 use App\Models\Ticket;
 use App\Models\WhatsappMessage;
-use App\Models\WhatsappTemplate;
 use App\Services\ApiResponseService;
 use App\Services\SessionService;
 use App\Services\WhatsApp\WhatsAppServiceInterface;
-use App\Support\ReminderTemplateResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -132,17 +130,6 @@ class SessionController extends Controller
             return $this->response->error('رقم الهاتف غير متوفر', 422);
         }
 
-        $approved = WhatsappTemplate::where('status', 'approved')->get();
-        $templateParams = [];
-        if ($recipientType === 'student') {
-            $zoomUrl = ReminderTemplateResolver::normalizeZoomLink($teacher?->zoom_link);
-            // Student templates always have exactly 1 slot = zoom URL
-            $templateParams = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
-        }
-        $waTemplate = ReminderTemplateResolver::resolve($logicalTemplateKey, $approved);
-        $templateSid = $waTemplate?->content_sid;
-        $message = ReminderTemplateResolver::resolveBody($waTemplate, $templateParams, $message);
-
         // Create reminder record
         $reminder = Reminder::create([
             'type'             => 'session_reminder',
@@ -152,8 +139,6 @@ class SessionController extends Controller
             'recipient_phone'  => $phone,
             'recipient_name'   => $name,
             'template_name'    => $logicalTemplateKey,
-            'template_sid'     => $templateSid,
-            'template_params'  => $templateParams,
             'message_body'     => $message,
             'scheduled_at'     => now(),
             'status'           => 'pending',
@@ -161,16 +146,8 @@ class SessionController extends Controller
 
         try {
             $whatsAppService = app(WhatsAppServiceInterface::class);
-            if (!empty($templateSid)) {
-                $whatsAppService->sendTemplate(
-                    to: $phone,
-                    templateName: $templateSid,
-                    params: $templateParams,
-                    language: 'ar',
-                );
-            } else {
-                $whatsAppService->sendText(to: $phone, message: $message);
-            }
+            // WasenderAPI: no session window / template approval — always plain text
+            $whatsAppService->sendText(to: $phone, message: $message);
             $reminder->update(['status' => 'sent', 'sent_at' => now()]);
         } catch (\Throwable $e) {
             Log::error('Reminder send failed: ' . $e->getMessage());
@@ -222,13 +199,13 @@ class SessionController extends Controller
         }
 
         // Create outbound message
-        $twilioNumber = config('whatsapp.twilio.from_number', env('TWILIO_FROM_NUMBER', '+14155238886'));
+        $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number', '+201554134201'));
 
         $whatsappMsg = WhatsappMessage::create([
             'wa_message_id'   => 'RMD_' . Str::ulid(),
             'ticket_id'       => $ticket->id,
             'direction'       => MessageDirection::Outbound,
-            'from_number'     => $twilioNumber,
+            'from_number'     => $fromNumber,
             'to_number'       => $phoneWithPlus,
             'message_type'    => MessageType::Text,
             'content'         => $message,

@@ -53,20 +53,12 @@ class SendSessionRemindersJob implements ShouldQueue
                     continue;
                 }
 
-                // Send via WhatsApp Template API if SID exists, else fallback to text
-                if (!empty($reminder->template_sid)) {
-                    $whatsAppService->sendTemplate(
-                        to: $reminder->recipient_phone,
-                        templateName: $reminder->template_sid,
-                        params: $reminder->template_params ?? [],
-                        language: 'ar'
-                    );
-                } else {
-                    $whatsAppService->sendText(
-                        to: $reminder->recipient_phone,
-                        message: $reminder->message_body ?? '',
-                    );
-                }
+                // With WasenderAPI there is no session window / template approval —
+                // always send as plain text regardless of template_sid.
+                $whatsAppService->sendText(
+                    to: $reminder->recipient_phone,
+                    message: $reminder->message_body ?? '',
+                );
 
                 $reminder->update([
                     'status'  => 'sent',
@@ -135,26 +127,23 @@ class SendSessionRemindersJob implements ShouldQueue
                 ]);
             }
 
-            $readableContent = $this->extractReadableText($reminder->message_body);
-            
             // Create outbound message
-            $twilioNumber = config('whatsapp.twilio.from_number', env('TWILIO_FROM_NUMBER'));
+            $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number', '+201554134201'));
             $whatsappMsg = WhatsappMessage::create([
                 'wa_message_id'   => 'RMD_' . Str::ulid(),
                 'ticket_id'       => $ticket->id,
                 'direction'       => MessageDirection::Outbound,
-                'from_number'     => $twilioNumber,
+                'from_number'     => $fromNumber,
                 'to_number'       => $phoneWithPlus,
                 'message_type'    => MessageType::Text,
-                'content'         => $readableContent,
+                'content'         => $reminder->message_body ?? '',
                 'delivery_status' => DeliveryStatus::Sent,
                 'timestamp'       => now(),
             ]);
 
             // Update ticket preview
-            $preview = Str::limit($readableContent ?: 'تذكير بالحصة', 80);
             $ticket->update([
-                'last_message_preview' => $preview,
+                'last_message_preview' => Str::limit($reminder->message_body ?? 'تذكير بالحصة', 80),
                 'last_message_at'      => now(),
             ]);
 
@@ -212,31 +201,4 @@ class SendSessionRemindersJob implements ShouldQueue
         return false;
     }
 
-    /**
-     * Extracts readable text from a Twilio template JSON body so that the UI
-     * doesn't display raw JSON with buttons in the chat inbox.
-     */
-    private function extractReadableText(?string $rawBody): string
-    {
-        if (!$rawBody) {
-            return '';
-        }
-
-        if (str_starts_with(trim($rawBody), '{')) {
-            $data = json_decode($rawBody, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
-                if (isset($data['twilio/quick-reply']['body'])) {
-                    return $data['twilio/quick-reply']['body'];
-                }
-                if (isset($data['twilio/call-to-action']['body'])) {
-                    return $data['twilio/call-to-action']['body'];
-                }
-                if (isset($data['body'])) {
-                    return $data['body'];
-                }
-            }
-        }
-
-        return $rawBody;
-    }
 }
