@@ -39,7 +39,10 @@ class WasenderWebhookController extends Controller
         $payload = $request->all();
         $event   = $payload['event'] ?? 'unknown';
 
-        Log::info("WasenderAPI Webhook: {$event}", ['payload_keys' => array_keys($payload)]);
+        // Full payload dump for debugging inbound message flow
+        Log::channel('single')->info("WasenderAPI Webhook [{$event}]", [
+            'full_payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        ]);
 
         ProcessWasenderInboundMessageJob::dispatch($payload);
 
