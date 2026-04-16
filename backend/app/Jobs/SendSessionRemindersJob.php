@@ -53,19 +53,43 @@ class SendSessionRemindersJob implements ShouldQueue
                     continue;
                 }
 
-                // With WasenderAPI there is no session window / template approval —
-                // always send as plain text regardless of template_sid.
-                $whatsAppService->sendText(
-                    to: $reminder->recipient_phone,
-                    message: $reminder->message_body ?? '',
-                );
+                $isTeacherConfirmation = $reminder->recipient_type === 'teacher'
+                    && in_array($reminder->reminder_phase, ['at_start', 'after', 'post_end'], true);
+
+                if ($isTeacherConfirmation && $whatsAppService instanceof \App\Services\WhatsApp\WasenderWhatsAppService) {
+                    // ── Send as native WhatsApp Poll (equivalent to Twilio quick-reply buttons) ──
+                    // Teacher taps their answer directly — no typing required.
+                    $pollQuestion = $this->buildPollQuestion($reminder);
+                    $whatsAppService->sendPoll(
+                        to: $reminder->recipient_phone,
+                        name: $pollQuestion,
+                        options: ['✅ نعم، انضم', '❌ لا، لم ينضم'],
+                        selectableCount: 1,
+                    );
+
+                    // Also send the text body so context is clear even on older clients
+                    $body = $reminder->message_body ?? '';
+                    if ($body) {
+                        $body .= "\n\n_يمكنك الرد بـ *1* للتأكيد أو *2* للنفي_";
+                        $whatsAppService->sendText(
+                            to: $reminder->recipient_phone,
+                            message: $body,
+                        );
+                    }
+                } else {
+                    // ── Plain text for all other reminder types ──
+                    $whatsAppService->sendText(
+                        to: $reminder->recipient_phone,
+                        message: $reminder->message_body ?? '',
+                    );
+                }
 
                 $reminder->update([
                     'status'  => 'sent',
                     'sent_at' => now(),
                 ]);
 
-                // At class start time, move to 'pending' so supervisor/teacher can mark as running
+                // At class start time, move session to 'pending'
                 if ($reminder->reminder_phase === 'at_start') {
                     $session = $reminder->classSession;
                     if ($session && in_array($session->status, ['scheduled', 'rescheduled', 'coming'], true)) {
@@ -88,6 +112,24 @@ class SendSessionRemindersJob implements ShouldQueue
             }
         }
     }
+
+    /**
+     * Build a clear poll question based on the reminder phase.
+     */
+    private function buildPollQuestion(Reminder $reminder): string
+    {
+        $session     = $reminder->classSession;
+        $studentName = $session?->student?->name ?? 'الطالب';
+        $subject     = $session?->subject ?? 'الحصة';
+
+        return match ($reminder->reminder_phase) {
+            'at_start'  => "هل انضم {$studentName} إلى حصة {$subject}؟",
+            'after'     => "هل اكتملت حصة {$subject} مع {$studentName}؟",
+            'post_end'  => "هل أتممت حصة {$subject} مع {$studentName}؟",
+            default     => "تأكيد حصة {$subject}",
+        };
+    }
+
 
     /**
      * Create a WhatsappMessage record for the reminder so it shows in inbox.
