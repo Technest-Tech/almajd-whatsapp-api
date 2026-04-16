@@ -150,9 +150,9 @@ class WasenderWhatsAppService implements WhatsAppServiceInterface
     public function sendPoll(string $to, string $name, array $options, int $selectableCount = 1): array
     {
         return $this->post('/send-message', [
-            'to'              => $this->normalizeJid($to),
-            'poll'            => [
-                'name'            => $name,
+            'to'   => $this->normalizeJid($to),
+            'poll' => [
+                'question'        => $name,          // Wasender field name
                 'options'         => $options,
                 'selectableCount' => $selectableCount,
             ],
