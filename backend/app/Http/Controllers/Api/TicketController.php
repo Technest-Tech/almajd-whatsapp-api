@@ -24,8 +24,9 @@ class TicketController extends Controller
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->ticketService->list(
-            filters: $request->only(['status', 'priority', 'assigned_to', 'sla_breached', 'search', 'tag_id', 'type']),
+            filters: $request->only(['status', 'priority', 'assigned_to', 'sla_breached', 'search', 'tag_id', 'type', 'unassigned', 'session_supervisor_id']),
             perPage: (int) $request->input('per_page', 20),
+            viewer:  $request->user(),
         );
 
         return $this->response->paginated($paginator, 'Tickets retrieved');
@@ -39,7 +40,7 @@ class TicketController extends Controller
         $userId = $request->query('user_id') ? (int) $request->query('user_id') : null;
 
         return $this->response->success(
-            $this->ticketService->stats($userId),
+            $this->ticketService->stats($userId, viewer: $request->user()),
             'Stats retrieved'
         );
     }
@@ -290,11 +291,19 @@ class TicketController extends Controller
 
     /**
      * GET /api/tickets/unread-count
-     * Lightweight endpoint that returns total unread across all tickets
+     * Lightweight endpoint that returns total unread for the authenticated user's scope
      */
-    public function unreadCount(): JsonResponse
+    public function unreadCount(Request $request): JsonResponse
     {
-        $count = \App\Models\Ticket::where('unread_count', '>', 0)->sum('unread_count');
+        $user  = $request->user();
+        $query = \App\Models\Ticket::where('unread_count', '>', 0);
+
+        // Scope to supervisor's tickets
+        if ($user->hasRole('supervisor', 'api') && !$user->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
+            $query->where('session_supervisor_id', $user->id);
+        }
+
+        $count = $query->sum('unread_count');
 
         return $this->response->success(
             ['unread_count' => (int) $count],

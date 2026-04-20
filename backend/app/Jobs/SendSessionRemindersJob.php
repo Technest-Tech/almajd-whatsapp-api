@@ -156,14 +156,21 @@ class SendSessionRemindersJob implements ShouldQueue
                 ->first();
 
             if (!$ticket) {
+                // Determine session supervisor for this reminder
+                $sessionSupervisorId = $reminder->classSession?->supervisor_id;
+
                 $ticket = Ticket::create([
-                    'ticket_number' => Ticket::generateTicketNumber(),
-                    'guardian_id'   => $guardian->id,
-                    'status'        => \App\Enums\TicketStatus::Open,
-                    'priority'      => \App\Enums\TicketPriority::Normal,
-                    'channel'       => 'whatsapp',
-                    'subject'       => 'تذكير بالحصة',
+                    'ticket_number'        => Ticket::generateTicketNumber(),
+                    'guardian_id'          => $guardian->id,
+                    'status'               => \App\Enums\TicketStatus::Open,
+                    'priority'             => \App\Enums\TicketPriority::Normal,
+                    'channel'              => 'whatsapp',
+                    'subject'              => 'تذكير بالحصة',
+                    'session_supervisor_id' => $sessionSupervisorId,
                 ]);
+            } elseif (!$ticket->session_supervisor_id && $reminder->classSession?->supervisor_id) {
+                // Back-fill supervisor on existing ticket if missing
+                $ticket->update(['session_supervisor_id' => $reminder->classSession->supervisor_id]);
             }
 
             // Create outbound message

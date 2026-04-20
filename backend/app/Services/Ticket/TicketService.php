@@ -14,6 +14,7 @@ use App\Models\Guardian;
 use App\Models\Ticket;
 use App\Models\TicketLog;
 use App\Models\TicketNote;
+use App\Models\User;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappTemplate;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -24,12 +25,27 @@ class TicketService
 {
     /**
      * List tickets with filters and pagination.
+     *
+     * Scoping rules:
+     *  - admin / senior_supervisor  → see ALL tickets (including unassigned, session_supervisor_id=null)
+     *  - supervisor                 → see only tickets where session_supervisor_id = their user ID
+     *
+     * When `unassigned=1` filter is passed, only show tickets with no session supervisor (admin only).
      */
-    public function list(array $filters = [], int $perPage = 20): LengthAwarePaginator
+    public function list(array $filters = [], int $perPage = 20, ?User $viewer = null): LengthAwarePaginator
     {
         $query = Ticket::with(['guardian', 'student', 'assignedTo', 'tags'])
             ->orderByDesc('last_message_at')
             ->orderByDesc('created_at');
+
+        // ── Role-based scoping ──────────────────────────────────────────────
+        if ($viewer && $viewer->hasRole('supervisor', 'api') && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
+            // Regular supervisors: only see their scoped tickets
+            $query->where('session_supervisor_id', $viewer->id);
+        } elseif ($viewer && isset($filters['unassigned']) && (bool) $filters['unassigned']) {
+            // Admins requesting the unassigned (orphaned) queue
+            $query->whereNull('session_supervisor_id');
+        }
 
         if (!empty($filters['status'])) {
             $query->where('status', $filters['status']);
@@ -39,6 +55,9 @@ class TicketService
         }
         if (!empty($filters['assigned_to'])) {
             $query->where('assigned_to', $filters['assigned_to']);
+        }
+        if (!empty($filters['session_supervisor_id'])) {
+            $query->where('session_supervisor_id', $filters['session_supervisor_id']);
         }
         if (!empty($filters['sla_breached'])) {
             $query->where('sla_breached', true);
@@ -98,10 +117,10 @@ class TicketService
     public function show(int $ticketId): Ticket
     {
         return Ticket::with([
-            'guardian', 'student', 'assignedTo', 'tags',
+            'guardian', 'student', 'teacher', 'assignedTo', 'sessionSupervisor', 'tags',
             'messages' => fn ($q) => $q->with('replyToMessage.sentBy')->orderBy('timestamp'),
-            'notes' => fn ($q) => $q->with('user')->orderBy('created_at'),
-            'logs' => fn ($q) => $q->with('user')->orderBy('created_at', 'desc'),
+            'notes'    => fn ($q) => $q->with('user')->orderBy('created_at'),
+            'logs'     => fn ($q) => $q->with('user')->orderBy('created_at', 'desc'),
         ])->findOrFail($ticketId);
     }
 
@@ -308,15 +327,19 @@ class TicketService
     }
 
     /**
-     * Get dashboard stats.
+     * Get dashboard stats, optionally scoped by supervisor.
      */
-    public function stats(?int $userId = null): array
+    public function stats(?int $userId = null, ?User $viewer = null): array
     {
         $query = Ticket::query();
 
-        if ($userId) {
+        // Role-based scoping for stats
+        if ($viewer && $viewer->hasRole('supervisor', 'api') && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
+            $query->where('session_supervisor_id', $viewer->id);
+        } elseif ($userId) {
             $query->where('assigned_to', $userId);
         }
+
         $studentsCount = (clone $query)->whereHas('guardian', function ($q) {
             $q->whereExists(function ($sub) {
                 $sub->select(DB::raw(1))->from('students')->whereColumn('students.whatsapp_number', 'guardians.phone');
@@ -337,16 +360,24 @@ class TicketService
             });
         })->count();
 
+        // Unassigned count (only meaningful for admins)
+        $unassignedCount = ($viewer && $viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api'))
+            ? Ticket::whereNull('session_supervisor_id')
+                ->whereNotIn('status', ['resolved', 'closed'])
+                ->count()
+            : 0;
+
         return [
-            'open'         => (clone $query)->where('status', TicketStatus::Open)->count(),
-            'pending'      => (clone $query)->where('status', TicketStatus::Pending)->count(),
-            'resolved'     => (clone $query)->where('status', TicketStatus::Resolved)->count(),
-            'students'     => $studentsCount,
-            'teachers'     => $teachersCount,
-            'unknown'      => $unknownCount,
-            'sla_breached' => (clone $query)->where('sla_breached', true)
-                                           ->whereNotIn('status', [TicketStatus::Closed])->count(),
-            'today_total'  => Ticket::whereDate('created_at', today())->count(),
+            'open'              => (clone $query)->where('status', TicketStatus::Open)->count(),
+            'pending'           => (clone $query)->where('status', TicketStatus::Pending)->count(),
+            'resolved'          => (clone $query)->where('status', TicketStatus::Resolved)->count(),
+            'students'          => $studentsCount,
+            'teachers'          => $teachersCount,
+            'unknown'           => $unknownCount,
+            'unassigned'        => $unassignedCount,
+            'sla_breached'      => (clone $query)->where('sla_breached', true)
+                                               ->whereNotIn('status', [TicketStatus::Closed])->count(),
+            'today_total'       => Ticket::whereDate('created_at', today())->count(),
             'avg_response_minutes' => Ticket::whereNotNull('first_response_at')
                 ->whereDate('created_at', '>=', now()->subDays(7))
                 ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, created_at, first_response_at)) as avg_min')

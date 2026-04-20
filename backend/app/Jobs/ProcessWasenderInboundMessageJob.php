@@ -17,6 +17,7 @@ use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\Ticket;
 use App\Models\WhatsappMessage;
+use App\Services\SessionLoadBalancerService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -517,6 +518,19 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             }
         }
 
+        // ── Auto-assign session supervisor for load balancing ────────────────
+        // If the ticket has no session supervisor yet, try to find the supervisor
+        // responsible for this contact's session today and assign them.
+        if (!$ticket->session_supervisor_id) {
+            try {
+                app(SessionLoadBalancerService::class)
+                    ->assignTicketToSessionSupervisor($ticket, $contactPhone);
+                $ticket->refresh();
+            } catch (\Throwable $e) {
+                Log::warning('SessionLoadBalancer: auto-assign failed for ticket #' . $ticket->id . ': ' . $e->getMessage());
+            }
+        }
+
         // ── Resolve reply context ────────────────────────────────────────────
         $replyToMessageId = null;
         $quotedMsgId = $messages['message']['extendedTextMessage']['contextInfo']['stanzaId']
@@ -565,6 +579,9 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             $senderName = $ticket->guardian?->name ?? $contactPhone;
             $preview    = Str::limit($body ?: $this->mediaPreviewText($msgType), 80);
 
+            // Notify the assigned session supervisor (preferred) or all admins as fallback
+            $supervisorId = $ticket->session_supervisor_id;
+
             AppNotification::notifyAdmins(
                 type:  'message',
                 title: "رسالة جديدة من {$senderName}",
@@ -574,14 +591,29 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
             try {
                 $fcmService = \App\Services\FcmService::getInstance();
-                $fcmService->sendToAllAdmins(
-                    title: "رسالة جديدة من {$senderName}",
-                    body:  $preview,
-                    data:  [
-                        'type'      => 'message',
-                        'ticket_id' => (string) $ticket->id,
-                    ],
-                );
+
+                if ($supervisorId) {
+                    // Push only to the assigned supervisor
+                    $fcmService->sendToUser(
+                        userId: $supervisorId,
+                        title:  "رسالة جديدة من {$senderName}",
+                        body:   $preview,
+                        data:   [
+                            'type'      => 'message',
+                            'ticket_id' => (string) $ticket->id,
+                        ],
+                    );
+                } else {
+                    // No supervisor yet — fall back to notifying all admins
+                    $fcmService->sendToAllAdmins(
+                        title: "رسالة جديدة من {$senderName}",
+                        body:  $preview,
+                        data:  [
+                            'type'      => 'message',
+                            'ticket_id' => (string) $ticket->id,
+                        ],
+                    );
+                }
             } catch (\Throwable $e) {
                 Log::warning('FCM push failed', ['error' => $e->getMessage()]);
             }
