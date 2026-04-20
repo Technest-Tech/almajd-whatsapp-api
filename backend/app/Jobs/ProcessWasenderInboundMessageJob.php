@@ -71,9 +71,13 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         $event    = $this->payload['event'] ?? '';
         $messages = $this->payload['data']['messages'] ?? [];
 
-        // Detect poll vote events — they arrive inside messages.upsert as pollUpdateMessage
-        $isPollVote = in_array($event, ['messages.received', 'messages.upsert'], true)
-            && isset($messages['message']['pollUpdateMessage']);
+        Log::info('WASENDER_WEBHOOK_DUMP', ['payload' => $this->payload]);
+
+        // Detect poll vote events — they arrive either as 'poll.results' or inside 'messages.upsert'
+        $isPollVote = $event === 'poll.results' || (
+            in_array($event, ['messages.received', 'messages.upsert'], true)
+            && isset($messages['message']['pollUpdateMessage'])
+        );
 
         // Route to appropriate handler based on event type
         match (true) {
@@ -102,50 +106,60 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
      */
     private function handlePollVote(): void
     {
-        // ── Log the full raw payload so we can verify Wasender's structure ──
-        Log::info('WasenderAPI: pollUpdateMessage raw payload', [
+        Log::info('WasenderAPI: Poll vote payload', [
             'payload' => $this->payload,
         ]);
 
-        $data     = $this->payload['data'] ?? [];
+        $event = $this->payload['event'] ?? '';
+        $data  = $this->payload['data'] ?? [];
 
-        // Wasender may send `messages` as a single object OR as an array — handle both
-        $rawMsgs  = $data['messages'] ?? [];
-        $messages = isset($rawMsgs[0]) ? $rawMsgs[0] : $rawMsgs;
+        $pollMsgId     = null;
+        $pollQuestion  = null;
+        $voterPhone    = null;
+        $selectedNames = [];
+        $voteValue     = null;
 
-        $key      = $messages['key'] ?? [];
-        $pollVote = $messages['message']['pollUpdateMessage'] ?? [];
+        // ── 1. Parse 'poll.results' format (Current WasenderAPI docs) ──────────
+        if ($event === 'poll.results') {
+            $pollMsgId    = $data['key']['id'] ?? null;
+            $remoteJid    = $data['key']['remoteJid'] ?? '';
+            $pollQuestion = $data['pollMsg']['pollCreationMessageV3']['name']
+                ?? $data['pollMsg']['pollCreationMessage']['name']
+                ?? null;
 
-        // The ID of the poll we originally sent
-        $pollMsgId = $pollVote['pollCreationMessageKey']['id'] ?? null;
+            $pollResult = $data['pollResult'] ?? [];
+            foreach ($pollResult as $option) {
+                if (!empty($option['voters'])) {
+                    $selectedNames[] = $option['name'];
+                    // We extract the first voter's phone (in 1:1 chats it's just the teacher)
+                    $voterJid = $option['voters'][0];
+                    $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $voterJid)[0] ?? '');
+                }
+            }
 
-        if (!$pollMsgId) {
-            Log::warning('WasenderAPI: pollUpdateMessage missing pollCreationMessageKey.id', [
-                'messages_keys' => array_keys($messages),
-                'message_keys'  => array_keys($messages['message'] ?? []),
-            ]);
-            return;
+            if (!$voterPhone) {
+                $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '');
+            }
         }
+        // ── 2. Parse legacy / alternative 'messages.upsert' format ──────────────
+        else {
+            $rawMsgs  = $data['messages'] ?? [];
+            $messages = isset($rawMsgs[0]) ? $rawMsgs[0] : $rawMsgs;
 
-        // ── Resolve voter phone ───────────────────────────────────────────────
-        // Try multiple possible fields Wasender might provide
-        $voterPhone = $key['cleanedSenderPn']
-            ?? $key['cleanedParticipantPn']
-            ?? $key['participant']
-            ?? null;
+            $key      = $messages['key'] ?? [];
+            $pollVote = $messages['message']['pollUpdateMessage'] ?? [];
 
-        if (!$voterPhone) {
-            $remoteJid  = $key['remoteJid'] ?? $data['id'] ?? '';
-            $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '') ?: null;
-        }
+            $pollMsgId = $pollVote['pollCreationMessageKey']['id'] ?? null;
 
-        // Also check sender at top-level
-        if (!$voterPhone) {
-            $sender = $data['pushName'] ?? $data['notifyName'] ?? null;
-            Log::warning('WasenderAPI: could not resolve voter phone from key', [
-                'key'    => $key,
-                'data_keys' => array_keys($data),
-            ]);
+            $voterRaw = $key['cleanedSenderPn'] ?? $key['cleanedParticipantPn'] ?? $key['participant'] ?? $key['remoteJid'] ?? $data['id'] ?? '';
+            $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $voterRaw)[0] ?? '');
+
+            // Fallback SHA-256 resolution
+            $selectedHashes = $pollVote['vote']['selectedOptions'] ?? [];
+            if (!empty($selectedHashes)) {
+                // We'll rely on the DB reminder body below to hash and match options
+                $selectedNames = []; // Will be populated after finding reminder
+            }
         }
 
         if ($voterPhone) {
@@ -153,61 +167,78 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         }
 
         // ── Find the reminder that owns this poll ─────────────────────────────
-        $reminder = \App\Models\Reminder::where('poll_message_id', $pollMsgId)
-            ->where('recipient_phone', $voterPhone)
-            ->first();
+        // Primary match: most recent teacher reminder with this poll question for this voter.
+        // We intentionally do NOT filter by confirmation_status so teachers can change
+        // their vote (e.g. YES → NO) and have the session state reverted accordingly.
+        // Wasender's /send-message returns an internal numeric msgId which does NOT
+        // equal the WhatsApp message key.id that arrives in poll.results webhooks,
+        // so matching by question text is the reliable path for teacher polls
+        // (each poll question uniquely identifies a session + student).
+        $reminder = null;
 
-        // Fallback: match only by poll_message_id (in case phone format differs)
-        if (!$reminder) {
-            $reminder = \App\Models\Reminder::where('poll_message_id', $pollMsgId)->first();
+        if ($pollQuestion && $voterPhone) {
+            $reminder = \App\Models\Reminder::where('recipient_phone', $voterPhone)
+                ->where('recipient_type', 'teacher')
+                ->where('message_body', $pollQuestion)
+                ->orderByDesc('sent_at')
+                ->first();
+        }
+
+        // Fallback: legacy ID-based lookup (only useful if poll_message_id was stored correctly)
+        if (!$reminder && $pollMsgId) {
+            $reminderQuery = \App\Models\Reminder::where('poll_message_id', $pollMsgId);
+            if ($voterPhone) {
+                $reminderQuery->where('recipient_phone', $voterPhone);
+            }
+            $reminder = $reminderQuery->first()
+                ?? \App\Models\Reminder::where('poll_message_id', $pollMsgId)->first();
         }
 
         if (!$reminder || !$reminder->class_session_id) {
             Log::info('WasenderAPI: Poll vote received but no matching reminder found', [
-                'poll_msg_id' => $pollMsgId,
-                'voter'       => $voterPhone,
+                'poll_msg_id'   => $pollMsgId,
+                'poll_question' => $pollQuestion,
+                'voter'         => $voterPhone,
             ]);
             return;
         }
 
-        // ── Determine which option was selected ───────────────────────────────
-        // Wasender may provide decoded names directly
-        $selectedNames   = $pollVote['vote']['selectedOptionNames'] ?? [];
-        $selectedHashes  = $pollVote['vote']['selectedOptions']     ?? [];
-
-        // If only hashes provided, compare SHA-256 of our known options
-        // WhatsApp hashes: SHA-256( lowercase(option_text) + nul + lowercase(poll_question) )
-        // But Wasender sometimes sends plain text option names too — check both.
-        if (empty($selectedNames) && !empty($selectedHashes)) {
-            $knownOptions = [
-                'نعم، انضم'   => 'yes',
-                'لا، لم ينضم' => 'no',
-            ];
-            $pollQuestion = $reminder->message_body ?? '';
-            foreach ($knownOptions as $optionText => $vote) {
-                $hash = hash('sha256', mb_strtolower($optionText) . "\0" . mb_strtolower($pollQuestion));
-                if (in_array($hash, $selectedHashes, true) ||
-                    in_array(base64_encode(hex2bin($hash)), $selectedHashes, true)) {
-                    $selectedNames[] = $optionText;
+        // ── Legacy Format Hash resolution (if names weren't provided directly)
+        if ($event !== 'poll.results' && empty($selectedNames)) {
+            $dataMsgs = $data['messages'] ?? [];
+            $msgPart = isset($dataMsgs[0]) ? $dataMsgs[0] : $dataMsgs;
+            $selectedHashes = $msgPart['message']['pollUpdateMessage']['vote']['selectedOptions'] ?? [];
+            
+            if (!empty($selectedHashes)) {
+                $knownOptions = [
+                    'نعم، انضم'   => 'yes',
+                    'لا، لم ينضم' => 'no',
+                ];
+                $pollQuestion = $reminder->message_body ?? '';
+                foreach ($knownOptions as $optionText => $vote) {
+                    $hash = hash('sha256', mb_strtolower($optionText) . "\0" . mb_strtolower($pollQuestion));
+                    if (in_array($hash, $selectedHashes, true) ||
+                        in_array(base64_encode(hex2bin($hash)), $selectedHashes, true)) {
+                        $selectedNames[] = $optionText;
+                    }
                 }
             }
         }
 
         // Normalise: is the vote Yes, No, or cleared?
-        $voteValue = null;
         foreach ($selectedNames as $name) {
             $clean = trim($name);
-            if (str_contains($clean, 'نعم') || str_contains($clean, '1')) {
+            if (str_contains($clean, 'نعم') || str_contains($clean, '1') || str_contains(mb_strtolower($clean), 'yes')) {
                 $voteValue = 'yes';
                 break;
             }
-            if (str_contains($clean, 'لا') || str_contains($clean, '2')) {
+            if (str_contains($clean, 'لا') || str_contains($clean, '2') || str_contains(mb_strtolower($clean), 'no')) {
                 $voteValue = 'no';
                 break;
             }
         }
 
-        Log::info('WasenderAPI: Poll vote received', [
+        Log::info('WasenderAPI: Poll vote handled successfully', [
             'poll_msg_id'   => $pollMsgId,
             'voter'         => $voterPhone,
             'selected'      => $selectedNames,

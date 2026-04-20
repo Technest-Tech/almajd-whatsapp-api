@@ -112,18 +112,27 @@ class SendSessionRemindersJob implements ShouldQueue
 
     /**
      * Build a clear poll question based on the reminder phase.
+     *
+     * The session start time is embedded so questions are unique when the same
+     * teacher has multiple sessions with the same student+subject on the same
+     * day — this matters because poll-vote webhooks are matched back to the
+     * reminder by question text (Wasender doesn't return a usable WhatsApp
+     * message ID on send).
      */
     private function buildPollQuestion(Reminder $reminder): string
     {
         $session     = $reminder->classSession;
         $studentName = $session?->student?->name ?? 'الطالب';
-        $subject     = $session?->subject ?? 'الحصة';
+        $subject     = $session?->title ?? $session?->subject ?? 'الحصة';
+
+        $timeRaw = $session?->rescheduled_start_time ?? $session?->start_time;
+        $timeTag = $timeRaw ? ' (' . substr((string) $timeRaw, 0, 5) . ')' : '';
 
         return match ($reminder->reminder_phase) {
-            'at_start'  => "هل انضم {$studentName} إلى حصة {$subject}؟",
-            'after'     => "هل اكتملت حصة {$subject} مع {$studentName}؟",
-            'post_end'  => "هل أتممت حصة {$subject} مع {$studentName}؟",
-            default     => "تأكيد حصة {$subject}",
+            'at_start'  => "هل انضم {$studentName} إلى حصة {$subject}{$timeTag}؟",
+            'after'     => "هل اكتملت حصة {$subject}{$timeTag} مع {$studentName}؟",
+            'post_end'  => "هل أتممت حصة {$subject}{$timeTag} مع {$studentName}؟",
+            default     => "تأكيد حصة {$subject}{$timeTag}",
         };
     }
 

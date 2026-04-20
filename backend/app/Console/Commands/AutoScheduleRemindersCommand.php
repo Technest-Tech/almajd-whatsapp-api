@@ -124,10 +124,14 @@ class AutoScheduleRemindersCommand extends Command
                 if ($studentPhone) {
                     // Student templates always have exactly 1 slot = zoom URL
                     $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
+                    
+                    $studentZoomText = $zoomUrl !== '' ? "Zoom Link:\n{$zoomUrl}\n\n" : "";
+                    $studentFallback = "Assalamu Alaikum,\n⚠️ This is an alert that your class started 5 minutes ago!\n\n{$studentZoomText}Please join immediately. Punctuality is a beautiful Islamic trait, and your teacher is waiting for you to begin the lesson. 📚\n\nAlmajd Academy";
+                    
                     $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $sendAt,
                         'student_after_5m_alert',
                         $studentVars,
-                        $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n⏰ {$startTimeDisp}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً!{$zoomLinkTxt}");
+                        $approvedTemplates, $studentFallback);
                     $created++;
                 }
                 // Always queue (session is still `scheduled` here); send job skips if session already completed/cancelled.
