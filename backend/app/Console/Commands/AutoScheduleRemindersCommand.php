@@ -23,9 +23,22 @@ class AutoScheduleRemindersCommand extends Command
         $todayLocal = Carbon::today($academyTz); // The local date e.g. 2026-03-15
         $now = Carbon::now('UTC');
 
-        // Get all relevant sessions for today that haven't been cancelled
+        // Get all relevant sessions for today:
+        //  1. Sessions originally scheduled for today (session_date = today)
+        //  2. Rescheduled sessions whose new date (rescheduled_date) is today
+        //     — these are missed by the original session_date filter!
         $sessions = ClassSession::with(['student.guardian', 'teacher'])
-            ->where('session_date', $todayLocal->toDateString())
+            ->where(function ($q) use ($todayLocal) {
+                $q->where(function ($inner) use ($todayLocal) {
+                    // Normal sessions: original date is today, not rescheduled
+                    $inner->where('session_date', $todayLocal->toDateString())
+                          ->where('status', '!=', 'rescheduled');
+                })->orWhere(function ($inner) use ($todayLocal) {
+                    // Rescheduled sessions: new date is today
+                    $inner->where('status', 'rescheduled')
+                          ->where('rescheduled_date', $todayLocal->toDateString());
+                });
+            })
             ->whereIn('status', ['scheduled', 'rescheduled', 'coming', 'pending', 'running'])
             ->get();
 
@@ -35,7 +48,7 @@ class AutoScheduleRemindersCommand extends Command
         // ── Round-robin supervisor assignment ──
         $this->assignSupervisors($sessions);
 
-        // ── Transition today's 'scheduled' sessions to 'coming' ──
+        // ── Transition today's 'scheduled' sessions to 'coming' (not rescheduled ones) ──
         $sessions->where('status', 'scheduled')->each(function (ClassSession $s): void {
             $s->update(['status' => 'coming']);
         });
