@@ -60,10 +60,8 @@ class _InboxViewState extends State<_InboxView> {
 
   // Status filter
   String _activeFilter = 'all';
-  bool _todaySessions = false;
 
   static const _filters = [
-    {'key': 'today',     'label': '📅 اليوم'},
     {'key': 'all',       'label': 'الكل'},
     {'key': 'students',  'label': 'طلاب'},
     {'key': 'teachers',  'label': 'معلمين'},
@@ -75,10 +73,11 @@ class _InboxViewState extends State<_InboxView> {
     super.initState();
     // Always refresh when opening Inbox, so any backend name changes show up
     // immediately (not only if the bloc is still in the initial state).
-    context.read<TicketListBloc>().add(TicketListRefreshRequested());
+    context.read<TicketListBloc>().add(
+      const TicketListFetchRequested(todaySessions: true),
+    );
 
-    // Keep Inbox in sync with backend changes (e.g. contact names updated).
-    // Use refresh=true so the UI does not switch to loading shimmer.
+    // Keep Inbox in sync with backend changes.
     _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted) return;
       context.read<TicketListBloc>().add(TicketListRefreshRequested());
@@ -269,16 +268,9 @@ class _InboxViewState extends State<_InboxView> {
 
                       return GestureDetector(
                         onTap: () {
-                          final isToday = key == 'today';
-                          setState(() {
-                            _activeFilter = key;
-                            _todaySessions = isToday;
-                          });
+                          setState(() => _activeFilter = key);
                           context.read<TicketListBloc>().add(
-                            TicketListFilterChanged(
-                              isToday ? 'all' : key,
-                              todaySessions: isToday,
-                            ),
+                            TicketListFilterChanged(key, todaySessions: true),
                           );
                         },
                         child: AnimatedContainer(
@@ -286,14 +278,9 @@ class _InboxViewState extends State<_InboxView> {
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           decoration: BoxDecoration(
                             color: isActive
-                                ? (key == 'today'
-                                    ? const Color(0xFF00C853)   // bright green for Today
-                                    : const Color(0xFF00A884))
+                                ? const Color(0xFF00A884)
                                 : const Color(0xFF2A3942),
                             borderRadius: BorderRadius.circular(20),
-                            boxShadow: isActive && key == 'today'
-                                ? [BoxShadow(color: const Color(0xFF00C853).withValues(alpha: 0.35), blurRadius: 8, spreadRadius: 1)]
-                                : null,
                           ),
                           alignment: Alignment.center,
                           child: Row(
