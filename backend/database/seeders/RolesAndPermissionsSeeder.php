@@ -48,15 +48,17 @@ class RolesAndPermissionsSeeder extends Seeder
         $admin      = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'api']);
 
         // ── Assign Permissions ───────────────────────────
-        // Supervisor: tickets, view students & schedules & sessions
+        // Supervisor: tickets, view+edit students & schedules & sessions, view reminders
         $supervisor->syncPermissions([
             'tickets.view', 'tickets.create', 'tickets.reply', 'tickets.assign',
             'tickets.escalate', 'tickets.resolve', 'tickets.close',
             'students.view',
             'schedules.view',
+            'schedules.edit',   // needed for reschedule / cancel / complete session routes
             'sessions.view',
             'sessions.edit',
-            // Teachers features
+            'reminders.view',
+            // Teachers
             'teachers.view', 'teachers.create', 'teachers.edit', 'teachers.delete',
         ]);
 
