@@ -60,8 +60,10 @@ class _InboxViewState extends State<_InboxView> {
 
   // Status filter
   String _activeFilter = 'all';
+  bool _todaySessions = false;
 
   static const _filters = [
+    {'key': 'today',     'label': '📅 اليوم'},
     {'key': 'all',       'label': 'الكل'},
     {'key': 'students',  'label': 'طلاب'},
     {'key': 'teachers',  'label': 'معلمين'},
@@ -267,19 +269,31 @@ class _InboxViewState extends State<_InboxView> {
 
                       return GestureDetector(
                         onTap: () {
-                          setState(() => _activeFilter = key);
+                          final isToday = key == 'today';
+                          setState(() {
+                            _activeFilter = key;
+                            _todaySessions = isToday;
+                          });
                           context.read<TicketListBloc>().add(
-                                TicketListFilterChanged(key),
-                              );
+                            TicketListFilterChanged(
+                              isToday ? 'all' : key,
+                              todaySessions: isToday,
+                            ),
+                          );
                         },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           decoration: BoxDecoration(
                             color: isActive
-                                ? const Color(0xFF00A884)
+                                ? (key == 'today'
+                                    ? const Color(0xFF00C853)   // bright green for Today
+                                    : const Color(0xFF00A884))
                                 : const Color(0xFF2A3942),
                             borderRadius: BorderRadius.circular(20),
+                            boxShadow: isActive && key == 'today'
+                                ? [BoxShadow(color: const Color(0xFF00C853).withValues(alpha: 0.35), blurRadius: 8, spreadRadius: 1)]
+                                : null,
                           ),
                           alignment: Alignment.center,
                           child: Row(

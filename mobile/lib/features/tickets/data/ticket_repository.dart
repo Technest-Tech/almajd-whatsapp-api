@@ -13,13 +13,15 @@ class TicketRepository {
     String? type,
     String? priority,
     String? search,
+    bool todaySessions = false,
     int page = 1,
-    int perPage = 20,
+    int perPage = 50,
   }) async {
     final params = <String, dynamic>{'page': page, 'per_page': perPage};
     if (type != null && type != 'all') params['type'] = type;
     if (priority != null) params['priority'] = priority;
     if (search != null && search.isNotEmpty) params['search'] = search;
+    if (todaySessions) params['today_sessions'] = '1';
 
     final response = await apiClient.dio.get(
       '/tickets',

@@ -21,21 +21,27 @@ abstract class TicketListEvent extends Equatable {
 class TicketListFetchRequested extends TicketListEvent {
   final String? typeFilter;
   final bool refresh;
+  final bool todaySessions;
 
-  const TicketListFetchRequested({this.typeFilter, this.refresh = false});
+  const TicketListFetchRequested({
+    this.typeFilter,
+    this.refresh = false,
+    this.todaySessions = false,
+  });
 
   @override
-  List<Object?> get props => [typeFilter, refresh];
+  List<Object?> get props => [typeFilter, refresh, todaySessions];
 }
 
 class TicketListRefreshRequested extends TicketListEvent {}
 
 class TicketListFilterChanged extends TicketListEvent {
   final String status;
-  const TicketListFilterChanged(this.status);
+  final bool todaySessions;
+  const TicketListFilterChanged(this.status, {this.todaySessions = false});
 
   @override
-  List<Object?> get props => [status];
+  List<Object?> get props => [status, todaySessions];
 }
 
 class TicketQuickAssign extends TicketListEvent {
@@ -113,6 +119,7 @@ class TicketListLoaded extends TicketListState {
   final String activeFilter;
   final String searchQuery;
   final Map<String, dynamic>? stats;
+  final bool todaySessions;
 
   const TicketListLoaded({
     required this.tickets,
@@ -120,10 +127,11 @@ class TicketListLoaded extends TicketListState {
     this.activeFilter = 'all',
     this.searchQuery = '',
     this.stats,
+    this.todaySessions = false,
   });
 
   @override
-  List<Object?> get props => [tickets, allTickets, activeFilter, searchQuery, stats];
+  List<Object?> get props => [tickets, allTickets, activeFilter, searchQuery, stats, todaySessions];
 }
 
 class TicketListError extends TicketListState {
@@ -222,7 +230,10 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     _setupWebsockets();
     if (!event.refresh) emit(TicketListLoading());
     try {
-      final tickets = await ticketRepository.getTickets(type: event.typeFilter);
+      final tickets = await ticketRepository.getTickets(
+        type: event.typeFilter,
+        todaySessions: event.todaySessions,
+      );
       Map<String, dynamic>? stats;
       try { stats = await ticketRepository.getStats(); } catch (_) {}
       emit(TicketListLoaded(
@@ -230,6 +241,7 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
         allTickets: tickets,
         activeFilter: event.typeFilter ?? 'all',
         stats: stats,
+        todaySessions: event.todaySessions,
       ));
     } catch (e) {
       emit(const TicketListError('فشل تحميل التذاكر'));
@@ -240,11 +252,21 @@ class TicketListBloc extends Bloc<TicketListEvent, TicketListState> {
     final currentFilter = state is TicketListLoaded
         ? (state as TicketListLoaded).activeFilter
         : 'all';
-    add(TicketListFetchRequested(typeFilter: currentFilter, refresh: true));
+    final currentToday = state is TicketListLoaded
+        ? (state as TicketListLoaded).todaySessions
+        : false;
+    add(TicketListFetchRequested(
+      typeFilter: currentFilter,
+      refresh: true,
+      todaySessions: currentToday,
+    ));
   }
 
   Future<void> _onFilterChanged(TicketListFilterChanged event, Emitter<TicketListState> emit) async {
-    add(TicketListFetchRequested(typeFilter: event.status));
+    add(TicketListFetchRequested(
+      typeFilter: event.status,
+      todaySessions: event.todaySessions,
+    ));
   }
 
   Future<void> _onQuickAssign(TicketQuickAssign event, Emitter<TicketListState> emit) async {

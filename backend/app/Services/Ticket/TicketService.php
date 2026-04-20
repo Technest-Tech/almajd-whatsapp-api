@@ -108,6 +108,52 @@ class TicketService
             }
         }
 
+        // ── Today's Sessions filter ─────────────────────────────────────────
+        // Shows tickets for contacts (students/teachers) who have a session today.
+        // Ordered by session start_time so admin sees them chronologically.
+        if (!empty($filters['today_sessions'])) {
+            $today = now()->toDateString();
+
+            $query->where(function ($q) use ($today) {
+                $q->whereHas('guardian', function ($gq) use ($today) {
+                    $gq->whereExists(function ($sub) use ($today) {
+                        $sub->select(DB::raw(1))
+                            ->from('students')
+                            ->join('class_sessions', 'class_sessions.student_id', '=', 'students.id')
+                            ->whereColumn('students.whatsapp_number', 'guardians.phone')
+                            ->whereDate('class_sessions.session_date', $today)
+                            ->whereNotIn('class_sessions.status', ['cancelled', 'completed']);
+                    });
+                })->orWhereHas('guardian', function ($gq) use ($today) {
+                    $gq->whereExists(function ($sub) use ($today) {
+                        $sub->select(DB::raw(1))
+                            ->from('teachers')
+                            ->join('class_sessions', 'class_sessions.teacher_id', '=', 'teachers.id')
+                            ->whereColumn('teachers.whatsapp_number', 'guardians.phone')
+                            ->whereDate('class_sessions.session_date', $today)
+                            ->whereNotIn('class_sessions.status', ['cancelled', 'completed']);
+                    });
+                });
+            });
+
+            // Re-order: earliest session start_time today first, then by last message
+            $query->reorder()->orderByRaw("
+                COALESCE(
+                    (SELECT MIN(cs.start_time)
+                     FROM class_sessions cs
+                     JOIN guardians g ON (
+                         EXISTS (SELECT 1 FROM students st WHERE st.id = cs.student_id AND st.whatsapp_number = g.phone)
+                         OR EXISTS (SELECT 1 FROM teachers tc WHERE tc.id = cs.teacher_id AND tc.whatsapp_number = g.phone)
+                     )
+                     WHERE g.id = tickets.guardian_id
+                       AND DATE(cs.session_date) = ?
+                       AND cs.status NOT IN ('cancelled','completed')
+                     LIMIT 1
+                    ), '23:59:59'
+                ) ASC
+            ", [$today])->orderByDesc('last_message_at');
+        }
+
         return $query->paginate($perPage);
     }
 

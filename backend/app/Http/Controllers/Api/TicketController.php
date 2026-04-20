@@ -24,7 +24,7 @@ class TicketController extends Controller
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->ticketService->list(
-            filters: $request->only(['status', 'priority', 'assigned_to', 'sla_breached', 'search', 'tag_id', 'type', 'unassigned', 'session_supervisor_id']),
+            filters: $request->only(['status', 'priority', 'assigned_to', 'sla_breached', 'search', 'tag_id', 'type', 'unassigned', 'session_supervisor_id', 'today_sessions']),
             perPage: (int) $request->input('per_page', 20),
             viewer:  $request->user(),
         );
