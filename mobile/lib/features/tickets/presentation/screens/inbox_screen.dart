@@ -73,11 +73,10 @@ class _InboxViewState extends State<_InboxView> {
     super.initState();
     // Always refresh when opening Inbox, so any backend name changes show up
     // immediately (not only if the bloc is still in the initial state).
-    context.read<TicketListBloc>().add(
-      const TicketListFetchRequested(todaySessions: true),
-    );
+    context.read<TicketListBloc>().add(TicketListRefreshRequested());
 
-    // Keep Inbox in sync with backend changes.
+    // Keep Inbox in sync with backend changes (e.g. contact names updated).
+    // Use refresh=true so the UI does not switch to loading shimmer.
     _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted) return;
       context.read<TicketListBloc>().add(TicketListRefreshRequested());
@@ -270,7 +269,7 @@ class _InboxViewState extends State<_InboxView> {
                         onTap: () {
                           setState(() => _activeFilter = key);
                           context.read<TicketListBloc>().add(
-                            TicketListFilterChanged(key, todaySessions: true),
+                            TicketListFilterChanged(key),
                           );
                         },
                         child: AnimatedContainer(
