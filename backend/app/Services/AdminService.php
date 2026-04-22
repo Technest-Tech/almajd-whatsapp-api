@@ -8,9 +8,11 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Enums\UserAvailability;
 use App\Models\Role;
+use App\Models\Shift;
 use App\Models\Ticket;
 use App\Models\TicketLog;
 use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class AdminService
@@ -92,6 +94,56 @@ class AdminService
     {
         $user = User::findOrFail($id);
         $user->delete();
+    }
+
+    /**
+     * Return all 7-day shift slots for a supervisor.
+     * Always returns entries for all 7 days (day_of_week 0–6), filling gaps with defaults.
+     */
+    public function getShifts(int $supervisorId): Collection
+    {
+        User::findOrFail($supervisorId);
+
+        $existing = Shift::where('user_id', $supervisorId)
+            ->orderBy('day_of_week')
+            ->get()
+            ->keyBy('day_of_week');
+
+        return collect(range(0, 6))->map(function (int $day) use ($supervisorId, $existing) {
+            if (isset($existing[$day])) {
+                return $existing[$day];
+            }
+
+            return new Shift([
+                'user_id'     => $supervisorId,
+                'day_of_week' => $day,
+                'start_time'  => '08:00:00',
+                'end_time'    => '16:00:00',
+                'is_active'   => false,
+            ]);
+        });
+    }
+
+    /**
+     * Upsert shifts for a supervisor. Input: array of 7 entries, each with
+     * day_of_week (0–6), start_time, end_time, is_active.
+     */
+    public function updateShifts(int $supervisorId, array $shifts): Collection
+    {
+        User::findOrFail($supervisorId);
+
+        foreach ($shifts as $shift) {
+            Shift::updateOrCreate(
+                ['user_id' => $supervisorId, 'day_of_week' => (int) $shift['day_of_week']],
+                [
+                    'start_time' => $shift['start_time'],
+                    'end_time'   => $shift['end_time'],
+                    'is_active'  => (bool) ($shift['is_active'] ?? false),
+                ]
+            );
+        }
+
+        return $this->getShifts($supervisorId);
     }
 
     /**

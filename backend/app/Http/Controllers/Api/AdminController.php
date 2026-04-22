@@ -31,8 +31,28 @@ class AdminController extends Controller
 
     public function showSupervisor(int $id): JsonResponse
     {
-        $user = \App\Models\User::with('roles')->findOrFail($id);
+        $user = \App\Models\User::with(['roles', 'shifts'])->findOrFail($id);
         return $this->response->success($user);
+    }
+
+    public function getShifts(int $id): JsonResponse
+    {
+        $shifts = $this->adminService->getShifts($id);
+        return $this->response->success($shifts, 'Shifts retrieved');
+    }
+
+    public function updateShifts(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'shifts'              => 'required|array|size:7',
+            'shifts.*.day_of_week'=> 'required|integer|min:0|max:6',
+            'shifts.*.start_time' => 'required|date_format:H:i',
+            'shifts.*.end_time'   => 'required|date_format:H:i|after:shifts.*.start_time',
+            'shifts.*.is_active'  => 'required|boolean',
+        ]);
+
+        $shifts = $this->adminService->updateShifts($id, $data['shifts']);
+        return $this->response->success($shifts, 'Shifts updated');
     }
 
     public function createSupervisor(Request $request): JsonResponse

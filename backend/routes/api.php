@@ -308,6 +308,10 @@ Route::middleware('auth:api')->group(function () {
                 ->middleware('permission:users.edit');
             Route::delete('{id}', [AdminController::class, 'deleteSupervisor'])
                 ->middleware('permission:users.delete');
+            Route::get('{id}/shifts', [AdminController::class, 'getShifts'])
+                ->middleware('permission:users.view');
+            Route::put('{id}/shifts', [AdminController::class, 'updateShifts'])
+                ->middleware('permission:users.edit');
         });
 
         // Analytics

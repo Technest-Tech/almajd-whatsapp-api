@@ -38,6 +38,22 @@ class AdminRepository {
     await apiClient.dio.delete('/admin/supervisors/$id');
   }
 
+  Future<List<Map<String, dynamic>>> getShifts(int supervisorId) async {
+    final response = await apiClient.dio.get('/admin/supervisors/$supervisorId/shifts');
+    return List<Map<String, dynamic>>.from(response.data['data']);
+  }
+
+  Future<List<Map<String, dynamic>>> updateShifts(
+    int supervisorId,
+    List<Map<String, dynamic>> shifts,
+  ) async {
+    final response = await apiClient.dio.put(
+      '/admin/supervisors/$supervisorId/shifts',
+      data: {'shifts': shifts},
+    );
+    return List<Map<String, dynamic>>.from(response.data['data']);
+  }
+
   Future<Map<String, dynamic>> getSupervisorPerformance(int id, {String? from, String? to}) async {
     final params = <String, dynamic>{};
     if (from != null) params['from'] = from;
