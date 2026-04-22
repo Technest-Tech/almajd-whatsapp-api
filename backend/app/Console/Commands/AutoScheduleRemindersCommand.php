@@ -144,7 +144,11 @@ class AutoScheduleRemindersCommand extends Command
                 }
             }
 
-            // ── Phase 4: 5 min AFTER class END — completion confirmation ──
+            // ── Phase 4: 5 min AFTER class END — teacher completion poll only ──
+            // NOTE: The student completion message is NOT sent here.
+            // It is sent by ProcessWasenderInboundMessageJob only AFTER the teacher
+            // confirms YES on this poll — ensuring the student is only notified
+            // when the teacher has actually verified the session is complete.
             $afterEndTime = $sessionEnd->copy()->addMinutes(5);
             if ($now->lt($sessionEnd->copy()->addDay())) {
                 $sendAt = $afterEndTime->gt($now) ? $afterEndTime : $now->copy();
@@ -153,14 +157,6 @@ class AutoScheduleRemindersCommand extends Command
                         'teacher_post_end_request',
                         [],
                         $approvedTemplates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
-                    $created++;
-                }
-                // ── Also notify the student that class time is over ──
-                if ($studentPhone) {
-                    $this->queueTemplate($session, 'student', 'post_end', $studentPhone, $studentName, $sendAt,
-                        'class_completion_status',
-                        [],
-                        $approvedTemplates, "🏁 انتهت حصة *{$session->title}*\nنتمنى أن تكون الحصة مثمرة ومباركة.\nجزاكم الله خيراً على الالتزام والحضور. 📚");
                     $created++;
                 }
             }

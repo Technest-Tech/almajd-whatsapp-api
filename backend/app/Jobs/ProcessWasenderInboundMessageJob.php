@@ -297,11 +297,18 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
             if (in_array($phase, ['post_end', 'post_end_2'], true)) {
                 $session->update(['status' => 'completed', 'attendance_status' => 'both_joined']);
-                // ── NEW: kick off the report collection flow ──────────────────
+
+                // ── Notify the student that class is confirmed complete ────────
+                // This fires HERE (after teacher confirmation) — NOT at end time —
+                // so the student only gets a message when the teacher says YES.
+                $this->maybeNotifyStudentCompletion($session);
+
+                // ── Kick off the report collection flow ───────────────────────
                 $this->maybeRequestSessionReport($session, $voterPhone);
             } else {
                 $session->update(['status' => 'running', 'attendance_status' => 'both_joined']);
             }
+
 
             // Cancel superseded pre-class reminders
             \App\Models\Reminder::where('class_session_id', $session->id)
@@ -1037,6 +1044,51 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
     // ══════════════════════════════════════════════════════════════════════════
     // SESSION REPORT FLOW
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Step 0 — Called right after the teacher's post_end poll vote = YES.
+     *
+     * Sends the student a session-completion notification using the
+     * class_completion_status WhatsApp template (or Arabic fallback).
+     * This replaces the time-based student post_end reminder that was
+     * previously scheduled regardless of teacher confirmation.
+     */
+    private function maybeNotifyStudentCompletion(\App\Models\ClassSession $session): void
+    {
+        $studentPhone = $session->student?->whatsapp_number;
+        if (!$studentPhone) {
+            Log::info('StudentCompletion: student has no WhatsApp number — skipping', ['session_id' => $session->id]);
+            return;
+        }
+
+        try {
+            // Try to resolve the approved template body first
+            $template = \App\Models\WhatsappTemplate::where('name', 'class_completion_status')
+                ->where('status', 'approved')
+                ->first();
+
+            $subject = $session->title ?? 'الحصة';
+            $fallback = "Class Summary - Almajd Academy 📝\n\nAlhamdulillah, your class session has ended. We hope it was beneficial and blessed.\n\nThank you for your commitment and attendance. 📚\n\nAlmajd Academy";
+
+            $body = $template?->body_template ?? $fallback;
+
+            /** @var \App\Services\WhatsApp\WhatsAppServiceInterface $whatsApp */
+            $whatsApp = app(\App\Services\WhatsApp\WhatsAppServiceInterface::class);
+            $whatsApp->sendText($studentPhone, $body);
+
+            Log::info('StudentCompletion: completion message sent to student', [
+                'session_id'    => $session->id,
+                'student_phone' => $studentPhone,
+                'used_template' => $template ? true : false,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('StudentCompletion: failed to send completion message', [
+                'session_id' => $session->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
 
     /**
      * Step 1 — Called right after the teacher's post_end poll vote = YES.
