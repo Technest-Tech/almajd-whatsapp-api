@@ -329,38 +329,44 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Day name
-              SizedBox(
-                width: 72,
-                child: Text(
-                  _dayNames[i],
-                  style: TextStyle(
-                    color: shift.isActive ? Colors.white : AppColors.textSecondary,
-                    fontWeight: shift.isActive ? FontWeight.w600 : FontWeight.normal,
-                    fontSize: 14,
+              // Top row: day name + toggle
+              Row(
+                children: [
+                  Text(
+                    _dayNames[i],
+                    style: TextStyle(
+                      color: shift.isActive ? Colors.white : AppColors.textSecondary,
+                      fontWeight: shift.isActive ? FontWeight.w600 : FontWeight.normal,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const Spacer(),
+                  Switch(
+                    value: shift.isActive,
+                    activeColor: AppColors.primary,
+                    onChanged: (v) => setState(() => _shifts[i].isActive = v),
+                  ),
+                ],
+              ),
+              // Time row — only shown when active
+              if (shift.isActive)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      _buildTimeTap(i, isStart: true),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Text('–', style: TextStyle(color: AppColors.textSecondary)),
+                      ),
+                      _buildTimeTap(i, isStart: false),
+                    ],
                   ),
                 ),
-              ),
-              const Spacer(),
-              // Time range (only when active)
-              if (shift.isActive) ...[
-                _buildTimeTap(i, isStart: true),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Text('–', style: TextStyle(color: AppColors.textSecondary)),
-                ),
-                _buildTimeTap(i, isStart: false),
-                const SizedBox(width: 12),
-              ],
-              // Active toggle
-              Switch(
-                value: shift.isActive,
-                activeColor: AppColors.primary,
-                onChanged: (v) => setState(() => _shifts[i].isActive = v),
-              ),
             ],
           ),
         ),
