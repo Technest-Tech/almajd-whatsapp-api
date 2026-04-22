@@ -355,13 +355,14 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
               // Time row — only shown when active
               if (shift.isActive)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.only(bottom: 6),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       _buildTimeTap(i, isStart: true),
                       const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Text('–', style: TextStyle(color: AppColors.textSecondary)),
+                        padding: EdgeInsets.symmetric(horizontal: 6),
+                        child: Text('–', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                       ),
                       _buildTimeTap(i, isStart: false),
                     ],
@@ -390,13 +391,13 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     return GestureDetector(
       onTap: () => _pickTime(dayIndex, isStart),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: AppColors.darkBg,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
         ),
-        child: Text(label, style: const TextStyle(color: AppColors.primary, fontSize: 13)),
+        child: Text(label, style: const TextStyle(color: AppColors.primary, fontSize: 12)),
       ),
     );
   }

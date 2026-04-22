@@ -7,7 +7,6 @@ namespace App\Services;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Enums\UserAvailability;
-use App\Models\Role;
 use App\Models\Shift;
 use App\Models\Ticket;
 use App\Models\TicketLog;
@@ -59,7 +58,7 @@ class AdminService
             'availability'     => UserAvailability::Unavailable,
         ]);
 
-        $user->assignRole(Role::findByName('supervisor', 'api') ?? 'supervisor');
+        $user->assignRole('supervisor');
 
         return $user->load('roles');
     }
