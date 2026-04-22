@@ -142,14 +142,14 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     setState(() {
       if (isStart) {
         _shifts[dayIndex].startTime = picked;
-        // Auto-fix: ensure end > start
-        final endMinutes = _shifts[dayIndex].endTime.hour * 60 + _shifts[dayIndex].endTime.minute;
+        // Auto-fix: if end is now <= start, push end forward by 1 hour (cap at 23:59)
+        final endMinutes   = _shifts[dayIndex].endTime.hour * 60 + _shifts[dayIndex].endTime.minute;
         final startMinutes = picked.hour * 60 + picked.minute;
         if (endMinutes <= startMinutes) {
-          _shifts[dayIndex].endTime = TimeOfDay(
-            hour: (picked.hour + 1) % 24,
-            minute: picked.minute,
-          );
+          final newHour = picked.hour + 1;
+          _shifts[dayIndex].endTime = newHour >= 24
+              ? const TimeOfDay(hour: 23, minute: 59)
+              : TimeOfDay(hour: newHour, minute: picked.minute);
         }
       } else {
         _shifts[dayIndex].endTime = picked;
