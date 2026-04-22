@@ -17,18 +17,22 @@ use App\Models\TicketNote;
 use App\Models\User;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappTemplate;
+use App\Services\ShiftService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class TicketService
 {
+    public function __construct(private readonly ShiftService $shiftService) {}
+
     /**
      * List tickets with filters and pagination.
      *
      * Scoping rules:
-     *  - admin / senior_supervisor  → see ALL tickets (including unassigned, session_supervisor_id=null)
-     *  - supervisor                 → see only tickets where session_supervisor_id = their user ID
+     *  - admin / senior_supervisor → see ALL tickets (including those without a session today)
+     *  - supervisor                → see only tickets whose contact has a session TODAY
+     *                                that falls within the supervisor's active shift window
      *
      * When `unassigned=1` filter is passed, only show tickets with no session supervisor (admin only).
      */
@@ -38,10 +42,53 @@ class TicketService
             ->orderByDesc('last_message_at')
             ->orderByDesc('created_at');
 
+        $isRegularSupervisor = $viewer
+            && $viewer->hasRole('supervisor', 'api')
+            && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api');
+
         // ── Role-based scoping ──────────────────────────────────────────────
-        if ($viewer && $viewer->hasRole('supervisor', 'api') && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
-            // Regular supervisors: only see their scoped tickets
-            $query->where('session_supervisor_id', $viewer->id);
+        if ($isRegularSupervisor) {
+            // Shift-based scope: contact must have a session today during the supervisor's shift
+            $supervisorId = $viewer->id;
+            $today        = now()->toDateString();
+
+            $query->whereHas('guardian', function ($gq) use ($supervisorId, $today) {
+                $gq->where(function ($inner) use ($supervisorId, $today) {
+                    $inner->whereExists(function ($sub) use ($supervisorId, $today) {
+                        $sub->selectRaw('1')
+                            ->from('class_sessions as cs_s')
+                            ->join('students as st', 'st.id', '=', 'cs_s.student_id')
+                            ->whereColumn('st.whatsapp_number', 'guardians.phone')
+                            ->whereDate('cs_s.session_date', $today)
+                            ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
+                            ->whereExists(function ($sh) use ($supervisorId) {
+                                $sh->selectRaw('1')
+                                    ->from('shifts')
+                                    ->where('shifts.user_id', $supervisorId)
+                                    ->where('shifts.is_active', true)
+                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_s.session_date)::integer')
+                                    ->whereRaw('shifts.start_time <= cs_s.start_time')
+                                    ->whereRaw('shifts.end_time > cs_s.start_time');
+                            });
+                    })->orWhereExists(function ($sub) use ($supervisorId, $today) {
+                        $sub->selectRaw('1')
+                            ->from('class_sessions as cs_t')
+                            ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
+                            ->whereColumn('t.whatsapp_number', 'guardians.phone')
+                            ->whereDate('cs_t.session_date', $today)
+                            ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
+                            ->whereExists(function ($sh) use ($supervisorId) {
+                                $sh->selectRaw('1')
+                                    ->from('shifts')
+                                    ->where('shifts.user_id', $supervisorId)
+                                    ->where('shifts.is_active', true)
+                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_t.session_date)::integer')
+                                    ->whereRaw('shifts.start_time <= cs_t.start_time')
+                                    ->whereRaw('shifts.end_time > cs_t.start_time');
+                            });
+                    });
+                });
+            });
         } elseif ($viewer && isset($filters['unassigned']) && (bool) $filters['unassigned']) {
             // Admins requesting the unassigned (orphaned) queue
             $query->whereNull('session_supervisor_id');
@@ -64,11 +111,16 @@ class TicketService
         }
         if (!empty($filters['search'])) {
             $search = $filters['search'];
-            $query->where(function ($q) use ($search) {
+            $query->where(function ($q) use ($search, $isRegularSupervisor) {
                 $q->where('ticket_number', 'ilike', "%{$search}%")
                   ->orWhere('subject', 'ilike', "%{$search}%")
-                  ->orWhereHas('guardian', fn ($gq) => $gq->where('name', 'ilike', "%{$search}%")
-                      ->orWhere('phone', 'ilike', "%{$search}%"));
+                  ->orWhereHas('guardian', function ($gq) use ($search, $isRegularSupervisor) {
+                      $gq->where('name', 'ilike', "%{$search}%");
+                      // Supervisors cannot search by phone — they cannot see numbers
+                      if (!$isRegularSupervisor) {
+                          $gq->orWhere('phone', 'ilike', "%{$search}%");
+                      }
+                  });
             });
         }
         if (!empty($filters['tag_id'])) {
@@ -379,9 +431,48 @@ class TicketService
     {
         $query = Ticket::query();
 
-        // Role-based scoping for stats
+        // Role-based scoping for stats — mirrors list() scope
         if ($viewer && $viewer->hasRole('supervisor', 'api') && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
-            $query->where('session_supervisor_id', $viewer->id);
+            $supervisorId = $viewer->id;
+            $today        = now()->toDateString();
+
+            $query->whereHas('guardian', function ($gq) use ($supervisorId, $today) {
+                $gq->where(function ($inner) use ($supervisorId, $today) {
+                    $inner->whereExists(function ($sub) use ($supervisorId, $today) {
+                        $sub->selectRaw('1')
+                            ->from('class_sessions as cs_s')
+                            ->join('students as st', 'st.id', '=', 'cs_s.student_id')
+                            ->whereColumn('st.whatsapp_number', 'guardians.phone')
+                            ->whereDate('cs_s.session_date', $today)
+                            ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
+                            ->whereExists(function ($sh) use ($supervisorId) {
+                                $sh->selectRaw('1')
+                                    ->from('shifts')
+                                    ->where('shifts.user_id', $supervisorId)
+                                    ->where('shifts.is_active', true)
+                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_s.session_date)::integer')
+                                    ->whereRaw('shifts.start_time <= cs_s.start_time')
+                                    ->whereRaw('shifts.end_time > cs_s.start_time');
+                            });
+                    })->orWhereExists(function ($sub) use ($supervisorId, $today) {
+                        $sub->selectRaw('1')
+                            ->from('class_sessions as cs_t')
+                            ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
+                            ->whereColumn('t.whatsapp_number', 'guardians.phone')
+                            ->whereDate('cs_t.session_date', $today)
+                            ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
+                            ->whereExists(function ($sh) use ($supervisorId) {
+                                $sh->selectRaw('1')
+                                    ->from('shifts')
+                                    ->where('shifts.user_id', $supervisorId)
+                                    ->where('shifts.is_active', true)
+                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_t.session_date)::integer')
+                                    ->whereRaw('shifts.start_time <= cs_t.start_time')
+                                    ->whereRaw('shifts.end_time > cs_t.start_time');
+                            });
+                    });
+                });
+            });
         } elseif ($userId) {
             $query->where('assigned_to', $userId);
         }

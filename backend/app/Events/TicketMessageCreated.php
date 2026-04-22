@@ -22,7 +22,9 @@ class TicketMessageCreated extends BaseRealtimeEvent
 
     public function payload(): array
     {
-        return $this->message->toArray();
+        return collect($this->message->toArray())
+            ->except(['from_number', 'to_number'])
+            ->toArray();
     }
 
     public function broadcastAs(): string

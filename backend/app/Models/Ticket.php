@@ -15,7 +15,7 @@ class Ticket extends Model
 {
     protected $fillable = [
         'ticket_number', 'guardian_id', 'student_id', 'teacher_id', 'assigned_to',
-        'session_supervisor_id',
+        'session_supervisor_id', 'handling_by', 'handling_until',
         'status', 'priority', 'channel', 'subject', 'last_message_preview',
         'last_message_at', 'unread_count',
         'escalation_level', 'first_response_at', 'resolved_at', 'closed_at',
@@ -34,6 +34,7 @@ class Ticket extends Model
             'closed_at'         => 'datetime',
             'sla_deadline_at'   => 'datetime',
             'last_message_at'   => 'datetime',
+            'handling_until'    => 'datetime',
         ];
     }
 
@@ -57,6 +58,11 @@ class Ticket extends Model
     public function sessionSupervisor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'session_supervisor_id');
+    }
+
+    public function handledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'handling_by');
     }
 
     public function teacher(): BelongsTo

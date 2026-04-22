@@ -101,6 +101,8 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:tickets.reply');
         Route::get('{ticket}/messages', [TicketController::class, 'messages'])
             ->middleware('permission:tickets.view');
+        Route::post('{ticket}/claim', [TicketController::class, 'claim'])
+            ->middleware('permission:tickets.reply');
     });
 
     // ── Notifications ──────────────────────────────────

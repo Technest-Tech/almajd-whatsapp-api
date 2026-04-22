@@ -29,6 +29,10 @@ class TicketController extends Controller
             viewer:  $request->user(),
         );
 
+        if ($this->isSupervisorViewer($request->user())) {
+            $paginator->getCollection()->each(fn ($ticket) => $this->redactTicketPhones($ticket));
+        }
+
         return $this->response->paginated($paginator, 'Tickets retrieved');
     }
 
@@ -48,9 +52,13 @@ class TicketController extends Controller
     /**
      * GET /api/tickets/{ticket}
      */
-    public function show(int $ticket): JsonResponse
+    public function show(Request $request, int $ticket): JsonResponse
     {
         $ticketData = $this->ticketService->show($ticket);
+
+        if ($this->isSupervisorViewer($request->user())) {
+            $this->redactTicketPhones($ticketData);
+        }
 
         return $this->response->success($ticketData, 'Ticket details');
     }
@@ -286,6 +294,10 @@ class TicketController extends Controller
         // Reverse items so they're in chronological order for the client
         $paginator->setCollection($paginator->getCollection()->reverse()->values());
 
+        if ($this->isSupervisorViewer($request->user())) {
+            $paginator->getCollection()->each(fn ($msg) => $msg->makeHidden(['from_number', 'to_number']));
+        }
+
         return $this->response->paginated($paginator, 'Messages retrieved');
     }
 
@@ -298,9 +310,47 @@ class TicketController extends Controller
         $user  = $request->user();
         $query = \App\Models\Ticket::where('unread_count', '>', 0);
 
-        // Scope to supervisor's tickets
-        if ($user->hasRole('supervisor', 'api') && !$user->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
-            $query->where('session_supervisor_id', $user->id);
+        if ($this->isSupervisorViewer($user)) {
+            $supervisorId = $user->id;
+            $today        = now()->toDateString();
+
+            $query->whereHas('guardian', function ($gq) use ($supervisorId, $today) {
+                $gq->where(function ($inner) use ($supervisorId, $today) {
+                    $inner->whereExists(function ($sub) use ($supervisorId, $today) {
+                        $sub->selectRaw('1')
+                            ->from('class_sessions as cs_s')
+                            ->join('students as st', 'st.id', '=', 'cs_s.student_id')
+                            ->whereColumn('st.whatsapp_number', 'guardians.phone')
+                            ->whereDate('cs_s.session_date', $today)
+                            ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
+                            ->whereExists(function ($sh) use ($supervisorId) {
+                                $sh->selectRaw('1')
+                                    ->from('shifts')
+                                    ->where('shifts.user_id', $supervisorId)
+                                    ->where('shifts.is_active', true)
+                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_s.session_date)::integer')
+                                    ->whereRaw('shifts.start_time <= cs_s.start_time')
+                                    ->whereRaw('shifts.end_time > cs_s.start_time');
+                            });
+                    })->orWhereExists(function ($sub) use ($supervisorId, $today) {
+                        $sub->selectRaw('1')
+                            ->from('class_sessions as cs_t')
+                            ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
+                            ->whereColumn('t.whatsapp_number', 'guardians.phone')
+                            ->whereDate('cs_t.session_date', $today)
+                            ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
+                            ->whereExists(function ($sh) use ($supervisorId) {
+                                $sh->selectRaw('1')
+                                    ->from('shifts')
+                                    ->where('shifts.user_id', $supervisorId)
+                                    ->where('shifts.is_active', true)
+                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_t.session_date)::integer')
+                                    ->whereRaw('shifts.start_time <= cs_t.start_time')
+                                    ->whereRaw('shifts.end_time > cs_t.start_time');
+                            });
+                    });
+                });
+            });
         }
 
         $count = $query->sum('unread_count');
@@ -309,6 +359,26 @@ class TicketController extends Controller
             ['unread_count' => (int) $count],
             'Unread count retrieved'
         );
+    }
+
+    /**
+     * POST /api/tickets/{ticket}/claim
+     * Soft-claim a ticket so others see "X is replying" for 2 minutes.
+     * Refreshed automatically on each reply/upload; expires silently.
+     */
+    public function claim(Request $request, int $ticket): JsonResponse
+    {
+        $ticketModel = \App\Models\Ticket::findOrFail($ticket);
+
+        $ticketModel->update([
+            'handling_by'    => $request->user()->id,
+            'handling_until' => now()->addMinutes(2),
+        ]);
+
+        return $this->response->success([
+            'handling_by'    => $request->user()->id,
+            'handling_until' => $ticketModel->handling_until,
+        ], 'Ticket claimed');
     }
 
     /**
@@ -365,5 +435,27 @@ class TicketController extends Controller
         $ticket->load(['guardian', 'student', 'assignedTo']);
 
         return $this->response->success($ticket, 'Ticket ready', code: 201);
+    }
+
+    private function isSupervisorViewer(\App\Models\User $user): bool
+    {
+        return $user->hasRole('supervisor', 'api')
+            && !$user->hasAnyRole(['admin', 'senior_supervisor'], 'api');
+    }
+
+    private function redactTicketPhones(\App\Models\Ticket $ticket): void
+    {
+        if ($ticket->relationLoaded('guardian') && $ticket->guardian) {
+            $ticket->guardian->makeHidden(['phone']);
+        }
+        if ($ticket->relationLoaded('student') && $ticket->student) {
+            $ticket->student->makeHidden(['whatsapp_number']);
+        }
+        if ($ticket->relationLoaded('teacher') && $ticket->teacher) {
+            $ticket->teacher->makeHidden(['whatsapp_number']);
+        }
+        if ($ticket->relationLoaded('messages')) {
+            $ticket->messages->each(fn ($msg) => $msg->makeHidden(['from_number', 'to_number']));
+        }
     }
 }
