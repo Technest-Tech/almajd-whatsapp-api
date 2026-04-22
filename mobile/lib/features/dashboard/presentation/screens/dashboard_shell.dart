@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
+import 'package:flutter/services.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/di/injection.dart';
@@ -121,34 +122,35 @@ class _DashboardShellState extends State<DashboardShell> {
                     InboxSearchNotification().dispatch(context);
                   },
                 ),
-              // Notification bell
-              IconButton(
-                icon: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    const Icon(Icons.notifications_outlined),
-                    if (_notifUnreadCount > 0)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                          decoration: const BoxDecoration(
-                            color: AppColors.coral,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            _notifUnreadCount > 9 ? '9+' : '$_notifUnreadCount',
-                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
-                            textAlign: TextAlign.center,
+              // Notification bell — hidden for regular supervisors
+              if (user?.primaryRole != 'supervisor')
+                IconButton(
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(Icons.notifications_outlined),
+                      if (_notifUnreadCount > 0)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                            decoration: const BoxDecoration(
+                              color: AppColors.coral,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              _notifUnreadCount > 9 ? '9+' : '$_notifUnreadCount',
+                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
+                  onPressed: () => context.go('/notifications'),
                 ),
-                onPressed: () => context.go('/notifications'),
-              ),
               // Avatar
               Padding(
                 padding: const EdgeInsets.only(left: 12),
@@ -178,9 +180,9 @@ class _DashboardShellState extends State<DashboardShell> {
           bottomNavigationBar: _buildBottomBar(context, navItems),
         );
       },
-      );
-      },
     );
+  },
+);
   }
 
   Future<void> _onNavTap(int index, String path) async {
@@ -598,43 +600,6 @@ class _DashboardShellState extends State<DashboardShell> {
             Text(user?.email ?? '', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary)),
             const SizedBox(height: 24),
 
-            // Availability: supervisors must opt in to "متاح" to receive class assignments.
-            if (user?.primaryRole != 'admin' && user?.primaryRole != 'senior_supervisor') 
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  const Text('الحالة: '),
-                  ChoiceChip(
-                    label: const Text('متاح'),
-                    selected: user?.availability == 'available',
-                    selectedColor: AppColors.success,
-                    onSelected: (_) {
-                      context.read<AuthBloc>().add(const AuthAvailabilityChanged('available'));
-                      Navigator.pop(ctx);
-                    },
-                  ),
-                  ChoiceChip(
-                    label: const Text('غير متاح'),
-                    selected: user?.availability == 'unavailable',
-                    selectedColor: AppColors.textSecondary,
-                    onSelected: (_) {
-                      context.read<AuthBloc>().add(const AuthAvailabilityChanged('unavailable'));
-                      Navigator.pop(ctx);
-                    },
-                  ),
-                  ChoiceChip(
-                    label: const Text('مشغول'),
-                    selected: user?.availability == 'busy',
-                    selectedColor: AppColors.amber,
-                    onSelected: (_) {
-                      context.read<AuthBloc>().add(const AuthAvailabilityChanged('busy'));
-                      Navigator.pop(ctx);
-                    },
-                  ),
-                ],
-              ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
