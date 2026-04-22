@@ -125,11 +125,18 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
   }
 
   Future<void> _pickTime(int dayIndex, bool isStart) async {
+    // Dismiss keyboard and unfocus any text field before opening the picker
+    FocusScope.of(context).unfocus();
+    await Future.delayed(const Duration(milliseconds: 50));
+
     final current = isStart ? _shifts[dayIndex].startTime : _shifts[dayIndex].endTime;
     final picked = await showTimePicker(
       context: context,
       initialTime: current,
-      builder: (ctx, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: false),
+        child: Directionality(textDirection: TextDirection.rtl, child: child!),
+      ),
     );
     if (picked == null) return;
     setState(() {
@@ -363,9 +370,16 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     );
   }
 
+  String _formatTime12(TimeOfDay time) {
+    final hour12 = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.hour < 12 ? 'AM' : 'PM';
+    return '$hour12:$minute $period';
+  }
+
   Widget _buildTimeTap(int dayIndex, {required bool isStart}) {
     final time = isStart ? _shifts[dayIndex].startTime : _shifts[dayIndex].endTime;
-    final label = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    final label = _formatTime12(time);
 
     return GestureDetector(
       onTap: () => _pickTime(dayIndex, isStart),
