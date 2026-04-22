@@ -1061,9 +1061,9 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
             $message = implode("\n", [
                 "📝 *تقرير الحصة*",
-                "الحصة: {$subject}{$timeTag} — {$studentName}",
+                "الطالب: {$studentName}",
                 "",
-                "يرجى إرسال تقرير الحصة (ملاحظات التقدم، الواجبات، التوصيات …)",
+                "يرجى إرسال تقرير الحصة",
                 "وسنقوم بإرساله للطالب بعد تأكيدك.",
             ]);
 
@@ -1210,7 +1210,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             $timeTag     = $timeRaw ? ' (' . substr((string) $timeRaw, 0, 5) . ')' : '';
 
             $studentMessage = implode("\n", [
-                "📋 *تقرير حصة {$subject}{$timeTag}*",
+                "📋 *تقرير الحصة*",
                 "من المعلم: {$teacherName}",
                 "",
                 $reportBody,
