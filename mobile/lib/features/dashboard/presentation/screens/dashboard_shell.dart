@@ -599,41 +599,42 @@ class _DashboardShellState extends State<DashboardShell> {
             const SizedBox(height: 24),
 
             // Availability: supervisors must opt in to "متاح" to receive class assignments.
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                const Text('الحالة: '),
-                ChoiceChip(
-                  label: const Text('متاح'),
-                  selected: user?.availability == 'available',
-                  selectedColor: AppColors.success,
-                  onSelected: (_) {
-                    context.read<AuthBloc>().add(const AuthAvailabilityChanged('available'));
-                    Navigator.pop(ctx);
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('غير متاح'),
-                  selected: user?.availability == 'unavailable',
-                  selectedColor: AppColors.textSecondary,
-                  onSelected: (_) {
-                    context.read<AuthBloc>().add(const AuthAvailabilityChanged('unavailable'));
-                    Navigator.pop(ctx);
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('مشغول'),
-                  selected: user?.availability == 'busy',
-                  selectedColor: AppColors.amber,
-                  onSelected: (_) {
-                    context.read<AuthBloc>().add(const AuthAvailabilityChanged('busy'));
-                    Navigator.pop(ctx);
-                  },
-                ),
-              ],
-            ),
+            if (user?.primaryRole != 'admin' && user?.primaryRole != 'senior_supervisor') 
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  const Text('الحالة: '),
+                  ChoiceChip(
+                    label: const Text('متاح'),
+                    selected: user?.availability == 'available',
+                    selectedColor: AppColors.success,
+                    onSelected: (_) {
+                      context.read<AuthBloc>().add(const AuthAvailabilityChanged('available'));
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('غير متاح'),
+                    selected: user?.availability == 'unavailable',
+                    selectedColor: AppColors.textSecondary,
+                    onSelected: (_) {
+                      context.read<AuthBloc>().add(const AuthAvailabilityChanged('unavailable'));
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('مشغول'),
+                    selected: user?.availability == 'busy',
+                    selectedColor: AppColors.amber,
+                    onSelected: (_) {
+                      context.read<AuthBloc>().add(const AuthAvailabilityChanged('busy'));
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                ],
+              ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,

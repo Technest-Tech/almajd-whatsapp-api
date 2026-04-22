@@ -18,6 +18,9 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Webhook\WhatsAppWebhookController;
 use App\Http\Controllers\Webhook\TwilioWebhookController;
 use App\Http\Controllers\Webhook\WasenderWebhookController;
+use App\Http\Controllers\Api\V1\CalendarController;
+use App\Http\Controllers\Api\V1\CalendarTeacherController;
+use App\Http\Controllers\Api\V1\CalendarStudentStopController;
 
 /*
 |--------------------------------------------------------------------------
@@ -232,6 +235,53 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:reminders.manage');
         Route::put('{id}/cancel', [ReminderController::class, 'cancel'])
             ->middleware('permission:reminders.manage');
+    });
+
+    // ── Calendar (Legacy System) ────────────────────────
+    Route::prefix('v1/calendar')->group(function () {
+        // Calendar Events
+        Route::get('events', [CalendarController::class, 'getEvents']);
+
+        // Reminders
+        Route::get('reminders/daily', [CalendarController::class, 'generateDailyReminder']);
+        Route::get('reminders/exceptional', [CalendarController::class, 'getExceptionalReminders']);
+
+        // Teacher Timetable CRUD
+        Route::post('teacher-timetable', [CalendarController::class, 'storeTeacherTimetable']);
+        Route::put('teacher-timetable/{id}', [CalendarController::class, 'updateTeacherTimetable']);
+        Route::delete('teacher-timetable/{id}', [CalendarController::class, 'deleteTeacherTimetable']);
+
+        // Exceptional Classes
+        Route::post('exceptional-class', [CalendarController::class, 'storeExceptionalClass']);
+        Route::delete('exceptional-class/{id}', [CalendarController::class, 'deleteExceptionalClass']);
+        Route::get('exceptional-classes/student', [CalendarController::class, 'getStudentExceptionalClasses']);
+
+        // Teacher WhatsApp
+        Route::get('teacher/{id}/whatsapp', [CalendarController::class, 'getTeacherTimetableWhatsApp']);
+        Route::post('teacher/{id}/send-whatsapp', [CalendarController::class, 'sendTeacherTimetableWhatsApp']);
+        Route::get('teacher/{id}/students', [CalendarController::class, 'getTeacherStudents']);
+
+        // Student Status
+        Route::put('student/status', [CalendarController::class, 'updateStudentStatus']);
+        Route::get('students/list', [CalendarController::class, 'getStudentsList']);
+    });
+
+    // Calendar Teachers CRUD
+    Route::prefix('v1/calendar-teachers')->group(function () {
+        Route::get('/', [CalendarTeacherController::class, 'index']);
+        Route::post('/', [CalendarTeacherController::class, 'store']);
+        Route::get('{id}', [CalendarTeacherController::class, 'show']);
+        Route::put('{id}', [CalendarTeacherController::class, 'update']);
+        Route::delete('{id}', [CalendarTeacherController::class, 'destroy']);
+    });
+
+    // Calendar Student Stops CRUD
+    Route::prefix('v1/calendar-student-stops')->group(function () {
+        Route::get('/', [CalendarStudentStopController::class, 'index']);
+        Route::post('/', [CalendarStudentStopController::class, 'store']);
+        Route::get('{id}', [CalendarStudentStopController::class, 'show']);
+        Route::put('{id}', [CalendarStudentStopController::class, 'update']);
+        Route::delete('{id}', [CalendarStudentStopController::class, 'destroy']);
     });
 
     // ── Admin ───────────────────────────────────────────

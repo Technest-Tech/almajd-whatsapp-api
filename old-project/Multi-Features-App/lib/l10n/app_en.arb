@@ -1,0 +1,597 @@
+{
+  "@@locale": "en",
+  "appName": "Almajd Academy",
+  "@appName": {
+    "description": "Application name"
+  },
+  "appTagline": "Management System",
+  "@appTagline": {
+    "description": "Application tagline"
+  },
+  "login": "Login",
+  "@login": {
+    "description": "Login button text"
+  },
+  "logout": "Logout",
+  "@logout": {
+    "description": "Logout button text"
+  },
+  "email": "Email",
+  "@email": {
+    "description": "Email field label"
+  },
+  "password": "Password",
+  "@password": {
+    "description": "Password field label"
+  },
+  "forgotPassword": "Forgot Password?",
+  "@forgotPassword": {
+    "description": "Forgot password link text"
+  },
+  "welcomeBack": "Welcome Back",
+  "@welcomeBack": {
+    "description": "Welcome back greeting"
+  },
+  "loginToContinue": "Sign in to continue",
+  "@loginToContinue": {
+    "description": "Login prompt text"
+  },
+  "invalidCredentials": "Invalid email or password",
+  "@invalidCredentials": {
+    "description": "Invalid credentials error message"
+  },
+  "dashboard": "Dashboard",
+  "@dashboard": {
+    "description": "Dashboard title"
+  },
+  "selectModule": "Choose a module",
+  "@selectModule": {
+    "description": "Select module prompt"
+  },
+  "rooms": "Rooms",
+  "@rooms": {
+    "description": "Rooms module name"
+  },
+  "usersAndCourses": "Users & Courses",
+  "@usersAndCourses": {
+    "description": "Users and courses module name"
+  },
+  "billings": "Billing and Reports",
+  "@billings": {
+    "description": "Billing and Reports module name"
+  },
+  "calendar": "Calendar",
+  "@calendar": {
+    "description": "Calendar module name"
+  },
+  "certificates": "Certificates",
+  "@certificates": {
+    "description": "Certificates module name"
+  },
+  "settingsReports": "Settings",
+  "@settingsReports": {
+    "description": "Settings module name"
+  },
+  "settings": "Settings",
+  "@settings": {
+    "description": "Settings module name"
+  },
+  "comingSoon": "Coming Soon",
+  "@comingSoon": {
+    "description": "Coming soon message"
+  },
+  "featureInDevelopment": "This feature is currently under development",
+  "@featureInDevelopment": {
+    "description": "Feature in development message"
+  },
+  "errorOccurred": "An error occurred",
+  "@errorOccurred": {
+    "description": "Generic error message"
+  },
+  "tryAgain": "Try Again",
+  "@tryAgain": {
+    "description": "Try again button text"
+  },
+  "back": "Back",
+  "@back": {
+    "description": "Back button text"
+  },
+  "submit": "Submit",
+  "@submit": {
+    "description": "Submit button text"
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Cancel button text"
+  },
+  "save": "Save",
+  "@save": {
+    "description": "Save button text"
+  },
+  "delete": "Delete",
+  "@delete": {
+    "description": "Delete button text"
+  },
+  "edit": "Edit",
+  "@edit": {
+    "description": "Edit button text"
+  },
+  "certificateDemo": "Certificate Demo",
+  "@certificateDemo": {
+    "description": "Certificate demo page title"
+  },
+  "modernCertificateTemplate": "Modern Certificate Template",
+  "@modernCertificateTemplate": {
+    "description": "Modern certificate template title"
+  },
+  "livePreviewDescription": "This is a live preview of the \"Professional\" template",
+  "@livePreviewDescription": {
+    "description": "Live preview description"
+  },
+  "templateFeatures": "Template Features:",
+  "@templateFeatures": {
+    "description": "Template features section title"
+  },
+  "chooseTemplate": "Choose Template",
+  "@chooseTemplate": {
+    "description": "Choose template button text"
+  },
+  "previewGeneratePdf": "Preview & Generate PDF",
+  "@previewGeneratePdf": {
+    "description": "Preview and generate PDF button text"
+  },
+  "livePreviewDescription": "This is a live preview of the \"Professional\" template",
+  "@livePreviewDescription": {
+    "description": "Live preview description"
+  },
+  "createRoom": "Create Room",
+  "@createRoom": {
+    "description": "Create room button text"
+  },
+  "createNewRoom": "Create New Room",
+  "@createNewRoom": {
+    "description": "Create new room dialog title"
+  },
+  "setUpNewVideoConferenceRoom": "Set up a new video conference room",
+  "@setUpNewVideoConferenceRoom": {
+    "description": "Create room dialog subtitle"
+  },
+  "roomName": "Room Name",
+  "@roomName": {
+    "description": "Room name field label"
+  },
+  "enterRoomName": "Enter room name",
+  "@enterRoomName": {
+    "description": "Room name field hint"
+  },
+  "roomActive": "Room Active",
+  "@roomActive": {
+    "description": "Room active toggle label"
+  },
+  "enableOrDisableTheRoom": "Enable or disable the room",
+  "@enableOrDisableTheRoom": {
+    "description": "Room active toggle description"
+  },
+  "allowRecording": "Allow Recording",
+  "@allowRecording": {
+    "description": "Allow recording toggle label"
+  },
+  "allowRecordingOfMeetingsInThisRoom": "Allow recording of meetings in this room",
+  "@allowRecordingOfMeetingsInThisRoom": {
+    "description": "Allow recording toggle description"
+  },
+  "editRoom": "Edit Room",
+  "@editRoom": {
+    "description": "Edit room dialog title"
+  },
+  "updateRoomSettingsAndConfiguration": "Update room settings and configuration",
+  "@updateRoomSettingsAndConfiguration": {
+    "description": "Edit room dialog subtitle"
+  },
+  "roomInformation": "Room Information",
+  "@roomInformation": {
+    "description": "Room information section title"
+  },
+  "participants": "Participants",
+  "@participants": {
+    "description": "Participants label"
+  },
+  "created": "Created",
+  "@created": {
+    "description": "Created date label"
+  },
+  "saveChanges": "Save Changes",
+  "@saveChanges": {
+    "description": "Save changes button text"
+  },
+  "totalRooms": "Total Rooms",
+  "@totalRooms": {
+    "description": "Total rooms stat label"
+  },
+  "activeRooms": "Active Rooms",
+  "@activeRooms": {
+    "description": "Active rooms stat label"
+  },
+  "searchRooms": "Search rooms...",
+  "@searchRooms": {
+    "description": "Search rooms field hint"
+  },
+  "noRoomsFound": "No rooms found",
+  "@noRoomsFound": {
+    "description": "No rooms found message"
+  },
+  "noRoomsMatchYourSearch": "No rooms match your search",
+  "@noRoomsMatchYourSearch": {
+    "description": "No rooms match search message"
+  },
+  "createYourFirstRoomToGetStarted": "Create your first room to get started",
+  "@createYourFirstRoomToGetStarted": {
+    "description": "Empty state message"
+  },
+  "hostLink": "Host Link",
+  "@hostLink": {
+    "description": "Host link label"
+  },
+  "guestLink": "Guest Link",
+  "@guestLink": {
+    "description": "Guest link label"
+  },
+  "linkCopiedToClipboard": "Link copied to clipboard!",
+  "@linkCopiedToClipboard": {
+    "description": "Link copied message"
+  },
+  "copyLink": "Copy link",
+  "@copyLink": {
+    "description": "Copy link tooltip"
+  },
+  "max": "Max",
+  "@max": {
+    "description": "Max participants label"
+  },
+  "active": "Active",
+  "@active": {
+    "description": "Active status label"
+  },
+  "inactive": "Inactive",
+  "@inactive": {
+    "description": "Inactive status label"
+  },
+  "recordingAllowed": "Recording Allowed",
+  "@recordingAllowed": {
+    "description": "Recording allowed status label"
+  },
+  "noRecording": "No Recording",
+  "@noRecording": {
+    "description": "No recording status label"
+  },
+  "roomCreatedSuccessfully": "Room created successfully!",
+  "@roomCreatedSuccessfully": {
+    "description": "Room created success message"
+  },
+  "roomUpdatedSuccessfully": "Room updated successfully!",
+  "@roomUpdatedSuccessfully": {
+    "description": "Room updated success message"
+  },
+  "roomDeletedSuccessfully": "Room deleted successfully!",
+  "@roomDeletedSuccessfully": {
+    "description": "Room deleted success message"
+  },
+  "errorCreatingRoom": "Error creating room",
+  "@errorCreatingRoom": {
+    "description": "Error creating room message"
+  },
+  "errorUpdatingRoom": "Error updating room",
+  "@errorUpdatingRoom": {
+    "description": "Error updating room message"
+  },
+  "errorDeletingRoom": "Error deleting room",
+  "@errorDeletingRoom": {
+    "description": "Error deleting room message"
+  },
+  "errorLoadingRooms": "Error loading rooms",
+  "@errorLoadingRooms": {
+    "description": "Error loading rooms message"
+  },
+  "deleteRoom": "Delete Room",
+  "@deleteRoom": {
+    "description": "Delete room dialog title"
+  },
+  "areYouSureYouWantToDeleteRoom": "Are you sure you want to delete \"{roomName}\"? This action cannot be undone.",
+  "@areYouSureYouWantToDeleteRoom": {
+    "description": "Delete room confirmation message",
+    "placeholders": {
+      "roomName": {
+        "type": "String"
+      }
+    }
+  },
+  "pleaseEnterARoomName": "Please enter a room name",
+  "@pleaseEnterARoomName": {
+    "description": "Room name validation error"
+  },
+  "enterYourEmailAddress": "Enter your email address",
+  "@enterYourEmailAddress": {
+    "description": "Email field hint"
+  },
+  "enterYourPassword": "Enter your password",
+  "@enterYourPassword": {
+    "description": "Password field hint"
+  },
+  "searchStudents": "Search students...",
+  "@searchStudents": {
+    "description": "Search students field hint"
+  },
+  "searchTeachers": "Search teachers...",
+  "@searchTeachers": {
+    "description": "Search teachers field hint"
+  },
+  "searchCourses": "Search courses...",
+  "@searchCourses": {
+    "description": "Search courses field hint"
+  },
+  "allCountries": "All Countries",
+  "@allCountries": {
+    "description": "All countries filter option"
+  },
+  "allCurrencies": "All Currencies",
+  "@allCurrencies": {
+    "description": "All currencies filter option"
+  },
+  "search": "Search",
+  "@search": {
+    "description": "Search label"
+  },
+  "pleaseEnterEmailAndPassword": "Please enter email and password",
+  "@pleaseEnterEmailAndPassword": {
+    "description": "Email and password validation error"
+  },
+  "isRequired": "is required",
+  "@isRequired": {
+    "description": "Required field validation message"
+  },
+  "loginFailed": "Login Failed",
+  "@loginFailed": {
+    "description": "Login failed dialog title"
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "OK button text"
+  },
+  "networkError": "Network error occurred. Please check your internet connection",
+  "@networkError": {
+    "description": "Network connection error message"
+  },
+  "addStudent": "Add Student",
+  "@addStudent": {
+    "description": "Add student page title"
+  },
+  "editStudent": "Edit Student",
+  "@editStudent": {
+    "description": "Edit student page title"
+  },
+  "name": "Name",
+  "@name": {
+    "description": "Name field label"
+  },
+  "nameIsRequired": "Name is required",
+  "@nameIsRequired": {
+    "description": "Name validation error"
+  },
+  "emailIsRequired": "Email is required",
+  "@emailIsRequired": {
+    "description": "Email validation error"
+  },
+  "invalidEmailFormat": "Invalid email format",
+  "@invalidEmailFormat": {
+    "description": "Invalid email format error"
+  },
+  "whatsappNumber": "WhatsApp Number",
+  "@whatsappNumber": {
+    "description": "WhatsApp number field label"
+  },
+  "country": "Country",
+  "@country": {
+    "description": "Country field label"
+  },
+  "currency": "Currency",
+  "@currency": {
+    "description": "Currency field label"
+  },
+  "hourPrice": "Hour Price",
+  "@hourPrice": {
+    "description": "Hour price field label"
+  },
+  "invalidPrice": "Invalid price",
+  "@invalidPrice": {
+    "description": "Invalid price error"
+  },
+  "createStudent": "Create Student",
+  "@createStudent": {
+    "description": "Create student button text"
+  },
+  "updateStudent": "Update Student",
+  "@updateStudent": {
+    "description": "Update student button text"
+  },
+  "addTeacher": "Add Teacher",
+  "@addTeacher": {
+    "description": "Add teacher page title"
+  },
+  "editTeacher": "Edit Teacher",
+  "@editTeacher": {
+    "description": "Edit teacher page title"
+  },
+  "passwordRequired": "Password *",
+  "@passwordRequired": {
+    "description": "Password required label"
+  },
+  "passwordLeaveEmpty": "Password (leave empty to keep current)",
+  "@passwordLeaveEmpty": {
+    "description": "Password optional label for edit"
+  },
+  "passwordIsRequired": "Password is required",
+  "@passwordIsRequired": {
+    "description": "Password validation error"
+  },
+  "passwordMinLength": "Password must be at least 8 characters",
+  "@passwordMinLength": {
+    "description": "Password minimum length error"
+  },
+  "bankName": "Bank Name",
+  "@bankName": {
+    "description": "Bank name field label"
+  },
+  "accountNumber": "Account Number",
+  "@accountNumber": {
+    "description": "Account number field label"
+  },
+  "assignedStudents": "Assigned Students",
+  "@assignedStudents": {
+    "description": "Assigned students label"
+  },
+  "noStudentsAssigned": "No students assigned",
+  "@noStudentsAssigned": {
+    "description": "No students assigned message"
+  },
+  "createTeacher": "Create Teacher",
+  "@createTeacher": {
+    "description": "Create teacher button text"
+  },
+  "updateTeacher": "Update Teacher",
+  "@updateTeacher": {
+    "description": "Update teacher button text"
+  },
+  "addCourse": "Add Course",
+  "@addCourse": {
+    "description": "Add course page title"
+  },
+  "editCourse": "Edit Course",
+  "@editCourse": {
+    "description": "Edit course page title"
+  },
+  "courseName": "Course Name",
+  "@courseName": {
+    "description": "Course name field label"
+  },
+  "student": "Student",
+  "@student": {
+    "description": "Student field label"
+  },
+  "teacher": "Teacher",
+  "@teacher": {
+    "description": "Teacher field label"
+  },
+  "course": "Course",
+  "@course": {
+    "description": "Course field label"
+  },
+  "courseNameIsRequired": "Course name is required",
+  "@courseNameIsRequired": {
+    "description": "Course name validation error"
+  },
+  "pleaseSelectStudent": "Please select a student",
+  "@pleaseSelectStudent": {
+    "description": "Student selection validation error"
+  },
+  "pleaseSelectTeacher": "Please select a teacher",
+  "@pleaseSelectTeacher": {
+    "description": "Teacher selection validation error"
+  },
+  "createCourse": "Create Course",
+  "@createCourse": {
+    "description": "Create course button text"
+  },
+  "updateCourse": "Update Course",
+  "@updateCourse": {
+    "description": "Update course button text"
+  },
+  "addLesson": "Add Lesson",
+  "@addLesson": {
+    "description": "Add lesson page title"
+  },
+  "editLesson": "Edit Lesson",
+  "@editLesson": {
+    "description": "Edit lesson page title"
+  },
+  "date": "Date",
+  "@date": {
+    "description": "Date field label"
+  },
+  "durationMinutes": "Duration (minutes)",
+  "@durationMinutes": {
+    "description": "Duration field label"
+  },
+  "durationIsRequired": "Duration is required",
+  "@durationIsRequired": {
+    "description": "Duration validation error"
+  },
+  "invalidDuration": "Invalid duration",
+  "@invalidDuration": {
+    "description": "Invalid duration error"
+  },
+  "status": "Status",
+  "@status": {
+    "description": "Status field label"
+  },
+  "notes": "Notes",
+  "@notes": {
+    "description": "Notes field label"
+  },
+  "dutyPayment": "Duty (Payment)",
+  "@dutyPayment": {
+    "description": "Duty payment field label"
+  },
+  "invalidDutyAmount": "Invalid duty amount",
+  "@invalidDutyAmount": {
+    "description": "Invalid duty amount error"
+  },
+  "pleaseSelectCourse": "Please select a course",
+  "@pleaseSelectCourse": {
+    "description": "Course selection validation error"
+  },
+  "present": "Present",
+  "@present": {
+    "description": "Present status"
+  },
+  "cancelled": "Cancelled",
+  "@cancelled": {
+    "description": "Cancelled status"
+  },
+  "createLesson": "Create Lesson",
+  "@createLesson": {
+    "description": "Create lesson button text"
+  },
+  "updateLesson": "Update Lesson",
+  "@updateLesson": {
+    "description": "Update lesson button text"
+  },
+  "usd": "USD - US Dollar",
+  "@usd": {
+    "description": "USD currency option"
+  },
+  "gbp": "GBP - British Pound",
+  "@gbp": {
+    "description": "GBP currency option"
+  },
+  "eur": "EUR - Euro",
+  "@eur": {
+    "description": "EUR currency option"
+  },
+  "egp": "EGP - Egyptian Pound",
+  "@egp": {
+    "description": "EGP currency option"
+  },
+  "sar": "SAR - Saudi Riyal",
+  "@sar": {
+    "description": "SAR currency option"
+  },
+  "aed": "AED - UAE Dirham",
+  "@aed": {
+    "description": "AED currency option"
+  },
+  "cad": "CAD - Canadian Dollar",
+  "@cad": {
+    "description": "CAD currency option"
+  }
+}
+

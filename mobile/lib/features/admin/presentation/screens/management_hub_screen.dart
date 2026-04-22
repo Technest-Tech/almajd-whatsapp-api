@@ -7,6 +7,7 @@ class ManagementHubScreen extends StatelessWidget {
   const ManagementHubScreen({super.key});
 
   static const _items = [
+    _HubItem(icon: Icons.calendar_today_rounded, label: 'التقويم', subtitle: 'الجدول والتذكيرات', path: '/calendar', color: Color(0xFF2196F3)),
     _HubItem(icon: Icons.calendar_month_rounded, label: 'الجداول', subtitle: 'إدارة جداول الطلاب', path: '/timetable', color: Color(0xFF26A69A)),
     _HubItem(icon: Icons.event_available_rounded, label: 'إدارة الحصص', subtitle: 'والمتابعة', path: '/classes', color: Color(0xFF42A5F5)),
     _HubItem(icon: Icons.shield_rounded, label: 'المشرفون', subtitle: 'إدارة المشرفين', path: '/supervisors', color: Color(0xFFAB47BC)),
