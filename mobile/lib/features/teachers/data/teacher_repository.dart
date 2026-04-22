@@ -20,7 +20,7 @@ class TeacherRepository {
   Future<List<TeacherModel>> getTeachers({
     String? search,
     int page = 1,
-    int perPage = 20,
+    int perPage = 5000,
   }) async {
     final params = <String, dynamic>{
       'page': page,

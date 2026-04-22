@@ -149,7 +149,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                       // If loading but we have cached events, show them instead
                       if (state is CalendarLoading) {
                         final bloc = context.read<CalendarBloc>();
-                        if (bloc.cachedEvents != null && bloc.cachedEvents!.isNotEmpty) {
+                        if (bloc.cachedEvents != null) {
                           // Use cached events while loading
                           final cachedEvents = bloc.cachedEvents!;
                           Widget viewWidget;
@@ -254,7 +254,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                       if (state is CalendarInitial) {
                         final bloc = context.read<CalendarBloc>();
                         // Check if we have cached events from a previous load
-                        if (bloc.cachedEvents != null && bloc.cachedEvents!.isNotEmpty) {
+                        if (bloc.cachedEvents != null) {
                           // Show cached events while initializing
                           final cachedEvents = bloc.cachedEvents!;
                           Widget viewWidget;
@@ -355,10 +355,48 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                         );
                       }
 
-                      // Handle teachers loaded state - if we have events from previous state, show them
+                      // Handle teachers loaded state - if we have events, show them
                       if (state is CalendarTeachersLoaded) {
-                        // Try to get events from a previous state
-                        // This shouldn't happen normally, but handle it gracefully
+                        final bloc = context.read<CalendarBloc>();
+                        if (bloc.cachedEvents != null) {
+                          // Show cached events
+                          final cachedEvents = bloc.cachedEvents!;
+                          Widget viewWidget;
+                          if (currentView == 'day') {
+                            viewWidget = CalendarDayView(
+                              events: cachedEvents,
+                              selectedDate: _selectedDate,
+                              onDateChanged: (newDate) {
+                                setState(() {
+                                  _selectedDate = newDate;
+                                });
+                              },
+                            );
+                          } else if (currentView == 'week') {
+                            viewWidget = CalendarWeekView(
+                              events: cachedEvents,
+                              selectedDate: _selectedDate,
+                              onDateChanged: (newDate) {
+                                setState(() {
+                                  _selectedDate = newDate;
+                                });
+                              },
+                            );
+                          } else {
+                            // Default to day view
+                            viewWidget = CalendarDayView(
+                              events: cachedEvents,
+                              selectedDate: _selectedDate,
+                              onDateChanged: (newDate) {
+                                setState(() {
+                                  _selectedDate = newDate;
+                                });
+                              },
+                            );
+                          }
+                          return RepaintBoundary(child: viewWidget);
+                        }
+                        
                         return const Center(
                           child: CircularProgressIndicator(),
                         );
@@ -474,6 +512,25 @@ class _CalendarHomePageState extends State<CalendarHomePage>
         bottom: false,
         child: Row(
           children: [
+            // Exit Button
+            Container(
+              margin: const EdgeInsets.only(left: 4),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, size: 20, color: Colors.red),
+                onPressed: () => context.go('/management'),
+                tooltip: 'إغلاق التقويم',
+                constraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
+                padding: const EdgeInsets.all(6),
+              ),
+            ),
+            const SizedBox(width: AppSizes.spaceSm),
             // View Switcher - takes available space
             Expanded(
               child: Row(

@@ -123,6 +123,129 @@ class AppRouter {
           return SessionDetailScreen(sessionId: id);
         },
       ),
+      // ── Calendar (Legacy System) ──
+      GoRoute(
+            path: '/calendar',
+            builder: (_, __) {
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: const CalendarHomePage(),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/teachers',
+            builder: (_, __) {
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: const CalendarTeachersPage(),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/teacher-timetable/:teacherId',
+            builder: (_, state) {
+              final teacherId = int.tryParse(state.pathParameters['teacherId'] ?? '') ?? 0;
+              final teacherName = state.uri.queryParameters['name'] ?? '';
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: TeacherTimetablePage(
+                  teacherId: teacherId,
+                  teacherName: teacherName,
+                ),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/teacher-students/:teacherId',
+            builder: (_, state) {
+              final teacherId = int.tryParse(state.pathParameters['teacherId'] ?? '') ?? 0;
+              final teacherName = state.uri.queryParameters['name'] ?? '';
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: TeacherStudentsPage(
+                  teacherId: teacherId,
+                  teacherName: teacherName,
+                ),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/reminders',
+            builder: (_, __) {
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: const RemindersPage(),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/student-stops',
+            builder: (_, __) {
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: const StudentStopsPage(),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/student-info',
+            builder: (_, state) {
+              final studentName = state.uri.queryParameters['name'] ?? '';
+              final currentStatus = state.uri.queryParameters['status'] ?? 'active';
+              final reactiveDateStr = state.uri.queryParameters['reactive_date'];
+              final reactiveDate = reactiveDateStr != null ? DateTime.tryParse(reactiveDateStr) : null;
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: StudentInfoPage(
+                  studentName: studentName,
+                  currentStatus: currentStatus,
+                  reactiveDate: reactiveDate,
+                ),
+              );
+            },
+          ),
+      GoRoute(
+            path: '/calendar/student-countries',
+            builder: (_, __) {
+              return BlocProvider<CalendarBloc>(
+                create: (_) => CalendarBloc(
+                  CalendarRepositoryImpl(
+                    CalendarRemoteDataSourceImpl(ApiService()),
+                  ),
+                ),
+                child: const ExceptionalClassesPage(),
+              );
+            },
+          ),
       // ── Dashboard Shell (role-based) ──
       ShellRoute(
         builder: (context, state, child) => DashboardShell(child: child),
@@ -216,129 +339,6 @@ class AppRouter {
           GoRoute(
             path: '/templates',
             builder: (_, __) => const TemplatesScreen(),
-          ),
-          // ── Calendar (Legacy System) ──
-          GoRoute(
-            path: '/calendar',
-            builder: (_, __) {
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: const CalendarHomePage(),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/teachers',
-            builder: (_, __) {
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: const CalendarTeachersPage(),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/teacher-timetable/:teacherId',
-            builder: (_, state) {
-              final teacherId = int.tryParse(state.pathParameters['teacherId'] ?? '') ?? 0;
-              final teacherName = state.uri.queryParameters['name'] ?? '';
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: TeacherTimetablePage(
-                  teacherId: teacherId,
-                  teacherName: teacherName,
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/teacher-students/:teacherId',
-            builder: (_, state) {
-              final teacherId = int.tryParse(state.pathParameters['teacherId'] ?? '') ?? 0;
-              final teacherName = state.uri.queryParameters['name'] ?? '';
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: TeacherStudentsPage(
-                  teacherId: teacherId,
-                  teacherName: teacherName,
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/reminders',
-            builder: (_, __) {
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: const RemindersPage(),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/student-stops',
-            builder: (_, __) {
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: const StudentStopsPage(),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/student-info',
-            builder: (_, state) {
-              final studentName = state.uri.queryParameters['name'] ?? '';
-              final currentStatus = state.uri.queryParameters['status'] ?? 'active';
-              final reactiveDateStr = state.uri.queryParameters['reactive_date'];
-              final reactiveDate = reactiveDateStr != null ? DateTime.tryParse(reactiveDateStr) : null;
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: StudentInfoPage(
-                  studentName: studentName,
-                  currentStatus: currentStatus,
-                  reactiveDate: reactiveDate,
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/calendar/student-countries',
-            builder: (_, __) {
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: const ExceptionalClassesPage(),
-              );
-            },
           ),
         ],
       ),
