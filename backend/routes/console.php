@@ -16,3 +16,6 @@ Schedule::command('sessions:generate --months=3')->daily()->at('02:00');
 
 // Weekly top-up: ensure we always have 3 months in advance (force on Sundays)
 Schedule::command('sessions:generate --months=3 --force')->weeklyOn(0, '03:00');
+
+// Nightly Legacy Calendar Bridge: Generate sessions for legacy rules exactly 7 days out
+Schedule::command('calendar:sync-legacy 7')->dailyAt('00:00');
