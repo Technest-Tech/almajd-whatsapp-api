@@ -13,6 +13,7 @@ class ClassSession extends Model
         'schedule_entry_id', 'student_id', 'teacher_id', 'supervisor_id', 'title', 'session_date',
         'start_time', 'end_time', 'status', 'attendance_status', 'cancellation_reason',
         'rescheduled_date', 'rescheduled_start_time', 'rescheduled_end_time',
+        'teacher_report', 'report_status', 'report_nudge_count',
     ];
 
     protected function casts(): array

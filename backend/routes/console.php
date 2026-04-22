@@ -19,3 +19,6 @@ Schedule::command('sessions:generate --months=3 --force')->weeklyOn(0, '03:00');
 
 // Nightly Legacy Calendar Bridge: Generate sessions for legacy rules exactly 7 days out
 Schedule::command('calendar:sync-legacy 7')->dailyAt('00:00');
+
+// Hourly: nudge teachers who haven't yet submitted their session report (max 2 nudges)
+Schedule::job(new \App\Jobs\SendReportNudgeJob())->hourly()->withoutOverlapping();
