@@ -59,16 +59,22 @@ class SendSessionRemindersJob implements ShouldQueue
                 $pollMessageId = null;
 
                 if ($isTeacherConfirmation && $whatsAppService instanceof \App\Services\WhatsApp\WasenderWhatsAppService) {
-                    // ── Send ONLY the poll — no extra text to avoid double-messaging ──
+                    // ── Build the poll question ───────────────────────────────────────
                     $pollQuestion = $this->buildPollQuestion($reminder);
-                    $pollResult   = $whatsAppService->sendPoll(
+
+                    // CRITICAL: persist the poll question as message_body so that
+                    // ProcessWasenderInboundMessageJob can match the incoming vote
+                    // back to this reminder via: WHERE message_body = pollQuestion.
+                    $reminder->update(['message_body' => $pollQuestion]);
+
+                    $pollResult = $whatsAppService->sendPoll(
                         to: $reminder->recipient_phone,
                         name: $pollQuestion,
                         options: ['نعم، انضم', 'لا، لم ينضم'],
                         selectableCount: 1,
                     );
 
-                    // Store the poll's WA message ID so we can match incoming votes
+                    // Store the poll’s WA message ID so we can match incoming votes
                     $pollMessageId = $pollResult['message_id'] ?? null;
 
                 } else {
@@ -125,8 +131,14 @@ class SendSessionRemindersJob implements ShouldQueue
         $studentName = $session?->student?->name ?? 'الطالب';
         $subject     = $session?->title ?? $session?->subject ?? 'الحصة';
 
+        // Format time as 12-hour AM/PM (e.g. 7:03 PM)
         $timeRaw = $session?->rescheduled_start_time ?? $session?->start_time;
-        $timeTag = $timeRaw ? ' (' . substr((string) $timeRaw, 0, 5) . ')' : '';
+        if ($timeRaw) {
+            $t = \Carbon\Carbon::parse((string) $timeRaw);
+            $timeTag = ' (' . $t->format('g:i A') . ')';
+        } else {
+            $timeTag = '';
+        }
 
         return match ($reminder->reminder_phase) {
             'at_start'  => "هل انضم {$studentName} إلى حصة {$subject}{$timeTag}؟",
