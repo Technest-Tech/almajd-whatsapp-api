@@ -66,7 +66,7 @@ class TicketService
                                     ->from('shifts')
                                     ->where('shifts.user_id', $supervisorId)
                                     ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_s.session_date)::integer')
+                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_s.session_date) - 1')
                                     ->whereRaw('shifts.start_time <= cs_s.start_time')
                                     ->whereRaw('shifts.end_time > cs_s.start_time');
                             });
@@ -82,7 +82,7 @@ class TicketService
                                     ->from('shifts')
                                     ->where('shifts.user_id', $supervisorId)
                                     ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_t.session_date)::integer')
+                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_t.session_date) - 1')
                                     ->whereRaw('shifts.start_time <= cs_t.start_time')
                                     ->whereRaw('shifts.end_time > cs_t.start_time');
                             });
@@ -112,13 +112,13 @@ class TicketService
         if (!empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search, $isRegularSupervisor) {
-                $q->where('ticket_number', 'ilike', "%{$search}%")
-                  ->orWhere('subject', 'ilike', "%{$search}%")
+                $q->where('ticket_number', 'like', "%{$search}%")
+                  ->orWhere('subject', 'like', "%{$search}%")
                   ->orWhereHas('guardian', function ($gq) use ($search, $isRegularSupervisor) {
-                      $gq->where('name', 'ilike', "%{$search}%");
+                      $gq->where('name', 'like', "%{$search}%");
                       // Supervisors cannot search by phone — they cannot see numbers
                       if (!$isRegularSupervisor) {
-                          $gq->orWhere('phone', 'ilike', "%{$search}%");
+                          $gq->orWhere('phone', 'like', "%{$search}%");
                       }
                   });
             });
@@ -450,7 +450,7 @@ class TicketService
                                     ->from('shifts')
                                     ->where('shifts.user_id', $supervisorId)
                                     ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_s.session_date)::integer')
+                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_s.session_date) - 1')
                                     ->whereRaw('shifts.start_time <= cs_s.start_time')
                                     ->whereRaw('shifts.end_time > cs_s.start_time');
                             });
@@ -466,7 +466,7 @@ class TicketService
                                     ->from('shifts')
                                     ->where('shifts.user_id', $supervisorId)
                                     ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_t.session_date)::integer')
+                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_t.session_date) - 1')
                                     ->whereRaw('shifts.start_time <= cs_t.start_time')
                                     ->whereRaw('shifts.end_time > cs_t.start_time');
                             });

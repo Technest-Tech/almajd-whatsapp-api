@@ -328,7 +328,7 @@ class TicketController extends Controller
                                     ->from('shifts')
                                     ->where('shifts.user_id', $supervisorId)
                                     ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_s.session_date)::integer')
+                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_s.session_date) - 1')
                                     ->whereRaw('shifts.start_time <= cs_s.start_time')
                                     ->whereRaw('shifts.end_time > cs_s.start_time');
                             });
@@ -344,7 +344,7 @@ class TicketController extends Controller
                                     ->from('shifts')
                                     ->where('shifts.user_id', $supervisorId)
                                     ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = EXTRACT(DOW FROM cs_t.session_date)::integer')
+                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_t.session_date) - 1')
                                     ->whereRaw('shifts.start_time <= cs_t.start_time')
                                     ->whereRaw('shifts.end_time > cs_t.start_time');
                             });
