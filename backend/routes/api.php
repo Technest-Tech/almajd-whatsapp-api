@@ -21,6 +21,7 @@ use App\Http\Controllers\Webhook\WasenderWebhookController;
 use App\Http\Controllers\Api\V1\CalendarController;
 use App\Http\Controllers\Api\V1\CalendarTeacherController;
 use App\Http\Controllers\Api\V1\CalendarStudentStopController;
+use App\Http\Controllers\Api\StudentCountriesController;
 
 /*
 |--------------------------------------------------------------------------
@@ -283,6 +284,10 @@ Route::middleware('auth:api')->group(function () {
         Route::put('{id}', [CalendarStudentStopController::class, 'update']);
         Route::delete('{id}', [CalendarStudentStopController::class, 'destroy']);
     });
+
+    // Student Countries — bulk shift timetables ±1 hour per country
+    Route::get('student-countries/plus/{country}', [StudentCountriesController::class, 'plus']);
+    Route::get('student-countries/minus/{country}', [StudentCountriesController::class, 'minus']);
 
     // ── Admin ───────────────────────────────────────────
     Route::prefix('admin')->group(function () {

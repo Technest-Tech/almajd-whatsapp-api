@@ -41,6 +41,7 @@ import '../../features/calendar/presentation/pages/student_stops_page.dart';
 import '../../features/calendar/presentation/pages/student_info_page.dart';
 import '../../features/calendar/presentation/pages/exceptional_classes_page.dart';
 import '../../features/calendar/presentation/pages/teacher_students_page.dart';
+import '../../features/student_countries/presentation/pages/student_countries_page.dart';
 
 class AppRouter {
   // Static route constants for navigation
@@ -235,16 +236,11 @@ class AppRouter {
           ),
       GoRoute(
             path: '/calendar/student-countries',
-            builder: (_, __) {
-              return BlocProvider<CalendarBloc>(
-                create: (_) => CalendarBloc(
-                  CalendarRepositoryImpl(
-                    CalendarRemoteDataSourceImpl(ApiService()),
-                  ),
-                ),
-                child: const ExceptionalClassesPage(),
-              );
-            },
+            name: 'calendar-student-countries',
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const StudentCountriesPage(),
+            ),
           ),
       // ── Dashboard Shell (role-based) ──
       ShellRoute(
