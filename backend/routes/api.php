@@ -239,7 +239,7 @@ Route::middleware('auth:api')->group(function () {
     });
 
     // ── Calendar (Legacy System) ────────────────────────
-    Route::prefix('v1/calendar')->group(function () {
+    Route::prefix('v1/calendar')->middleware('permission:calendar.view')->group(function () {
         // Calendar Events
         Route::get('events', [CalendarController::class, 'getEvents']);
 
@@ -268,7 +268,7 @@ Route::middleware('auth:api')->group(function () {
     });
 
     // Calendar Teachers CRUD
-    Route::prefix('v1/calendar-teachers')->group(function () {
+    Route::prefix('v1/calendar-teachers')->middleware('permission:calendar.view')->group(function () {
         Route::get('/', [CalendarTeacherController::class, 'index']);
         Route::post('/', [CalendarTeacherController::class, 'store']);
         Route::get('{id}', [CalendarTeacherController::class, 'show']);
@@ -277,7 +277,7 @@ Route::middleware('auth:api')->group(function () {
     });
 
     // Calendar Student Stops CRUD
-    Route::prefix('v1/calendar-student-stops')->group(function () {
+    Route::prefix('v1/calendar-student-stops')->middleware('permission:calendar.view')->group(function () {
         Route::get('/', [CalendarStudentStopController::class, 'index']);
         Route::post('/', [CalendarStudentStopController::class, 'store']);
         Route::get('{id}', [CalendarStudentStopController::class, 'show']);

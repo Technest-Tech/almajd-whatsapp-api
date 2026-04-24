@@ -43,7 +43,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
-          context.go('/inbox');
+          // Calendar managers go directly to the calendar — no inbox shell
+          if (state.user.primaryRole == 'calendar_manager') {
+            context.go('/calendar');
+          } else {
+            context.go('/inbox');
+          }
         } else if (state is AuthUnauthenticated || state is AuthError) {
           context.go('/login');
         }

@@ -36,6 +36,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'users.view', 'users.create', 'users.edit', 'users.delete',
             // Admin features
             'routing.manage', 'sla.manage', 'analytics.view', 'audit.view',
+            // Calendar (Legacy System)
+            'calendar.view', 'calendar.manage',
         ];
 
         foreach ($permissions as $perm) {
@@ -43,9 +45,10 @@ class RolesAndPermissionsSeeder extends Seeder
         }
 
         // ── Roles ────────────────────────────────────────
-        $supervisor = Role::firstOrCreate(['name' => 'supervisor', 'guard_name' => 'api']);
-        $senior     = Role::firstOrCreate(['name' => 'senior_supervisor', 'guard_name' => 'api']);
-        $admin      = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'api']);
+        $supervisor      = Role::firstOrCreate(['name' => 'supervisor',        'guard_name' => 'api']);
+        $senior          = Role::firstOrCreate(['name' => 'senior_supervisor',  'guard_name' => 'api']);
+        $admin           = Role::firstOrCreate(['name' => 'admin',              'guard_name' => 'api']);
+        $calendarManager = Role::firstOrCreate(['name' => 'calendar_manager',   'guard_name' => 'api']);
 
         // ── Assign Permissions ───────────────────────────
         // Supervisor: tickets, view+edit students & schedules & sessions, view reminders
@@ -78,5 +81,11 @@ class RolesAndPermissionsSeeder extends Seeder
 
         // Admin: ALL permissions
         $admin->syncPermissions($permissions);
+
+        // Calendar Manager: calendar-only access
+        $calendarManager->syncPermissions([
+            'calendar.view',
+            'calendar.manage',
+        ]);
     }
 }

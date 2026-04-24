@@ -38,6 +38,7 @@ class UserModel {
     if (roles.contains('admin')) return 'admin';
     if (roles.contains('senior_supervisor')) return 'senior_supervisor';
     if (roles.contains('supervisor')) return 'supervisor';
+    if (roles.contains('calendar_manager')) return 'calendar_manager';
     return roles.isNotEmpty ? roles.first : 'unknown';
   }
 
@@ -49,6 +50,8 @@ class UserModel {
         return 'مشرف أول';
       case 'supervisor':
         return 'مشرف';
+      case 'calendar_manager':
+        return 'مدير التقويم';
       default:
         return primaryRole;
     }
