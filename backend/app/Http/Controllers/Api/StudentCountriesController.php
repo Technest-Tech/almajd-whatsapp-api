@@ -49,29 +49,31 @@ class StudentCountriesController extends Controller
                 ]);
             }
 
-            $updatedCount = 0;
-            foreach ($timetables as $timetable) {
-                $startTime = Carbon::createFromFormat('H:i:s', $timetable->start_time);
-                $finishTime = Carbon::createFromFormat('H:i:s', $timetable->finish_time);
+            $updatedCount = CalendarTeacherTimetable::withoutEvents(function () use ($timetables, $hours) {
+                $count = 0;
+                foreach ($timetables as $timetable) {
+                    $startTime = Carbon::createFromFormat('H:i:s', $timetable->start_time);
+                    $finishTime = Carbon::createFromFormat('H:i:s', $timetable->finish_time);
 
-                $newStartTime = $startTime->copy()->addHours($hours);
-                $newFinishTime = $finishTime->copy()->addHours($hours);
+                    $newStartTime = $startTime->copy()->addHours($hours);
+                    $newFinishTime = $finishTime->copy()->addHours($hours);
 
-                $day = $timetable->day;
-                if ($hours > 0 && $newStartTime->format('H:i:s') < $startTime->format('H:i:s')) {
-                    $day = $this->shiftDay($day, 1);
-                } elseif ($hours < 0 && $newStartTime->format('H:i:s') > $startTime->format('H:i:s')) {
-                    $day = $this->shiftDay($day, -1);
+                    $day = $timetable->day;
+                    if ($hours > 0 && $newStartTime->format('H:i:s') < $startTime->format('H:i:s')) {
+                        $day = $this->shiftDay($day, 1);
+                    } elseif ($hours < 0 && $newStartTime->format('H:i:s') > $startTime->format('H:i:s')) {
+                        $day = $this->shiftDay($day, -1);
+                    }
+
+                    $timetable->start_time = $newStartTime->format('H:i:s');
+                    $timetable->finish_time = $newFinishTime->format('H:i:s');
+                    $timetable->day = $day;
+                    $timetable->saveQuietly();
+
+                    $count++;
                 }
-
-                $timetable->update([
-                    'start_time' => $newStartTime->format('H:i:s'),
-                    'finish_time' => $newFinishTime->format('H:i:s'),
-                    'day' => $day,
-                ]);
-
-                $updatedCount++;
-            }
+                return $count;
+            });
 
             $verb = $hours > 0 ? 'added to' : 'subtracted from';
             return response()->json([
