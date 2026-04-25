@@ -47,7 +47,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
-          context.go('/inbox');
+          // Route based on role — calendar manager goes directly to the calendar
+          if (state.user.primaryRole == 'calendar_manager') {
+            context.go('/calendar');
+          } else {
+            context.go('/inbox');
+          }
         } else if (state is AuthError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
