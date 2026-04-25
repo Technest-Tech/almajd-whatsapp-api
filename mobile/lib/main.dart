@@ -8,8 +8,8 @@ import 'core/router/app_router.dart';
 import 'core/services/fcm_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
-import 'features/auth/data/auth_repository.dart';
 import 'features/tickets/presentation/bloc/ticket_list_bloc.dart';
+
 import 'firebase_options.dart';
 
 void main() async {
@@ -18,15 +18,14 @@ void main() async {
   await FcmService.init();
   await setupDependencies();
   
-  final hasToken = await getIt<AuthRepository>().hasValidToken();
-  final initialRoute = hasToken ? '/inbox' : '/login';
-
-  runApp(AlmajdApp(initialRoute: initialRoute));
+  // Always start at /splash — the SplashScreen listens to AuthBloc and
+  // redirects to the correct route based on role (calendar_manager → /calendar,
+  // all others → /inbox, unauthenticated → /login).
+  runApp(const AlmajdApp());
 }
 
 class AlmajdApp extends StatelessWidget {
-  final String initialRoute;
-  const AlmajdApp({super.key, required this.initialRoute});
+  const AlmajdApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +40,7 @@ class AlmajdApp extends StatelessWidget {
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.dark,
-        routerConfig: AppRouter.getRouter(initialRoute),
+        routerConfig: AppRouter.getRouter('/splash'),
         locale: const Locale('ar'),
         supportedLocales: const [Locale('ar'), Locale('en')],
         localizationsDelegates: const [

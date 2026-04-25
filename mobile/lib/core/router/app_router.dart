@@ -49,9 +49,10 @@ class AppRouter {
   static const String calendar = '/calendar';
   static const String usersAndCourses = '/students'; // compatibility
 
-  static GoRouter? _router;
+  /// Returns a fresh GoRouter for the given initialLocation.
+  /// Do NOT cache this — the initialLocation changes per role/session.
   static GoRouter getRouter(String initialLocation) {
-    _router ??= GoRouter(
+    return GoRouter(
       initialLocation: initialLocation,
       routes: [
       GoRoute(
@@ -339,8 +340,7 @@ class AppRouter {
         ],
       ),
     ],
-  );
-  return _router!;
-}
+    );
+  }
 }
 

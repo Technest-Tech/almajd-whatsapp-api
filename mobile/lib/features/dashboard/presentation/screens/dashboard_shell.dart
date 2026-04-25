@@ -38,28 +38,45 @@ class _DashboardShellState extends State<DashboardShell> {
   @override
   void initState() {
     super.initState();
-    // Trigger initial ticket load + websocket connection from the global BLoC
-    final bloc = context.read<TicketListBloc>();
-    if (bloc.state is TicketListInitial) {
-      bloc.add(const TicketListFetchRequested());
-    }
-    // Lightweight unread count poll every 30s
-    _fetchUnreadCount();
-    _badgeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _fetchUnreadCount();
-    });
-    // Debounced refresh on WebSocket updates (wait 3s after last event)
-    _blocSub = bloc.stream.listen((state) {
-      if (state is TicketListLoaded && mounted) {
-        _debounce?.cancel();
-        _debounce = Timer(const Duration(seconds: 3), () {
-          if (mounted) _fetchUnreadCount();
-        });
+
+    // Determine role early to avoid unnecessary API calls
+    final authState = context.read<AuthBloc>().state;
+    final user = authState is AuthAuthenticated ? authState.user : null;
+    final isCalendarManager = user?.primaryRole == 'calendar_manager';
+
+    if (!isCalendarManager) {
+      // Trigger initial ticket load + websocket connection from the global BLoC
+      final bloc = context.read<TicketListBloc>();
+      if (bloc.state is TicketListInitial) {
+        bloc.add(const TicketListFetchRequested());
       }
-    });
+      // Lightweight unread count poll every 30s
+      _fetchUnreadCount();
+      _badgeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        _fetchUnreadCount();
+      });
+      // Debounced refresh on WebSocket updates (wait 3s after last event)
+      _blocSub = bloc.stream.listen((state) {
+        if (state is TicketListLoaded && mounted) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(seconds: 3), () {
+            if (mounted) _fetchUnreadCount();
+          });
+        }
+      });
+    } else {
+      // Calendar manager: no ticket/session API calls, set up a no-op stream sub
+      final bloc = context.read<TicketListBloc>();
+      _blocSub = bloc.stream.listen((_) {});
+    }
   }
 
   Future<void> _fetchUnreadCount() async {
+    // Skip for calendar_manager — these endpoints require tickets/sessions permissions
+    final authState = context.read<AuthBloc>().state;
+    final user = authState is AuthAuthenticated ? authState.user : null;
+    if (user?.primaryRole == 'calendar_manager') return;
+
     try {
       final ticketRepo = getIt<TicketRepository>();
       final notifRepo = getIt<NotificationRepository>();
@@ -96,9 +113,23 @@ class _DashboardShellState extends State<DashboardShell> {
             if (mounted) context.go('/login');
           });
         }
+        // Safety redirect: calendar_manager should never be in the shell
+        if (state is AuthAuthenticated && state.user.primaryRole == 'calendar_manager') {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) context.go('/calendar');
+          });
+        }
       },
       builder: (context, state) {
         final user = state is AuthAuthenticated ? state.user : null;
+
+        // Calendar manager: render a blank scaffold while redirecting
+        if (user?.primaryRole == 'calendar_manager') {
+          return const Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
 
         return BlocBuilder<TicketListBloc, TicketListState>(
           builder: (context, ticketState) {
@@ -479,6 +510,9 @@ class _DashboardShellState extends State<DashboardShell> {
 
   List<Map<String, dynamic>> _getNavItems(UserModel? user, int unreadCount, int pendingCount) {
     final role = user?.primaryRole ?? 'supervisor';
+
+    // Calendar manager never lands in the shell, but guard gracefully just in case
+    if (role == 'calendar_manager') return [];
 
     final items = <Map<String, dynamic>>[
       {
