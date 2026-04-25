@@ -12,6 +12,7 @@ import '../../domain/repositories/calendar_repository.dart';
 import '../bloc/calendar_bloc.dart';
 import '../bloc/calendar_event.dart';
 import '../bloc/calendar_state.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../widgets/modern_sidebar.dart';
 import '../widgets/add_lesson_dialog.dart';
 import 'calendar_day_view.dart';
@@ -512,7 +513,7 @@ class _CalendarHomePageState extends State<CalendarHomePage>
         bottom: false,
         child: Row(
           children: [
-            // Exit Button
+            // Logout Button
             Container(
               margin: const EdgeInsets.only(left: 4),
               decoration: BoxDecoration(
@@ -520,9 +521,12 @@ class _CalendarHomePageState extends State<CalendarHomePage>
                 borderRadius: BorderRadius.circular(AppSizes.radiusSm),
               ),
               child: IconButton(
-                icon: const Icon(Icons.close_rounded, size: 20, color: Colors.red),
-                onPressed: () => context.go('/management'),
-                tooltip: 'إغلاق التقويم',
+                icon: const Icon(Icons.logout_rounded, size: 20, color: Colors.red),
+                onPressed: () {
+                  context.read<AuthBloc>().add(AuthLogoutRequested());
+                  context.go('/login');
+                },
+                tooltip: 'تسجيل الخروج',
                 constraints: const BoxConstraints(
                   minWidth: 36,
                   minHeight: 36,

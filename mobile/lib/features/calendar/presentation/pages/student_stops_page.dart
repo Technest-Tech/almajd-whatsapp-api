@@ -6,7 +6,9 @@ import '../../../../core/constants/app_sizes.dart';
 import '../bloc/calendar_bloc.dart';
 import '../bloc/calendar_event.dart';
 import '../bloc/calendar_state.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../widgets/modern_sidebar.dart';
+import 'package:go_router/go_router.dart';
 import '../../data/models/calendar_student_stop_model.dart';
 import '../../data/repositories/calendar_repository_impl.dart';
 import '../../data/datasources/calendar_remote_datasource.dart';
@@ -625,6 +627,14 @@ class _StudentStopsPageState extends State<StudentStopsPage>
                         icon: const Icon(Icons.menu_rounded),
                         onPressed: _toggleSidebar,
                         color: AppColors.primary,
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          context.read<AuthBloc>().add(AuthLogoutRequested());
+                          context.go('/login');
+                        },
+                        icon: const Icon(Icons.logout_rounded, size: 24, color: AppColors.error),
+                        tooltip: 'تسجيل الخروج',
                       ),
                       const Expanded(
                         child: Text(

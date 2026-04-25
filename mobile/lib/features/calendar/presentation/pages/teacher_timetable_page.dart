@@ -9,6 +9,9 @@ import '../bloc/calendar_state.dart';
 import '../../data/models/calendar_teacher_timetable_model.dart';
 import '../../data/models/calendar_event_model.dart';
 import 'teacher_students_page.dart';
+import '../../../../core/di/injection.dart';
+import '../../../students/presentation/bloc/student_list_bloc.dart';
+import '../../../students/data/models/student_model.dart';
 
 class TeacherTimetablePage extends StatefulWidget {
   final int teacherId;
@@ -34,6 +37,8 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
   bool _isSubmitting = false;
   bool _isFormExpanded = false; // Form collapsed by default
 
+  late final StudentListBloc _studentListBloc;
+
   final List<String> _days = [
     'Saturday',
     'Sunday',
@@ -48,6 +53,7 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
 
   @override
   void dispose() {
+    _studentListBloc.close();
     _studentNameController.dispose();
     super.dispose();
   }
@@ -187,6 +193,7 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
   @override
   void initState() {
     super.initState();
+    _studentListBloc = getIt<StudentListBloc>()..add(const StudentListFetchRequested());
     // Load timetables for this teacher
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -347,17 +354,65 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              TextFormField(
-                                controller: _studentNameController,
-                                decoration: const InputDecoration(
-                                  labelText: 'اسم الطالب',
-                                  border: OutlineInputBorder(),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'يرجى إدخال اسم الطالب';
+                              BlocBuilder<StudentListBloc, StudentListState>(
+                                bloc: _studentListBloc,
+                                builder: (context, state) {
+                                  List<StudentModel> students = [];
+                                  if (state is StudentListLoaded) {
+                                    students = state.students;
                                   }
-                                  return null;
+                                  return Autocomplete<StudentModel>(
+                                    displayStringForOption: (option) => option.name,
+                                    optionsBuilder: (textEditingValue) {
+                                      if (textEditingValue.text.isEmpty) {
+                                        return students;
+                                      }
+                                      final query = textEditingValue.text.toLowerCase();
+                                      return students.where((student) =>
+                                          student.name.toLowerCase().contains(query));
+                                    },
+                                    onSelected: (selection) {
+                                      _studentNameController.text = selection.name;
+                                    },
+                                    fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                                      // Sync the global controller when user types
+                                      controller.addListener(() {
+                                        if (_studentNameController.text != controller.text) {
+                                          _studentNameController.text = controller.text;
+                                        }
+                                      });
+                                      
+                                      // Pre-fill controller if _studentNameController already has text (e.g. on rebuilds)
+                                      if (controller.text.isEmpty && _studentNameController.text.isNotEmpty) {
+                                          controller.text = _studentNameController.text;
+                                      }
+
+                                      return TextFormField(
+                                        controller: controller,
+                                        focusNode: focusNode,
+                                        decoration: InputDecoration(
+                                          labelText: 'اسم الطالب',
+                                          hintText: state is! StudentListLoaded ? 'جاري التحميل...' : 'ابحث عن طالب...',
+                                          prefixIcon: const Icon(Icons.search, size: 20),
+                                          suffixIcon: controller.text.isNotEmpty ? IconButton(
+                                            icon: const Icon(Icons.clear, size: 18),
+                                            onPressed: () {
+                                              controller.clear();
+                                              _studentNameController.clear();
+                                            },
+                                          ) : null,
+                                          border: const OutlineInputBorder(),
+                                        ),
+                                        validator: (value) {
+                                          if (_studentNameController.text.isEmpty && (value == null || value.isEmpty)) {
+                                            return 'يرجى إدخال اسم الطالب';
+                                          }
+                                          return null;
+                                        },
+                                        onFieldSubmitted: (_) => onFieldSubmitted(),
+                                      );
+                                    },
+                                  );
                                 },
                               ),
                               const SizedBox(height: AppSizes.spaceMd),
