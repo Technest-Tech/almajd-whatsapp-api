@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/router/app_router.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 
 class ModernSidebar extends StatelessWidget {
   final String currentRoute;
@@ -118,7 +120,7 @@ class ModernSidebar extends StatelessWidget {
             ),
           ),
 
-          // Back to Dashboard Button
+          // Logout Button
           RepaintBoundary(
             child: Container(
             padding: const EdgeInsets.all(AppSizes.spaceMd),
@@ -136,24 +138,25 @@ class ModernSidebar extends StatelessWidget {
                 vertical: AppSizes.spaceXs,
               ),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
+                color: Colors.red.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                border: Border.all(color: AppColors.primary, width: 1),
+                border: Border.all(color: Colors.red, width: 1),
               ),
               child: ListTile(
                 leading: const Icon(
-                  Icons.home_rounded,
-                  color: AppColors.primary,
+                  Icons.logout_rounded,
+                  color: Colors.red,
                 ),
                 title: const Text(
-                  'العودة للصفحة الرئيسية',
+                  'تسجيل الخروج',
                   style: TextStyle(
-                    color: AppColors.primary,
+                    color: Colors.red,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 onTap: () {
-                  context.go(AppRouter.dashboard);
+                  context.read<AuthBloc>().add(AuthLogoutRequested());
+                  context.go('/login');
                   // Close sidebar after navigation
                   if (onClose != null) {
                     onClose!();
