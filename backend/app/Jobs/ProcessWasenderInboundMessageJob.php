@@ -242,6 +242,8 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 $knownOptions = [
                     'نعم، انضم'   => 'yes',
                     'لا، لم ينضم' => 'no',
+                    'إنهاء'       => 'finish',
+                    'انتظار'      => 'wait',
                 ];
                 $pollQuestion = $reminder->message_body ?? '';
                 foreach ($knownOptions as $optionText => $vote) {
@@ -254,9 +256,19 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             }
         }
 
-        // Normalise: is the vote Yes, No, or cleared?
+        // Normalise: is the vote Yes, No, Finish, Wait, or cleared?
+        // The no_show_decision poll uses different option labels (إنهاء / انتظار)
+        // — handle those explicitly before the generic yes/no fallback.
         foreach ($selectedNames as $name) {
             $clean = trim($name);
+            if (str_contains($clean, 'إنهاء')) {
+                $voteValue = 'finish';
+                break;
+            }
+            if (str_contains($clean, 'انتظار')) {
+                $voteValue = 'wait';
+                break;
+            }
             if (str_contains($clean, 'نعم') || str_contains($clean, '1') || str_contains(mb_strtolower($clean), 'yes')) {
                 $voteValue = 'yes';
                 break;
@@ -291,6 +303,8 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
         $phase = $reminder->reminder_phase;
 
+        $attendancePollPhases = ['at_start', 'after', 'attend_3m', 'attend_6m', 'attend_9m'];
+
         if ($voteValue === 'yes') {
             // ── Teacher confirmed: student joined / session completed ──────────
             $reminder->update(['confirmation_status' => 'confirmed']);
@@ -298,22 +312,23 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             if (in_array($phase, ['post_end', 'post_end_2'], true)) {
                 $session->update(['status' => 'completed', 'attendance_status' => 'both_joined']);
 
-                // ── Notify the student that class is confirmed complete ────────
-                // This fires HERE (after teacher confirmation) — NOT at end time —
-                // so the student only gets a message when the teacher says YES.
-                $this->maybeNotifyStudentCompletion($session);
-
                 // ── Kick off the report collection flow ───────────────────────
                 $this->maybeRequestSessionReport($session, $voterPhone);
             } else {
+                // Attendance phase YES → student joined → cancel the entire
+                // attendance flow (3m/6m/9m + no_show_decision + auto_cancel).
                 $session->update(['status' => 'running', 'attendance_status' => 'both_joined']);
             }
 
 
-            // Cancel superseded pre-class reminders
+            // Cancel superseded pre-class + attendance-flow reminders
             \App\Models\Reminder::where('class_session_id', $session->id)
                 ->where('status', 'pending')
-                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                ->whereIn('reminder_phase', [
+                    'before', 'at_start', 'after',
+                    'attend_3m', 'attend_6m', 'attend_9m',
+                    'no_show_decision', 'auto_cancel',
+                ])
                 ->update(['status' => 'cancelled', 'failure_reason' => 'Teacher confirmed via poll']);
 
             // Mark other awaiting reminders as no_reply
@@ -334,14 +349,43 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             if (in_array($phase, ['post_end', 'post_end_2'], true)) {
                 // Post-end denial — session was running but teacher says it's NOT done
                 $session->update(['status' => 'running']);
+            } elseif (in_array($phase, $attendancePollPhases, true)) {
+                // Attendance poll NO — student still hasn't joined. Don't cancel
+                // anything; the next attend_*/no_show_decision poll will fire.
+                $session->update(['status' => 'pending', 'attendance_status' => 'no_show']);
             } else {
-                // At-start/after denial — student never joined
                 $session->update(['status' => 'pending', 'attendance_status' => 'no_show']);
             }
 
             Log::info('WasenderAPI: Poll NO — session updated', [
                 'session_id' => $session->id,
                 'new_status' => $session->status,
+            ]);
+
+        } elseif ($voteValue === 'finish' && $phase === 'no_show_decision') {
+            // ── Teacher chose إنهاء: cancel the session immediately, skip report ──
+            $reminder->update(['confirmation_status' => 'confirmed']);
+
+            $session->update([
+                'status'              => 'cancelled',
+                'attendance_status'   => 'no_show',
+                'cancellation_reason' => 'المعلم أنهى الحصة لعدم انضمام الطالب',
+            ]);
+
+            \App\Models\Reminder::where('class_session_id', $session->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'cancelled', 'failure_reason' => 'تم إنهاء الحصة بقرار المعلم']);
+
+            Log::info('WasenderAPI: no_show_decision FINISH — session cancelled', [
+                'session_id' => $session->id,
+            ]);
+
+        } elseif ($voteValue === 'wait' && $phase === 'no_show_decision') {
+            // ── Teacher chose انتظار: silent until T+15 auto_cancel ──
+            $reminder->update(['confirmation_status' => 'awaiting']);
+
+            Log::info('WasenderAPI: no_show_decision WAIT — silent until auto_cancel', [
+                'session_id' => $session->id,
             ]);
 
         } else {
@@ -838,10 +882,14 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 $session->update(['status' => 'running', 'attendance_status' => 'both_joined']);
             }
 
-            // Cancel pending pre-class reminders for this session
+            // Cancel pending pre-class + attendance-flow reminders for this session
             Reminder::where('class_session_id', $session->id)
                 ->where('status', 'pending')
-                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                ->whereIn('reminder_phase', [
+                    'before', 'at_start', 'after',
+                    'attend_3m', 'attend_6m', 'attend_9m',
+                    'no_show_decision', 'auto_cancel',
+                ])
                 ->update([
                     'status'         => 'cancelled',
                     'failure_reason' => 'Teacher confirmed — session active',
@@ -1044,50 +1092,6 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
     // ══════════════════════════════════════════════════════════════════════════
     // SESSION REPORT FLOW
     // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Step 0 — Called right after the teacher's post_end poll vote = YES.
-     *
-     * Sends the student a session-completion notification using the
-     * class_completion_status WhatsApp template (or Arabic fallback).
-     * This replaces the time-based student post_end reminder that was
-     * previously scheduled regardless of teacher confirmation.
-     */
-    private function maybeNotifyStudentCompletion(\App\Models\ClassSession $session): void
-    {
-        $studentPhone = $session->student?->whatsapp_number;
-        if (!$studentPhone) {
-            Log::info('StudentCompletion: student has no WhatsApp number — skipping', ['session_id' => $session->id]);
-            return;
-        }
-
-        try {
-            // Try to resolve the approved template body first
-            $template = \App\Models\WhatsappTemplate::where('name', 'class_completion_status')
-                ->where('status', 'approved')
-                ->first();
-
-            $subject = $session->title ?? 'الحصة';
-            $fallback = "Class Summary - Almajd Academy 📝\n\nAlhamdulillah, your class session has ended. We hope it was beneficial and blessed.\n\nThank you for your commitment and attendance. 📚\n\nAlmajd Academy";
-
-            $body = $template?->body_template ?? $fallback;
-
-            /** @var \App\Services\WhatsApp\WhatsAppServiceInterface $whatsApp */
-            $whatsApp = app(\App\Services\WhatsApp\WhatsAppServiceInterface::class);
-            $whatsApp->sendText($studentPhone, $body);
-
-            Log::info('StudentCompletion: completion message sent to student', [
-                'session_id'    => $session->id,
-                'student_phone' => $studentPhone,
-                'used_template' => $template ? true : false,
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('StudentCompletion: failed to send completion message', [
-                'session_id' => $session->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
-    }
 
 
     /**

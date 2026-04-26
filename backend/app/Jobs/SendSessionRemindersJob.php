@@ -54,13 +54,17 @@ class SendSessionRemindersJob implements ShouldQueue
                 }
 
                 $isTeacherConfirmation = $reminder->recipient_type === 'teacher'
-                    && in_array($reminder->reminder_phase, ['at_start', 'after', 'post_end'], true);
+                    && in_array($reminder->reminder_phase, [
+                        'at_start', 'after', 'post_end', 'post_end_2',
+                        'attend_3m', 'attend_6m', 'attend_9m', 'no_show_decision',
+                    ], true);
 
                 $pollMessageId = null;
 
                 if ($isTeacherConfirmation && $whatsAppService instanceof \App\Services\WhatsApp\WasenderWhatsAppService) {
                     // ── Build the poll question ───────────────────────────────────────
                     $pollQuestion = $this->buildPollQuestion($reminder);
+                    $pollOptions  = $this->buildPollOptions($reminder);
 
                     // CRITICAL: persist the poll question as message_body so that
                     // ProcessWasenderInboundMessageJob can match the incoming vote
@@ -70,7 +74,7 @@ class SendSessionRemindersJob implements ShouldQueue
                     $pollResult = $whatsAppService->sendPoll(
                         to: $reminder->recipient_phone,
                         name: $pollQuestion,
-                        options: ['نعم، انضم', 'لا، لم ينضم'],
+                        options: $pollOptions,
                         selectableCount: 1,
                     );
 
@@ -98,6 +102,13 @@ class SendSessionRemindersJob implements ShouldQueue
                     if ($session && in_array($session->status, ['scheduled', 'rescheduled', 'coming'], true)) {
                         $session->update(['status' => 'pending']);
                     }
+                }
+
+                // T+15 auto-cancel notice: cancel the session right after sending the
+                // text. By the time we reach here the session is still uncancelled and
+                // attendance was never confirmed (shouldSkipReminder gates that).
+                if ($reminder->reminder_phase === 'auto_cancel') {
+                    $this->applyAutoCancel($reminder);
                 }
 
                 // Create a WhatsApp message record so it appears in inbox
@@ -141,11 +152,66 @@ class SendSessionRemindersJob implements ShouldQueue
         }
 
         return match ($reminder->reminder_phase) {
-            'at_start'  => "هل انضم {$studentName} إلى حصة {$subject}{$timeTag}؟",
-            'after'     => "هل اكتملت حصة {$subject}{$timeTag} مع {$studentName}؟",
-            'post_end'  => "هل أتممت حصة {$subject}{$timeTag} مع {$studentName}؟",
-            default     => "تأكيد حصة {$subject}{$timeTag}",
+            'at_start'         => "هل انضم {$studentName} إلى حصة {$subject}{$timeTag}؟",
+            'after'            => "⚠️ مر 5 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
+            'attend_3m'        => "⚠️ مر 3 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
+            'attend_6m'        => "⚠️ مر 6 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
+            'attend_9m'        => "⚠️ مر 9 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
+            'no_show_decision' => "⏳ مر 10 دقائق ولم ينضم {$studentName} لحصة {$subject}{$timeTag} — هل تود الإنهاء؟",
+            'post_end'         => "هل أتممت حصة {$subject}{$timeTag} مع {$studentName}؟",
+            'post_end_2'       => "هل أتممت حصة {$subject}{$timeTag} مع {$studentName}؟ (تذكير)",
+            default            => "تأكيد حصة {$subject}{$timeTag}",
         };
+    }
+
+    /**
+     * Poll options vary by phase. Attendance polls use yes/no; the no-show
+     * decision uses finish/wait labels.
+     *
+     * @return array<int, string>
+     */
+    private function buildPollOptions(Reminder $reminder): array
+    {
+        return match ($reminder->reminder_phase) {
+            'no_show_decision' => ['إنهاء', 'انتظار'],
+            default            => ['نعم، انضم', 'لا، لم ينضم'],
+        };
+    }
+
+    /**
+     * Side-effect for the T+15 auto-cancel notice: cancel the session, mark
+     * attendance, and tear down any other pending reminders so the inbox stops
+     * polling for a class that's been auto-cancelled.
+     */
+    private function applyAutoCancel(Reminder $reminder): void
+    {
+        $session = $reminder->classSession;
+        if (!$session) {
+            return;
+        }
+
+        if (in_array($session->status, ['completed', 'cancelled'], true)) {
+            return;
+        }
+
+        $session->update([
+            'status'              => 'cancelled',
+            'attendance_status'   => 'teacher_didnt_reply',
+            'cancellation_reason' => 'لم يرد المعلم على استطلاعات الحضور خلال 15 دقيقة من بدء الحصة',
+        ]);
+
+        Reminder::where('class_session_id', $session->id)
+            ->where('id', '!=', $reminder->id)
+            ->where('status', 'pending')
+            ->update([
+                'status'         => 'cancelled',
+                'failure_reason' => 'تم إلغاء الحصة تلقائياً (auto_cancel)',
+            ]);
+
+        Log::info('Auto-cancel applied', [
+            'session_id'  => $session->id,
+            'reminder_id' => $reminder->id,
+        ]);
     }
 
 
@@ -261,6 +327,25 @@ class SendSessionRemindersJob implements ShouldQueue
         // Teacher "after" only if session has moved to pending/running (at_start fired)
         if ($reminder->reminder_phase === 'after' && $reminder->recipient_type === 'teacher') {
             if (!in_array($session->status, ['pending', 'running'], true)) {
+                return true;
+            }
+        }
+
+        // ── Attendance-flow gates (attend_3m/6m/9m + no_show_decision + auto_cancel) ──
+        // Skip the entire flow once the teacher has confirmed the student joined
+        // (attendance_status='both_joined' is set by ProcessWasenderInboundMessageJob
+        // on any YES vote to at_start / attend_*).
+        $attendanceFlowPhases = ['attend_3m', 'attend_6m', 'attend_9m', 'no_show_decision', 'auto_cancel'];
+        if (in_array($reminder->reminder_phase, $attendanceFlowPhases, true)) {
+            if ($session->attendance_status === 'both_joined') {
+                return true;
+            }
+        }
+
+        // ── post_end / post_end_2: only fire if the student actually joined. ──
+        // If attendance was never confirmed, there's no class to ask about.
+        if (in_array($reminder->reminder_phase, ['post_end', 'post_end_2'], true)) {
+            if ($session->attendance_status !== 'both_joined') {
                 return true;
             }
         }

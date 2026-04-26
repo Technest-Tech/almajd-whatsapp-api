@@ -72,6 +72,14 @@ abstract class CalendarRemoteDataSource {
   Future<Map<String, dynamic>> getTeacherTimetableWhatsApp(int teacherId);
   Future<void> sendTeacherTimetableWhatsApp(int teacherId);
 
+  // Reminder WhatsApp send (via Wasender)
+  Future<String> sendDailyReminderWhatsApp({
+    required String startTime,
+    required String endTime,
+    required String day,
+  });
+  Future<String> sendExceptionalReminderWhatsApp({required DateTime date});
+
   // Teacher Students
   Future<List<Map<String, dynamic>>> getTeacherStudents(int teacherId);
 
@@ -406,5 +414,37 @@ class CalendarRemoteDataSourceImpl implements CalendarRemoteDataSource {
     return (response.data['exceptional_classes'] as List)
         .map((json) => CalendarExceptionalClassModel.fromJson(json as Map<String, dynamic>))
         .toList();
+  }
+
+  @override
+  Future<String> sendDailyReminderWhatsApp({
+    required String startTime,
+    required String endTime,
+    required String day,
+  }) async {
+    final response = await apiService.post(
+      '/v1/calendar/reminders/daily/send',
+      data: {
+        'start_time': startTime,
+        'end_time': endTime,
+        'day': day,
+      },
+    );
+    if (response.data['error'] == true) {
+      throw Exception(response.data['message'] ?? 'Failed to send reminder');
+    }
+    return response.data['message'] as String;
+  }
+
+  @override
+  Future<String> sendExceptionalReminderWhatsApp({required DateTime date}) async {
+    final response = await apiService.post(
+      '/v1/calendar/reminders/exceptional/send',
+      data: {'date': date.toIso8601String().split('T')[0]},
+    );
+    if (response.data['error'] == true) {
+      throw Exception(response.data['message'] ?? 'Failed to send reminder');
+    }
+    return response.data['message'] as String;
   }
 }

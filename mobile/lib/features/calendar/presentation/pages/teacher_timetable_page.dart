@@ -30,6 +30,7 @@ class TeacherTimetablePage extends StatefulWidget {
 class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
   final _formKey = GlobalKey<FormState>();
   final _studentNameController = TextEditingController();
+  int? _selectedStudentId;
   TimeOfDay? _startTime;
   TimeOfDay? _endTime;
   String? _selectedCountry;
@@ -105,6 +106,7 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
           studentName: _studentNameController.text,
           country: _selectedCountry!,
           status: 'active',
+          studentId: _selectedStudentId,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
         );
@@ -115,6 +117,7 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
       // Reset form
       _studentNameController.clear();
       setState(() {
+        _selectedStudentId = null;
         _startTime = null;
         _endTime = null;
         _selectedDays = [];
@@ -153,6 +156,136 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showEditTimetableSheet(CalendarTeacherTimetableModel timetable) {
+    final bloc = context.read<CalendarBloc>();
+    StudentModel? selectedStudent;
+    final editController = TextEditingController(text: timetable.studentName);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Container(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+                top: 24,
+                left: 24,
+                right: 24,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.edit_rounded, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'تعديل الطالب: ${timetable.studentName}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'اختر الطالب الصحيح من القائمة — سيتم ربط جميع الحصص القادمة بهذا الطالب تلقائياً.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  BlocBuilder<StudentListBloc, StudentListState>(
+                    bloc: _studentListBloc,
+                    builder: (_, studentState) {
+                      final students = studentState is StudentListLoaded
+                          ? studentState.students
+                          : <StudentModel>[];
+                      return Autocomplete<StudentModel>(
+                        displayStringForOption: (s) => s.name,
+                        initialValue: TextEditingValue(text: timetable.studentName),
+                        optionsBuilder: (textValue) {
+                          if (textValue.text.isEmpty) return students;
+                          final q = textValue.text.toLowerCase();
+                          return students.where((s) => s.name.toLowerCase().contains(q));
+                        },
+                        onSelected: (s) {
+                          setSheetState(() {
+                            selectedStudent = s;
+                            editController.text = s.name;
+                          });
+                        },
+                        fieldViewBuilder: (_, ctrl, focusNode, onSubmit) {
+                          return TextFormField(
+                            controller: ctrl,
+                            focusNode: focusNode,
+                            decoration: const InputDecoration(
+                              labelText: 'ابحث عن الطالب',
+                              prefixIcon: Icon(Icons.search),
+                              border: OutlineInputBorder(),
+                            ),
+                            onFieldSubmitted: (_) => onSubmit(),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.save_rounded),
+                    label: const Text('حفظ التعديل'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: selectedStudent == null
+                        ? null
+                        : () {
+                            Navigator.of(sheetContext).pop();
+                            final updated = CalendarTeacherTimetableModel(
+                              id: timetable.id,
+                              teacherId: timetable.teacherId,
+                              day: timetable.day,
+                              startTime: timetable.startTime,
+                              finishTime: timetable.finishTime,
+                              studentName: selectedStudent!.name,
+                              country: timetable.country,
+                              status: timetable.status,
+                              createdAt: timetable.createdAt,
+                              updatedAt: DateTime.now(),
+                              studentId: selectedStudent!.id,
+                            );
+                            bloc.add(UpdateTeacherTimetable(timetable.id, updated));
+                          },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -373,6 +506,7 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
                                     },
                                     onSelected: (selection) {
                                       _studentNameController.text = selection.name;
+                                      _selectedStudentId = selection.id;
                                     },
                                     fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
                                       // Sync the global controller when user types
@@ -399,6 +533,7 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
                                             onPressed: () {
                                               controller.clear();
                                               _studentNameController.clear();
+                                              _selectedStudentId = null;
                                             },
                                           ) : null,
                                           border: const OutlineInputBorder(),
@@ -772,6 +907,17 @@ class _TeacherTimetablePageState extends State<TeacherTimetablePage> {
                                                                       ),
                                                                       maxLines: 1,
                                                                       overflow: TextOverflow.ellipsis,
+                                                                    ),
+                                                                  ),
+                                                                  GestureDetector(
+                                                                    onTap: () => _showEditTimetableSheet(timetable),
+                                                                    child: const Padding(
+                                                                      padding: EdgeInsets.all(4),
+                                                                      child: Icon(
+                                                                        Icons.edit_rounded,
+                                                                        size: 16,
+                                                                        color: Colors.blue,
+                                                                      ),
                                                                     ),
                                                                   ),
                                                                   GestureDetector(

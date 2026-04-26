@@ -2,23 +2,22 @@
 
 use Illuminate\Support\Facades\Schedule;
 
+// ── Reminders ────────────────────────────────────────────────────────────────
 // Run auto-scheduler every 5 minutes to create reminder rows for today's sessions
-Schedule::command('reminders:auto-schedule')->everyFiveMinutes();
-
-// Rebalance sessions assigned to inactive supervisors every 15 minutes
-Schedule::command('sessions:rebalance')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('reminders:auto-schedule')->everyFiveMinutes()->withoutOverlapping(10);
 
 // Process and send pending reminders every minute
-Schedule::job(new \App\Jobs\SendSessionRemindersJob())->everyMinute();
-
-// Daily: generate sessions for all active students if running low (smart — skips if already covered)
-Schedule::command('sessions:generate --months=3')->daily()->at('02:00');
-
-// Weekly top-up: ensure we always have 3 months in advance (force on Sundays)
-Schedule::command('sessions:generate --months=3 --force')->weeklyOn(0, '03:00');
-
-// Nightly Legacy Calendar Bridge: Generate sessions for legacy rules exactly 7 days out
-Schedule::command('calendar:sync-legacy 7')->dailyAt('00:00');
+Schedule::job(new \App\Jobs\SendSessionRemindersJob())->everyMinute()->withoutOverlapping(5);
 
 // Hourly: nudge teachers who haven't yet submitted their session report (max 2 nudges)
 Schedule::job(new \App\Jobs\SendReportNudgeJob())->hourly()->withoutOverlapping();
+
+// ── Session Generation ────────────────────────────────────────────────────────
+// NOTE: Session generation is now ADMIN-TRIGGERED via the Calendar app buttons.
+// The commands below have been intentionally removed to prevent uncontrolled
+// data generation:
+//   ❌ sessions:generate --months=3       (was: daily at 02:00)
+//   ❌ sessions:generate --months=3 --force (was: weekly on Sunday at 03:00)
+//   ❌ calendar:sync-legacy 7              (was: daily at 00:00)
+//
+// To generate sessions, use the "Generate Sessions" button in the Calendar admin page.

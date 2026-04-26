@@ -73,8 +73,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
   }
 
   Future<void> _autoGenerateSessions(StudentRepository repo) async {
+    // Note: Sessions are now generated globally by the admin via the Calendar page.
+    // This just fetches whatever sessions already exist for this student.
     try {
-      await repo.generateClassSessions(widget.studentId);
       final sessions = await repo.getClassSessions(widget.studentId);
       if (mounted) {
         setState(() {
@@ -85,22 +86,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
           _sessionsLoaded = true;
         });
       }
-    } catch (e) {
-      // Even if generate fails, try to fetch existing sessions
-      try {
-        final sessions = await repo.getClassSessions(widget.studentId);
-        if (mounted) {
-          setState(() {
-            _classSessions.clear();
-            for (final s in sessions) {
-              try { _classSessions.add(ClassSessionModel.fromJson(s as Map<String, dynamic>)); } catch (_) {}
-            }
-            _sessionsLoaded = true;
-          });
-        }
-      } catch (_) {
-        if (mounted) setState(() => _sessionsLoaded = true); // stop spinner even on failure
-      }
+    } catch (_) {
+      if (mounted) setState(() => _sessionsLoaded = true);
     }
   }
 

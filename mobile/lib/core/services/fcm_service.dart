@@ -32,15 +32,23 @@ class FcmService {
     // Register background handler
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    _token = await _fcm.getToken();
-    debugPrint('FCM token: $_token');
+    try {
+      _token = await _fcm.getToken();
+      debugPrint('FCM token: $_token');
+    } catch (e) {
+      debugPrint('Failed to get FCM token: $e');
+    }
   }
 
   static String? get token => _token;
 
   /// Re-fetch token (call after login if token may have changed)
   static Future<String?> refreshToken() async {
-    _token = await _fcm.getToken();
+    try {
+      _token = await _fcm.getToken();
+    } catch (e) {
+      debugPrint('Failed to refresh FCM token: $e');
+    }
     return _token;
   }
 }

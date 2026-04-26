@@ -72,7 +72,10 @@ class LegacyCalendarSyncService
         $endTime = $timetable->finish_time ?: Carbon::parse($startTime)->addHour()->format('H:i:s');
         
         $teacherId = $this->resolveGlobalTeacherId($timetable->teacher);
-        $studentId = $this->resolveGlobalStudentId($timetable->student_name);
+
+        // ── Prefer the direct student_id link (set via UI mapping) ──────────
+        $studentId = $timetable->student_id
+            ?? $this->resolveGlobalStudentId($timetable->student_name);
 
         if (!$teacherId || !$studentId) {
             Log::warning("Skipping sync for legacy timetable ID {$timetable->id}: Unresolved Teacher or Student mapping.", [
@@ -92,7 +95,7 @@ class LegacyCalendarSyncService
             ],
             [
                 'end_time' => $endTime,
-                'title' => "Legacy Class: " . $timetable->student_name,
+                'title' => $timetable->student_name,
                 'status' => 'scheduled',
             ]
         );
@@ -102,10 +105,13 @@ class LegacyCalendarSyncService
     {
         $sessionDate = $date->format('Y-m-d');
         $startTime = $exceptional->time;
-        $endTime = Carbon::parse($startTime)->addHour()->format('H:i:s'); // Exceptional classes often lack explicit end times
+        $endTime = Carbon::parse($startTime)->addHour()->format('H:i:s');
         
         $teacherId = $this->resolveGlobalTeacherId($exceptional->teacher);
-        $studentId = $this->resolveGlobalStudentId($exceptional->student_name);
+
+        // ── Prefer the direct student_id link (set via UI mapping) ──────────
+        $studentId = $exceptional->student_id
+            ?? $this->resolveGlobalStudentId($exceptional->student_name);
 
         if (!$teacherId || !$studentId) {
             Log::warning("Skipping sync for legacy exceptional class ID {$exceptional->id}: Unresolved mapping.");
@@ -121,7 +127,7 @@ class LegacyCalendarSyncService
             ],
             [
                 'end_time' => $endTime,
-                'title' => "Exceptional Class: " . $exceptional->student_name,
+                'title' => $exceptional->student_name,
                 'status' => 'scheduled',
             ]
         );
@@ -151,15 +157,32 @@ class LegacyCalendarSyncService
     {
         if (!$legacyTeacher || !$legacyTeacher->name) return null;
         
+        // Exact name match first
         $teacher = Teacher::where('name', $legacyTeacher->name)->first();
+        
+        // If not found by exact string, try fuzzy matching (trim spaces, ignore "معلم")
+        if (!$teacher) {
+            $cleanName = trim(str_replace(['معلمة', 'معلم', 'معلمه'], '', $legacyTeacher->name));
+            $teacher = Teacher::where('name', 'like', '%' . $cleanName . '%')->first();
+        }
+        
         return $teacher ? $teacher->id : null;
     }
 
     private function resolveGlobalStudentId(?string $studentName): ?int
     {
-        if (!$studentName) return null;
+        if (empty(trim((string)$studentName))) return null;
         
-        $student = Student::where('name', $studentName)->first();
-        return $student ? $student->id : null;
+        $cleanName = trim($studentName);
+        
+        // Only match existing students — do NOT auto-create stubs.
+        // Timetable rows without a student_id must be manually mapped via the UI.
+        $student = Student::where('name', $cleanName)->first();
+
+        if (!$student) {
+            Log::warning("LegacySync: No student match for name '{$cleanName}' — set student_id on the timetable row to fix this.");
+        }
+
+        return $student?->id;
     }
 }

@@ -120,7 +120,7 @@ class ModernSidebar extends StatelessWidget {
             ),
           ),
 
-          // Logout Button
+          // Exit/Logout Button (Role-based)
           RepaintBoundary(
             child: Container(
             padding: const EdgeInsets.all(AppSizes.spaceMd),
@@ -132,40 +132,57 @@ class ModernSidebar extends StatelessWidget {
                 ),
               ),
             ),
-            child: Container(
-              margin: const EdgeInsets.symmetric(
-                horizontal: AppSizes.spaceMd,
-                vertical: AppSizes.spaceXs,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                border: Border.all(color: Colors.red, width: 1),
-              ),
-              child: ListTile(
-                leading: const Icon(
-                  Icons.logout_rounded,
-                  color: Colors.red,
-                ),
-                title: const Text(
-                  'تسجيل الخروج',
-                  style: TextStyle(
-                    color: Colors.red,
-                    fontWeight: FontWeight.bold,
+            child: BlocBuilder<AuthBloc, AuthState>(
+              builder: (context, authState) {
+                final isCalendarManagerOnly = authState is AuthAuthenticated &&
+                    authState.user.roles.contains('calendar_manager') &&
+                    !authState.user.roles.contains('admin');
+
+                return Container(
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: AppSizes.spaceMd,
+                    vertical: AppSizes.spaceXs,
                   ),
-                ),
-                onTap: () {
-                  context.read<AuthBloc>().add(AuthLogoutRequested());
-                  context.go('/login');
-                  // Close sidebar after navigation
-                  if (onClose != null) {
-                    onClose!();
-                  }
-                },
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                ),
-              ),
+                  decoration: BoxDecoration(
+                    color: isCalendarManagerOnly
+                        ? Colors.red.withOpacity(0.1)
+                        : AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                    border: Border.all(
+                      color: isCalendarManagerOnly ? Colors.red : AppColors.primary,
+                      width: 1,
+                    ),
+                  ),
+                  child: ListTile(
+                    leading: Icon(
+                      isCalendarManagerOnly ? Icons.logout_rounded : Icons.close_rounded,
+                      color: isCalendarManagerOnly ? Colors.red : AppColors.primary,
+                    ),
+                    title: Text(
+                      isCalendarManagerOnly ? 'تسجيل الخروج' : 'العودة للوحة التحكم',
+                      style: TextStyle(
+                        color: isCalendarManagerOnly ? Colors.red : AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    onTap: () {
+                      if (isCalendarManagerOnly) {
+                        context.read<AuthBloc>().add(AuthLogoutRequested());
+                        context.go('/login');
+                      } else {
+                        context.go('/management');
+                      }
+                      // Close sidebar after navigation
+                      if (onClose != null) {
+                        onClose!();
+                      }
+                    },
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           ),

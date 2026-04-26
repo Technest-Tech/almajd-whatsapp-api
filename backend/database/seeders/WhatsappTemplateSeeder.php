@@ -28,15 +28,7 @@ class WhatsappTemplateSeeder extends Seeder
                 'body_template' => "Assalamu Alaikum,\nYour class session has already started. \u{1F552}\n\nYour teacher is currently waiting for you in the classroom. We encourage you to join now so you don't miss out on the opening blessings of the lesson. \u{1F3C3}\u{200D}\u{2642}\u{FE0F}\u{2728}\n\nAlmajd Academy",
                 'variables_schema' => json_encode([]),
             ],
-            [
-                'name' => 'class_completion_status',
-                'language' => 'en',
-                'category' => 'UTILITY',
-                'status' => 'approved',
-                'content_sid' => 'class_completion_status',
-                'body_template' => "Class Summary - Almajd Academy 📝\n\nAlhamdulillah, your class session has ended. We hope it was a beneficial experience!\n\nJazakum Allah Khayran for your dedication to learning. May Allah reward you. 🌟\n\nTeachers, please remember to update the attendance status in the app. ✅❌",
-                'variables_schema' => json_encode([]),
-            ],
+
             [
                 'name' => 'new_student_onboarding',
                 'language' => 'ar',

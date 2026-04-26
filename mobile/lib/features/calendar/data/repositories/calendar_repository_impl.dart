@@ -183,4 +183,22 @@ class CalendarRepositoryImpl implements CalendarRepository {
   Future<List<String>> getStudentsList() {
     return remoteDataSource.getStudentsList();
   }
+
+  @override
+  Future<String> sendDailyReminderWhatsApp({
+    required String startTime,
+    required String endTime,
+    required String day,
+  }) {
+    return remoteDataSource.sendDailyReminderWhatsApp(
+      startTime: startTime,
+      endTime: endTime,
+      day: day,
+    );
+  }
+
+  @override
+  Future<String> sendExceptionalReminderWhatsApp({required DateTime date}) {
+    return remoteDataSource.sendExceptionalReminderWhatsApp(date: date);
+  }
 }

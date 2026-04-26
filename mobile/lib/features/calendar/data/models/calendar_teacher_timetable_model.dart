@@ -10,6 +10,7 @@ class CalendarTeacherTimetableModel extends Equatable {
   final String studentName;
   final String country;
   final String status;
+  final int? studentId;
   final DateTime? reactiveDate;
   final DateTime? deletedDate;
   final DateTime createdAt;
@@ -25,6 +26,7 @@ class CalendarTeacherTimetableModel extends Equatable {
     required this.studentName,
     required this.country,
     required this.status,
+    this.studentId,
     this.reactiveDate,
     this.deletedDate,
     required this.createdAt,
@@ -44,6 +46,7 @@ class CalendarTeacherTimetableModel extends Equatable {
       studentName: json['student_name'] as String? ?? '',
       country: json['country'] as String? ?? 'canada',
       status: json['status'] as String? ?? 'active',
+      studentId: json['student_id'] as int?,
       reactiveDate: json['reactive_date'] != null
           ? DateTime.tryParse(json['reactive_date'] as String)
           : null,
@@ -68,6 +71,7 @@ class CalendarTeacherTimetableModel extends Equatable {
       'student_name': studentName,
       'country': country,
       'status': status,
+      if (studentId != null) 'student_id': studentId,
       'reactive_date': reactiveDate?.toIso8601String().split('T')[0],
       'deleted_date': deletedDate?.toIso8601String().split('T')[0],
     };
@@ -83,5 +87,6 @@ class CalendarTeacherTimetableModel extends Equatable {
         studentName,
         country,
         status,
+        studentId,
       ];
 }

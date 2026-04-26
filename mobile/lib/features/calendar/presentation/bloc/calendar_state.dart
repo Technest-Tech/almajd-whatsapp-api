@@ -45,6 +45,15 @@ class ExceptionalRemindersLoaded extends CalendarState {
   List<Object?> get props => [message];
 }
 
+class ReminderSentSuccess extends CalendarState {
+  final String message;
+
+  const ReminderSentSuccess(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}
+
 // Calendar Teachers States
 class CalendarTeachersLoaded extends CalendarState {
   final List<CalendarTeacherModel> teachers;

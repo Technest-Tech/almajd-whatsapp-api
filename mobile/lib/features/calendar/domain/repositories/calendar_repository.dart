@@ -85,4 +85,12 @@ abstract class CalendarRepository {
 
   // Students List
   Future<List<String>> getStudentsList();
+
+  // Reminder WhatsApp send (via Wasender)
+  Future<String> sendDailyReminderWhatsApp({
+    required String startTime,
+    required String endTime,
+    required String day,
+  });
+  Future<String> sendExceptionalReminderWhatsApp({required DateTime date});
 }

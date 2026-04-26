@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../bloc/calendar_bloc.dart';
@@ -10,6 +9,7 @@ import '../bloc/calendar_state.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../widgets/modern_sidebar.dart';
+
 
 class RemindersPage extends StatefulWidget {
   const RemindersPage({super.key});
@@ -155,15 +155,26 @@ class _RemindersPageState extends State<RemindersPage>
             setState(() {
               _generatedMessage = state.message;
               _isDailyReminder = true;
+              _isSending = false;
             });
           } else if (state is ExceptionalRemindersLoaded) {
             setState(() {
               _generatedMessage = state.message;
               _isDailyReminder = false;
+              _isSending = false;
             });
+          } else if (state is CalendarLoading) {
+            // keep current message visible during load
+          } else if (state is ReminderSentSuccess) {
+            setState(() => _isSending = false);
+            _showSuccessDialog(state.message);
           } else if (state is CalendarError) {
+            setState(() => _isSending = false);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: AppColors.error,
+              ),
             );
           }
         },
@@ -411,9 +422,18 @@ class _RemindersPageState extends State<RemindersPage>
                         ),
                         const SizedBox(height: AppSizes.spaceMd),
                         ElevatedButton.icon(
-                          onPressed: () => _sendToWhatsApp(_generatedMessage!),
-                          icon: const Icon(Icons.send),
-                          label: const Text('إرسال إلى واتساب'),
+                          onPressed: _isSending ? null : () => _sendViaWasender(),
+                          icon: _isSending
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.send),
+                          label: Text(_isSending ? 'جارٍ الإرسال...' : 'إرسال إلى واتساب'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
@@ -525,35 +545,59 @@ class _RemindersPageState extends State<RemindersPage>
     return dayNames[englishDay] ?? englishDay;
   }
 
-  Future<void> _sendToWhatsApp(String message) async {
-    // Use the correct phone numbers from the old system
-    // Daily reminders: +201554134201
-    // Exceptional reminders: +201207220414
-    final phoneNumber = _isDailyReminder ? '201554134201' : '201207220414';
-    // Build the URL properly using Uri so the message is encoded correctly
-    final url = Uri(
-      scheme: 'https',
-      host: 'wa.me',
-      path: '/$phoneNumber',
-      queryParameters: {'text': message},
-    );
-    
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('لا يمكن فتح واتساب')),
+  bool _isSending = false;
+
+  void _sendViaWasender() {
+    if (_generatedMessage == null) return;
+    setState(() => _isSending = true);
+
+    if (_isDailyReminder) {
+      if (_startTime == null || _endTime == null || _selectedDay == null) return;
+      context.read<CalendarBloc>().add(
+            SendDailyReminderWhatsApp(
+              startTime: _convertTo24Hour(_startTime!),
+              endTime: _convertTo24Hour(_endTime!),
+              day: _selectedDay!,
+            ),
           );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في فتح واتساب: $e')),
-        );
-      }
+    } else {
+      if (_selectedDate == null) return;
+      context.read<CalendarBloc>().add(
+            SendExceptionalReminderWhatsApp(_selectedDate!),
+          );
     }
   }
-}
+
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle_rounded,
+                color: Colors.green, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('حسناً'),
+          ),
+        ],
+      ),
+    );
+  }
+

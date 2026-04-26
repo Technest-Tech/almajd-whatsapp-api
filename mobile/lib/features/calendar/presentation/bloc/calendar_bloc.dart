@@ -18,6 +18,8 @@ class CalendarBloc extends Bloc<CalendarEvent, CalendarState> {
     // Reminders
     on<GenerateDailyReminder>(_onGenerateDailyReminder);
     on<GetExceptionalReminders>(_onGetExceptionalReminders);
+    on<SendDailyReminderWhatsApp>(_onSendDailyReminderWhatsApp);
+    on<SendExceptionalReminderWhatsApp>(_onSendExceptionalReminderWhatsApp);
 
     // Teacher Timetables
     on<CreateTeacherTimetable>(_onCreateTeacherTimetable);
@@ -94,6 +96,38 @@ class CalendarBloc extends Bloc<CalendarEvent, CalendarState> {
     try {
       final message = await repository.getExceptionalReminders(date: event.date);
       emit(ExceptionalRemindersLoaded(message));
+    } catch (e) {
+      emit(CalendarError(e.toString()));
+    }
+  }
+
+  Future<void> _onSendDailyReminderWhatsApp(
+    SendDailyReminderWhatsApp event,
+    Emitter<CalendarState> emit,
+  ) async {
+    emit(CalendarLoading());
+    try {
+      final successMessage = await repository.sendDailyReminderWhatsApp(
+        startTime: event.startTime,
+        endTime: event.endTime,
+        day: event.day,
+      );
+      emit(ReminderSentSuccess(successMessage));
+    } catch (e) {
+      emit(CalendarError(e.toString()));
+    }
+  }
+
+  Future<void> _onSendExceptionalReminderWhatsApp(
+    SendExceptionalReminderWhatsApp event,
+    Emitter<CalendarState> emit,
+  ) async {
+    emit(CalendarLoading());
+    try {
+      final successMessage = await repository.sendExceptionalReminderWhatsApp(
+        date: event.date,
+      );
+      emit(ReminderSentSuccess(successMessage));
     } catch (e) {
       emit(CalendarError(e.toString()));
     }

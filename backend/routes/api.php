@@ -246,6 +246,8 @@ Route::middleware('auth:api')->group(function () {
         // Reminders
         Route::get('reminders/daily', [CalendarController::class, 'generateDailyReminder']);
         Route::get('reminders/exceptional', [CalendarController::class, 'getExceptionalReminders']);
+        Route::post('reminders/daily/send', [CalendarController::class, 'sendDailyReminderWhatsApp']);
+        Route::post('reminders/exceptional/send', [CalendarController::class, 'sendExceptionalReminderWhatsApp']);
 
         // Teacher Timetable CRUD
         Route::post('teacher-timetable', [CalendarController::class, 'storeTeacherTimetable']);
@@ -265,6 +267,12 @@ Route::middleware('auth:api')->group(function () {
         // Student Status
         Route::put('student/status', [CalendarController::class, 'updateStudentStatus']);
         Route::get('students/list', [CalendarController::class, 'getStudentsList']);
+
+        // ── Admin Session Management ──────────────────────────────────────────
+        Route::post('sessions/generate', [CalendarController::class, 'generateSessions'])
+            ->middleware('role:admin');
+        Route::delete('sessions/clear-all', [CalendarController::class, 'clearAllSessions'])
+            ->middleware('role:admin');
     });
 
     // Calendar Teachers CRUD

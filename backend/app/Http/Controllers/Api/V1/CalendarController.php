@@ -317,6 +317,95 @@ class CalendarController extends Controller
     }
 
     /**
+     * Send daily reminder via WhatsApp (Wasender)
+     * POST /api/v1/calendar/reminders/daily/send
+     */
+    public function sendDailyReminderWhatsApp(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'start_time' => 'required|string',
+                'end_time'   => 'required|string',
+                'day'        => 'required|string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
+            ]);
+
+            // Reuse the same generation logic by delegating internally
+            $generateRequest = new \Illuminate\Http\Request();
+            $generateRequest->merge($request->only(['start_time', 'end_time', 'day']));
+            $generateResponse = $this->generateDailyReminder($generateRequest);
+            $data = $generateResponse->getData(true);
+
+            if (!empty($data['error'])) {
+                return response()->json(['error' => true, 'message' => $data['message'] ?? 'Failed to generate reminder'], 422);
+            }
+
+            $message = $data['message'] ?? '';
+
+            if (empty(trim($message))) {
+                return response()->json(['error' => true, 'message' => 'لا توجد حصص في هذا التوقيت'], 422);
+            }
+
+            // Fixed phone number for daily reminders group
+            $phoneNumber = '201554134201';
+            $this->whatsAppService->sendText($phoneNumber, $message);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'تم إرسال التذكير اليومي عبر واتساب بنجاح ✅',
+            ], 200, ['Content-Type' => 'application/json; charset=utf-8'], JSON_UNESCAPED_UNICODE);
+        } catch (ValidationException $e) {
+            return response()->json(['error' => true, 'message' => 'Validation error: ' . implode(', ', $e->errors())], 422);
+        } catch (\Exception $e) {
+            Log::error('Error sending daily reminder WhatsApp: ' . $e->getMessage());
+            return response()->json(['error' => true, 'message' => 'فشل إرسال التذكير: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Send exceptional reminder via WhatsApp (Wasender)
+     * POST /api/v1/calendar/reminders/exceptional/send
+     */
+    public function sendExceptionalReminderWhatsApp(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'date' => 'required|date',
+            ]);
+
+            // Reuse the same generation logic
+            $generateRequest = new \Illuminate\Http\Request();
+            $generateRequest->merge($request->only(['date']));
+            $generateResponse = $this->getExceptionalReminders($generateRequest);
+            $data = $generateResponse->getData(true);
+
+            if (!empty($data['error'])) {
+                return response()->json(['error' => true, 'message' => $data['message'] ?? 'Failed to generate reminder'], 422);
+            }
+
+            $message = $data['message'] ?? '';
+
+            if (empty(trim($message))) {
+                return response()->json(['error' => true, 'message' => 'لا توجد حصص استثنائية في هذا التاريخ'], 422);
+            }
+
+            // Fixed phone number for exceptional reminders group
+            $phoneNumber = '201207220414';
+            $this->whatsAppService->sendText($phoneNumber, $message);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'تم إرسال تذكير الحصص الاستثنائية عبر واتساب بنجاح ✅',
+            ], 200, ['Content-Type' => 'application/json; charset=utf-8'], JSON_UNESCAPED_UNICODE);
+        } catch (ValidationException $e) {
+            return response()->json(['error' => true, 'message' => 'Validation error: ' . implode(', ', $e->errors())], 422);
+        } catch (\Exception $e) {
+            Log::error('Error sending exceptional reminder WhatsApp: ' . $e->getMessage());
+            return response()->json(['error' => true, 'message' => 'فشل إرسال التذكير: ' . $e->getMessage()], 500);
+        }
+    }
+
+
+    /**
      * Create teacher timetable entry
      * POST /api/v1/calendar/teacher-timetable
      */

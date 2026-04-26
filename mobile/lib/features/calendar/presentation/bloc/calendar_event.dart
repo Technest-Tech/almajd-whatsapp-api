@@ -55,6 +55,30 @@ class GetExceptionalReminders extends CalendarEvent {
   List<Object?> get props => [date];
 }
 
+class SendDailyReminderWhatsApp extends CalendarEvent {
+  final String startTime;
+  final String endTime;
+  final String day;
+
+  const SendDailyReminderWhatsApp({
+    required this.startTime,
+    required this.endTime,
+    required this.day,
+  });
+
+  @override
+  List<Object?> get props => [startTime, endTime, day];
+}
+
+class SendExceptionalReminderWhatsApp extends CalendarEvent {
+  final DateTime date;
+
+  const SendExceptionalReminderWhatsApp(this.date);
+
+  @override
+  List<Object?> get props => [date];
+}
+
 // Teacher Timetables
 class CreateTeacherTimetable extends CalendarEvent {
   final CalendarTeacherTimetableModel timetable;

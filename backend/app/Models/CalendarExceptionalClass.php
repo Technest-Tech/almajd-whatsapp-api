@@ -11,6 +11,7 @@ class CalendarExceptionalClass extends Model
 
     protected $fillable = [
         'student_name',
+        'student_id',
         'date',
         'time',
         'teacher_id',
@@ -29,6 +30,14 @@ class CalendarExceptionalClass extends Model
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(CalendarTeacher::class, 'teacher_id');
+    }
+
+    /**
+     * Get the linked new-system student (if mapped)
+     */
+    public function student(): BelongsTo
+    {
+        return $this->belongsTo(Student::class, 'student_id');
     }
 
     /**

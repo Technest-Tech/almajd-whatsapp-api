@@ -11,6 +11,7 @@ class CalendarTeacherTimetable extends Model
 
     protected $fillable = [
         'teacher_id',
+        'student_id',
         'day',
         'start_time',
         'finish_time',
@@ -35,5 +36,13 @@ class CalendarTeacherTimetable extends Model
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(CalendarTeacher::class, 'teacher_id');
+    }
+
+    /**
+     * Get the linked new-system student (if mapped)
+     */
+    public function student(): BelongsTo
+    {
+        return $this->belongsTo(Student::class, 'student_id');
     }
 }

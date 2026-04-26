@@ -19,6 +19,12 @@ class AutoScheduleRemindersCommand extends Command
 
     public function handle(): void
     {
+        // ── TEMPORARY PAUSE FOR TODAY (Requested by Admin) ───────────────
+        if (now('Africa/Cairo')->toDateString() === '2026-04-24') {
+            $this->info("Reminders are temporarily paused for today (2026-04-24). Will resume tomorrow.");
+            return;
+        }
+
         $academyTz = env('ACADEMY_TIMEZONE', 'Africa/Cairo');
         $todayLocal = Carbon::today($academyTz); // The local date e.g. 2026-03-15
         $now = Carbon::now('UTC');
@@ -57,6 +63,14 @@ class AutoScheduleRemindersCommand extends Command
 
         foreach ($sessions as $session) {
             [$sessionStart, $sessionEnd, $startTimeDisp] = $this->sessionBoundsUtc($session, $todayLocal, $academyTz);
+
+            // ── Skip sessions that have already fully ended ───────────────────
+            // Without this guard, all reminders (before/at_start/after/post_end)
+            // would fire immediately for past sessions, flooding teachers & students
+            // with messages about classes that already happened.
+            if ($sessionEnd->isPast()) {
+                continue;
+            }
 
             $student = $session->student;
             $teacher = $session->teacher;
@@ -116,32 +130,57 @@ class AutoScheduleRemindersCommand extends Command
                 }
             }
 
-            // ── Phase 3: 5 min AFTER class start (don’t skip if auto-schedule ran late) ──
-            $afterStartTime = $sessionStart->copy()->addMinutes(5);
-            $afterPhaseExpires = $sessionStart->copy()->addHours(2);
-            if ($now->lt($sessionEnd) && $now->lt($afterPhaseExpires)) {
-                $sendAt = $afterStartTime->gt($now) ? $afterStartTime : $now->copy();
-                if ($studentPhone) {
-                    // Student templates always have exactly 1 slot = zoom URL
-                    $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
-                    
-                    $studentZoomText = $zoomUrl !== '' ? "Zoom Link:\n{$zoomUrl}\n\n" : "";
-                    $studentFallback = "Assalamu Alaikum,\n⚠️ This is an alert that your class started 5 minutes ago!\n\n{$studentZoomText}Please join immediately. Punctuality is a beautiful Islamic trait, and your teacher is waiting for you to begin the lesson. 📚\n\nAlmajd Academy";
-                    
-                    $this->queueTemplate($session, 'student', 'after', $studentPhone, $studentName, $sendAt,
-                        'student_after_5m_alert',
-                        $studentVars,
-                        $approvedTemplates, $studentFallback);
-                    $created++;
+            // ── Phase 3: Repeated attendance polls (T+3, T+6, T+9) ──
+            //  Sent only if student hasn't been confirmed as joined yet (gated at
+            //  send-time in SendSessionRemindersJob). Each poll asks the same
+            //  "did the student join?" question with a unique minute-marker so
+            //  webhook responses match back to the specific reminder row.
+            if ($now->lt($sessionEnd)) {
+                foreach ([3, 6, 9] as $offsetMin) {
+                    if ($teacherPhone) {
+                        $sendAt = $sessionStart->copy()->addMinutes($offsetMin);
+                        $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
+                        $this->queueTemplate($session, 'teacher', "attend_{$offsetMin}m", $teacherPhone, $teacherName, $sendAt,
+                            'teacher_at_start_request',
+                            [],
+                            $approvedTemplates,
+                            "⚠️ مر {$offsetMin} دقائق على بدء حصة *{$session->title}*\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا",
+                            'awaiting');
+                        $created++;
+                    }
                 }
-                // Always queue (session is still `scheduled` here); send job skips if session already completed/cancelled.
-                if ($teacherPhone) {
-                    $this->queueTemplate($session, 'teacher', 'after', $teacherPhone, $teacherName, $sendAt,
-                        'teacher_after_5m_request',
-                        [],
-                        $approvedTemplates, "⚠️ تنبيه: حصة *{$session->title}* بدأت منذ 5 دقائق\n👤 الطالب: {$studentName}\n\nمرت 5 دقائق. هل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
-                    $created++;
-                }
+            }
+
+            // ── Phase 3b: T+10 no-show decision poll ──
+            //  Asks teacher whether to end the class or wait. If "إنهاء" → cancel
+            //  immediately (handled in inbound job). If "انتظار" or no reply →
+            //  silent until T+15 auto_cancel.
+            if ($now->lt($sessionEnd) && $teacherPhone) {
+                $sendAt = $sessionStart->copy()->addMinutes(10);
+                $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
+                $this->queueTemplate($session, 'teacher', 'no_show_decision', $teacherPhone, $teacherName, $sendAt,
+                    'teacher_no_show_decision',
+                    [],
+                    $approvedTemplates,
+                    "⏳ مر 10 دقائق على بدء حصة *{$session->title}*\n👤 الطالب: {$studentName}\n\nيبدو أن الطالب لم ينضم — هل تود الإنهاء؟\nأرسل *1* = إنهاء\nأرسل *2* = انتظار",
+                    'awaiting');
+                $created++;
+            }
+
+            // ── Phase 3c: T+15 auto-cancel notice ──
+            //  Plain text, no buttons. At send time the job cancels the session
+            //  and sets attendance_status = teacher_didnt_reply. Skipped if the
+            //  student was confirmed as joined OR إنهاء was already clicked.
+            if ($now->lt($sessionEnd) && $teacherPhone) {
+                $sendAt = $sessionStart->copy()->addMinutes(15);
+                $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
+                $this->queueTemplate($session, 'teacher', 'auto_cancel', $teacherPhone, $teacherName, $sendAt,
+                    'teacher_auto_cancel_notice',
+                    [],
+                    $approvedTemplates,
+                    "❌ يبدو أن الطالب لم ينضم — تم إلغاء حصة *{$session->title}*",
+                    null);
+                $created++;
             }
 
             // ── Phase 4: 5 min AFTER class END — teacher completion poll only ──
@@ -206,15 +245,34 @@ class AutoScheduleRemindersCommand extends Command
         }
 
         $startStr = $this->formatTimeForParse($startTime);
-        $endStr = $this->formatTimeForParse($endTime);
+
+        // ── Guard: if end_time is missing, default to start + 1 hour ──────────
+        // Without this, Carbon::parse("2026-04-24 ") resolves to midnight (00:00),
+        // which is before start — causing post_end reminders to fire immediately.
+        if (empty(trim((string) $endTime))) {
+            $endStr = Carbon::parse("{$dateStr} {$startStr}", $academyTz)->addHour()->format('H:i:s');
+        } else {
+            $endStr = $this->formatTimeForParse($endTime);
+        }
 
         $sessionStart = Carbon::parse("{$dateStr} {$startStr}", $academyTz)->utc();
-        $sessionEnd = Carbon::parse("{$dateStr} {$endStr}", $academyTz)->utc();
+        $sessionEnd   = Carbon::parse("{$dateStr} {$endStr}", $academyTz)->utc();
+
+        // Overnight class (end_time stored as TIME wraps past midnight, e.g. 22:00→00:00):
+        // roll end to the next day so duration is preserved instead of collapsing to 1 hour.
+        if ($sessionEnd->lte($sessionStart)) {
+            $sessionEnd = $sessionEnd->copy()->addDay();
+        }
+        // Final safety: if still not after start (e.g. start == end), fall back to +1 hour.
+        if ($sessionEnd->lte($sessionStart)) {
+            $sessionEnd = $sessionStart->copy()->addHour();
+        }
 
         $startTimeDisp = strlen($startStr) >= 5 ? substr($startStr, 0, 5) : $startStr;
 
         return [$sessionStart, $sessionEnd, $startTimeDisp];
     }
+
 
     private function formatTimeForParse(mixed $time): string
     {
@@ -296,17 +354,34 @@ class AutoScheduleRemindersCommand extends Command
             return;
         }
 
-        if (in_array($phase, ['before', 'at_start', 'after'])) {
-            if ($session->status === 'running') {
+        $attendanceFlowPhases = [
+            'before', 'at_start', 'after',
+            'attend_3m', 'attend_6m', 'attend_9m',
+            'no_show_decision', 'auto_cancel',
+        ];
+
+        if (in_array($phase, $attendanceFlowPhases, true)) {
+            // Pre-class phases skip if class already running; attendance-window
+            // phases (attend_*, no_show_decision, auto_cancel) are meant to fire
+            // *during* a running session, so don't skip on running.
+            if (in_array($phase, ['before', 'at_start', 'after'], true)
+                && $session->status === 'running') {
                 return;
             }
 
-            $alreadyConfirmedPreClass = Reminder::where('class_session_id', $session->id)
+            // Once attendance is confirmed (joined), don't queue any further
+            // attendance-flow reminders.
+            if ($session->attendance_status === 'both_joined') {
+                return;
+            }
+
+            $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
                 ->where('confirmation_status', 'confirmed')
-                ->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                ->whereIn('reminder_phase', ['before', 'at_start', 'after',
+                    'attend_3m', 'attend_6m', 'attend_9m'])
                 ->exists();
 
-            if ($alreadyConfirmedPreClass) {
+            if ($alreadyConfirmed) {
                 return;
             }
         }
