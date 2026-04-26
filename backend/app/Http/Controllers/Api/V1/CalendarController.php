@@ -7,10 +7,14 @@ use App\Models\CalendarExceptionalClass;
 use App\Models\CalendarStudentStop;
 use App\Models\CalendarTeacher;
 use App\Models\CalendarTeacherTimetable;
+use App\Models\ClassSession;
+use App\Models\Reminder;
+use App\Services\LegacyCalendarSyncService;
 use App\Services\WhatsApp\WhatsAppServiceInterface;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
@@ -241,11 +245,12 @@ class CalendarController extends Controller
                 $teacherLines = [];
                 foreach ($appointmentsByTime as $teacherId => $appointments) {
                     $teacher = CalendarTeacher::find($teacherId);
+                    $teacherName = $teacher ? $teacher->name : '';
                     $studentNames = [];
                     foreach ($appointments as $appointment) {
                         $studentNames[] = $appointment->student_name;
                     }
-                    $teacherLines[] = "[" . ($teacher->name ?? '') . "]," . implode(",", $studentNames);
+                    $teacherLines[] = "[" . $teacherName . "]," . implode(",", $studentNames);
                 }
 
                 $message .= implode("\n", $teacherLines) . "\n";
@@ -320,6 +325,7 @@ class CalendarController extends Controller
         try {
             $request->validate([
                 'teacher_id' => 'required|integer|exists:calendar_teachers,id',
+                'student_id' => 'nullable|integer|exists:students,id',
                 'day' => 'required|string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
                 'start_time' => 'required|string',
                 'finish_time' => 'nullable|string',
@@ -359,6 +365,7 @@ class CalendarController extends Controller
 
             $request->validate([
                 'teacher_id' => 'sometimes|integer|exists:calendar_teachers,id',
+                'student_id' => 'nullable|integer|exists:students,id',
                 'day' => 'sometimes|string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
                 'start_time' => 'sometimes|string',
                 'finish_time' => 'nullable|string',
@@ -850,11 +857,12 @@ class CalendarController extends Controller
             $teacherLines = [];
             foreach ($appointmentsByTime as $teacherId => $appointments) {
                 $teacher = CalendarTeacher::find($teacherId);
+                $teacherName = $teacher ? $teacher->name : '';
                 $studentNames = [];
                 foreach ($appointments as $appointment) {
                     $studentNames[] = $appointment->student_name;
                 }
-                $teacherLines[] = "[" . ($teacher->name ?? '') . "]," . implode(",", $studentNames);
+                $teacherLines[] = "[" . $teacherName . "]," . implode(",", $studentNames);
             }
 
             $message .= implode("\n", $teacherLines) . "\n";
@@ -874,5 +882,95 @@ class CalendarController extends Controller
             'Thursday' => 4, 'Friday' => 5, 'Saturday' => 6,
         ];
         return $days[$dayOfWeek] ?? 0;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ADMIN SESSION MANAGEMENT
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Admin-triggered: Generate sessions for the next 90 days (3 months).
+     * POST /api/v1/calendar/sessions/generate
+     */
+    public function generateSessions(LegacyCalendarSyncService $syncService): JsonResponse
+    {
+        try {
+            $beforeCount = ClassSession::count();
+
+            // Sync next 90 days from legacy calendar
+            $syncService->syncFutureDays(90);
+
+            $afterCount = ClassSession::count();
+            $created    = $afterCount - $beforeCount;
+
+            Log::info('Admin triggered session generation.', [
+                'created' => $created,
+                'total'   => $afterCount,
+            ]);
+
+            return response()->json([
+                'success'       => true,
+                'message'       => 'تم توليد الجلسات بنجاح',
+                'sessions_created' => $created,
+                'total_sessions'   => $afterCount,
+                'generated_at'  => now()->timezone('Africa/Cairo')->toDateTimeString(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Session generation failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'فشل توليد الجلسات: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Admin-triggered: Delete all FUTURE class sessions (today onwards) + orphaned reminders.
+     * DELETE /api/v1/calendar/sessions/clear-all
+     */
+    public function clearAllSessions(): JsonResponse
+    {
+        try {
+            $today = now()->timezone('Africa/Cairo')->toDateString();
+
+            // 1. Collect IDs of sessions being deleted
+            $sessionIds = ClassSession::where('session_date', '>=', $today)
+                ->pluck('id');
+
+            // 2. Delete linked pending reminders first
+            $deletedReminders = Reminder::whereIn('class_session_id', $sessionIds)
+                ->where('status', 'pending')
+                ->delete();
+
+            // 3. Delete all pending reminders (safety net)
+            $deletedReminders += Reminder::where('status', 'pending')->delete();
+
+            // 4. Delete future sessions
+            $deletedSessions = ClassSession::where('session_date', '>=', $today)->delete();
+
+            // 5. Clear job queue
+            $deletedJobs = DB::table('jobs')->delete();
+
+            Log::info('Admin cleared all future sessions.', [
+                'deleted_sessions'  => $deletedSessions,
+                'deleted_reminders' => $deletedReminders,
+                'deleted_jobs'      => $deletedJobs,
+            ]);
+
+            return response()->json([
+                'success'           => true,
+                'message'           => 'تم حذف جميع الجلسات القادمة بنجاح',
+                'deleted_sessions'  => $deletedSessions,
+                'deleted_reminders' => $deletedReminders,
+                'deleted_jobs'      => $deletedJobs,
+                'cleared_at'        => now()->timezone('Africa/Cairo')->toDateTimeString(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Session clear failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'فشل حذف الجلسات: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

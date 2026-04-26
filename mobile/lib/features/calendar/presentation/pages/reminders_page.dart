@@ -109,13 +109,29 @@ class _RemindersPageState extends State<RemindersPage>
                         onPressed: _toggleSidebar,
                         color: AppColors.primary,
                       ),
-                      IconButton(
-                        onPressed: () {
-                          context.read<AuthBloc>().add(AuthLogoutRequested());
-                          context.go('/login');
+                      BlocBuilder<AuthBloc, AuthState>(
+                        builder: (context, authState) {
+                          final isCalendarManagerOnly = authState is AuthAuthenticated &&
+                              authState.user.roles.contains('calendar_manager') &&
+                              !authState.user.roles.contains('admin');
+
+                          return IconButton(
+                            icon: Icon(
+                              isCalendarManagerOnly ? Icons.logout_rounded : Icons.close_rounded,
+                              size: 24,
+                              color: isCalendarManagerOnly ? AppColors.error : AppColors.primary,
+                            ),
+                            onPressed: () {
+                              if (isCalendarManagerOnly) {
+                                context.read<AuthBloc>().add(AuthLogoutRequested());
+                                context.go('/login');
+                              } else {
+                                context.go('/management');
+                              }
+                            },
+                            tooltip: isCalendarManagerOnly ? 'تسجيل الخروج' : 'العودة للوحة التحكم',
+                          );
                         },
-                        icon: const Icon(Icons.logout_rounded, size: 24, color: AppColors.error),
-                        tooltip: 'تسجيل الخروج',
                       ),
                       const Expanded(
                         child: Text(
@@ -513,9 +529,14 @@ class _RemindersPageState extends State<RemindersPage>
     // Use the correct phone numbers from the old system
     // Daily reminders: +201554134201
     // Exceptional reminders: +201207220414
-    final phoneNumber = _isDailyReminder ? '+201554134201' : '+201207220414';
-    final encodedMessage = Uri.encodeComponent(message);
-    final url = Uri.parse('https://wa.me/$phoneNumber?text=$encodedMessage');
+    final phoneNumber = _isDailyReminder ? '201554134201' : '201207220414';
+    // Build the URL properly using Uri so the message is encoded correctly
+    final url = Uri(
+      scheme: 'https',
+      host: 'wa.me',
+      path: '/$phoneNumber',
+      queryParameters: {'text': message},
+    );
     
     try {
       if (await canLaunchUrl(url)) {
