@@ -329,7 +329,6 @@ class CalendarController extends Controller
                 'day'        => 'required|string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
             ]);
 
-            // Reuse the same generation logic by delegating internally
             $generateRequest = new \Illuminate\Http\Request();
             $generateRequest->merge($request->only(['start_time', 'end_time', 'day']));
             $generateResponse = $this->generateDailyReminder($generateRequest);
@@ -345,9 +344,7 @@ class CalendarController extends Controller
                 return response()->json(['error' => true, 'message' => 'لا توجد حصص في هذا التوقيت'], 422);
             }
 
-            // Fixed phone number for daily reminders group
-            $phoneNumber = '201554134201';
-            $this->whatsAppService->sendText($phoneNumber, $message);
+            $this->sendInChunks('201554134201', $message);
 
             return response()->json([
                 'success' => true,
@@ -372,7 +369,6 @@ class CalendarController extends Controller
                 'date' => 'required|date',
             ]);
 
-            // Reuse the same generation logic
             $generateRequest = new \Illuminate\Http\Request();
             $generateRequest->merge($request->only(['date']));
             $generateResponse = $this->getExceptionalReminders($generateRequest);
@@ -388,9 +384,7 @@ class CalendarController extends Controller
                 return response()->json(['error' => true, 'message' => 'لا توجد حصص استثنائية في هذا التاريخ'], 422);
             }
 
-            // Fixed phone number for exceptional reminders group
-            $phoneNumber = '201207220414';
-            $this->whatsAppService->sendText($phoneNumber, $message);
+            $this->sendInChunks('201207220414', $message);
 
             return response()->json([
                 'success' => true,
@@ -401,6 +395,48 @@ class CalendarController extends Controller
         } catch (\Exception $e) {
             Log::error('Error sending exceptional reminder WhatsApp: ' . $e->getMessage());
             return response()->json(['error' => true, 'message' => 'فشل إرسال التذكير: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Split a long reminder message into chunks ≤4096 chars and send each chunk.
+     * Splits cleanly on separator lines (------------------------) to avoid
+     * cutting a time-slot block in the middle.
+     */
+    private function sendInChunks(string $phoneNumber, string $message, int $maxLength = 4000): void
+    {
+        // Split the message into logical blocks separated by the divider line
+        $blocks = preg_split('/(-{10,}\n)/u', $message, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        $chunk   = '';
+        $chunks  = [];
+
+        foreach ($blocks as $block) {
+            // If adding this block would exceed the limit, flush current chunk
+            if (mb_strlen($chunk . $block) > $maxLength && $chunk !== '') {
+                $chunks[] = rtrim($chunk);
+                $chunk    = '';
+            }
+            $chunk .= $block;
+        }
+
+        // Flush any remaining text
+        if (trim($chunk) !== '') {
+            $chunks[] = rtrim($chunk);
+        }
+
+        // If the message fits in one chunk (most common case), just send it
+        if (count($chunks) === 0) {
+            $this->whatsAppService->sendText($phoneNumber, trim($message));
+            return;
+        }
+
+        foreach ($chunks as $i => $part) {
+            // Small delay between messages to avoid rate-limiting
+            if ($i > 0) {
+                sleep(1);
+            }
+            $this->whatsAppService->sendText($phoneNumber, $part);
         }
     }
 
