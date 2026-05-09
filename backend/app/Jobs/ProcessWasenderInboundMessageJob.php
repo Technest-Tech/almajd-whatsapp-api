@@ -133,18 +133,36 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ?? $data['pollMsg']['pollCreationMessage']['name']
                 ?? null;
 
+            // Collect real phone from any source — WhatsApp puts the real phone
+            // in either voters[] or key.remoteJid, and LIDs in the other.
+            $candidateJids = [];
+
             $pollResult = $data['pollResult'] ?? [];
             foreach ($pollResult as $option) {
                 if (!empty($option['voters'])) {
                     $selectedNames[] = $option['name'];
-                    // We extract the first voter's phone (in 1:1 chats it's just the teacher)
-                    $voterJid = $option['voters'][0];
-                    $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $voterJid)[0] ?? '');
+                    foreach ($option['voters'] as $vJid) {
+                        $candidateJids[] = $vJid;
+                    }
                 }
             }
 
-            if (!$voterPhone) {
-                $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $remoteJid)[0] ?? '');
+            // Also consider key.remoteJid
+            if ($remoteJid) {
+                $candidateJids[] = $remoteJid;
+            }
+
+            // Pick the first candidate that is a real phone (@s.whatsapp.net)
+            foreach ($candidateJids as $jid) {
+                if (str_contains($jid, '@s.whatsapp.net')) {
+                    $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $jid)[0] ?? '');
+                    break;
+                }
+            }
+
+            // Fallback: use whatever we have (LID — won't match but gets logged)
+            if (!$voterPhone && !empty($candidateJids)) {
+                $voterPhone = preg_replace('/[^0-9]/', '', explode('@', $candidateJids[0])[0] ?? '');
             }
         }
         // ── 2. Parse legacy / alternative 'messages.upsert' format ──────────────
@@ -205,22 +223,26 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         $reminder = null;
 
         if ($pollQuestion && $voterPhone) {
-
+            // Primary match: exact question text + voter phone + valid session link
             $reminder = \App\Models\Reminder::where('recipient_phone', $voterPhone)
                 ->where('recipient_type', 'teacher')
                 ->where('message_body', $pollQuestion)
+                ->whereNotNull('class_session_id')
                 ->orderByDesc('sent_at')
                 ->first();
         }
 
         // Fallback: legacy ID-based lookup (only useful if poll_message_id was stored correctly)
         if (!$reminder && $pollMsgId) {
-            $reminderQuery = \App\Models\Reminder::where('poll_message_id', $pollMsgId);
+            $reminderQuery = \App\Models\Reminder::where('poll_message_id', $pollMsgId)
+                ->whereNotNull('class_session_id');
             if ($voterPhone) {
                 $reminderQuery->where('recipient_phone', $voterPhone);
             }
             $reminder = $reminderQuery->first()
-                ?? \App\Models\Reminder::where('poll_message_id', $pollMsgId)->first();
+                ?? \App\Models\Reminder::where('poll_message_id', $pollMsgId)
+                    ->whereNotNull('class_session_id')
+                    ->first();
         }
 
         if (!$reminder || !$reminder->class_session_id) {
@@ -279,12 +301,13 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             }
         }
 
-        Log::info('WasenderAPI: Poll vote handled successfully', [
+        Log::channel('reminder')->info('POLL VOTE RECEIVED', [
             'poll_msg_id'   => $pollMsgId,
             'voter'         => $voterPhone,
             'selected'      => $selectedNames,
             'resolved_vote' => $voteValue,
             'reminder_id'   => $reminder->id,
+            'session_id'    => $reminder->class_session_id,
             'phase'         => $reminder->reminder_phase,
         ]);
 
@@ -293,9 +316,13 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         if (!$session || in_array($session->status, ['completed', 'cancelled'], true)) {
             // Allow post_end confirmations even on "completed" — admin may have pre-closed it
             if (!($session && $reminder->reminder_phase === 'post_end')) {
-                Log::info('WasenderAPI: Poll vote ignored — session already closed', [
-                    'session_id' => $reminder->class_session_id,
-                    'status'     => $session?->status,
+                Log::channel('reminder')->info('POLL VOTE IGNORED — session already closed', [
+                    'session_id'  => $reminder->class_session_id,
+                    'status'      => $session?->status,
+                    'reminder_id' => $reminder->id,
+                    'phase'       => $reminder->reminder_phase,
+                    'vote'        => $voteValue,
+                    'voter'       => $voterPhone,
                 ]);
                 return;
             }
@@ -337,9 +364,11 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ->where('id', '!=', $reminder->id)
                 ->update(['confirmation_status' => 'no_reply']);
 
-            Log::info('WasenderAPI: Poll YES — session updated', [
+            Log::channel('reminder')->info('POLL YES → session updated', [
                 'session_id' => $session->id,
+                'phase'      => $phase,
                 'new_status' => $session->status,
+                'attendance' => $session->attendance_status,
             ]);
 
         } elseif ($voteValue === 'no') {
@@ -353,13 +382,18 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 // Attendance poll NO — student still hasn't joined. Don't cancel
                 // anything; the next attend_*/no_show_decision poll will fire.
                 $session->update(['status' => 'pending', 'attendance_status' => 'no_show']);
+
+                // Nudge the student that the teacher is waiting.
+                $this->sendTeacherWaitingNudgeToStudent($session);
             } else {
                 $session->update(['status' => 'pending', 'attendance_status' => 'no_show']);
             }
 
-            Log::info('WasenderAPI: Poll NO — session updated', [
+            Log::channel('reminder')->info('POLL NO → session updated', [
                 'session_id' => $session->id,
+                'phase'      => $phase,
                 'new_status' => $session->status,
+                'attendance' => $session->attendance_status,
             ]);
 
         } elseif ($voteValue === 'finish' && $phase === 'no_show_decision') {
@@ -376,15 +410,16 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ->where('status', 'pending')
                 ->update(['status' => 'cancelled', 'failure_reason' => 'تم إنهاء الحصة بقرار المعلم']);
 
-            Log::info('WasenderAPI: no_show_decision FINISH — session cancelled', [
+            Log::channel('reminder')->warning('POLL FINISH → session cancelled (teacher ended)', [
                 'session_id' => $session->id,
+                'title'      => $session->title,
             ]);
 
         } elseif ($voteValue === 'wait' && $phase === 'no_show_decision') {
             // ── Teacher chose انتظار: silent until T+15 auto_cancel ──
             $reminder->update(['confirmation_status' => 'awaiting']);
 
-            Log::info('WasenderAPI: no_show_decision WAIT — silent until auto_cancel', [
+            Log::channel('reminder')->info('POLL WAIT → silent until auto_cancel', [
                 'session_id' => $session->id,
             ]);
 
@@ -395,6 +430,81 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 'session_id' => $session->id,
             ]);
             $reminder->update(['confirmation_status' => 'awaiting']);
+        }
+
+        // ── Create inbox messages for the poll exchange ──────────────────────
+        // Show both the outbound poll question and the inbound vote response
+        // in the teacher's chat thread so admins can see the full conversation.
+        $this->createPollInboxMessages($reminder, $voterPhone, $selectedNames, $voteValue);
+    }
+
+    /**
+     * Create inbox WhatsappMessage records for a poll exchange:
+     * 1. Outbound: the poll question we sent (if not already stored by createInboxMessage)
+     * 2. Inbound: the teacher's vote response
+     */
+    private function createPollInboxMessages(
+        \App\Models\Reminder $reminder,
+        ?string $voterPhone,
+        array $selectedNames,
+        ?string $voteValue
+    ): void {
+        try {
+            if (!$voterPhone) return;
+
+            $phoneWithPlus = str_starts_with($voterPhone, '+') ? $voterPhone : '+' . $voterPhone;
+            $phoneWithout  = ltrim($voterPhone, '+');
+
+            // Find or create guardian
+            $guardian = Guardian::where('phone', $phoneWithPlus)
+                ->orWhere('phone', $phoneWithout)
+                ->first();
+
+            if (!$guardian) return;
+
+            // Find existing ticket
+            $ticket = Ticket::where('guardian_id', $guardian->id)
+                ->whereIn('status', [\App\Enums\TicketStatus::Open, \App\Enums\TicketStatus::Pending])
+                ->latest()
+                ->first();
+
+            if (!$ticket) return;
+
+            // Build vote display text
+            $voteName = implode(', ', $selectedNames) ?: ($voteValue ?? '—');
+            $voteEmoji = match ($voteValue) {
+                'yes'    => '✅',
+                'no'     => '❌',
+                'finish' => '🛑',
+                'wait'   => '⏳',
+                default  => '🗳️',
+            };
+            $voteText = "{$voteEmoji} {$voteName}";
+
+            // Create inbound message for the teacher's vote
+            $whatsappMsg = WhatsappMessage::create([
+                'wa_message_id'   => 'POLL_VOTE_' . Str::ulid(),
+                'ticket_id'       => $ticket->id,
+                'direction'       => MessageDirection::Inbound,
+                'from_number'     => $phoneWithPlus,
+                'to_number'       => config('whatsapp.wasender.from_number', ''),
+                'message_type'    => MessageType::Text,
+                'content'         => $voteText,
+                'delivery_status' => DeliveryStatus::Delivered,
+                'timestamp'       => now(),
+            ]);
+
+            // Update ticket preview
+            $ticket->update([
+                'last_message_preview' => Str::limit($voteText, 80),
+                'last_message_at'      => now(),
+            ]);
+
+            // Real-time WebSocket
+            event(new \App\Events\TicketMessageCreated($ticket, $whatsappMsg));
+
+        } catch (\Throwable $e) {
+            Log::warning("Failed to create poll inbox messages for reminder #{$reminder->id}: {$e->getMessage()}");
         }
     }
 
@@ -521,11 +631,42 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             return;
         }
 
-        // Deduplication guard
+        // Deduplication guard — primary: exact wa_message_id match
         if (WhatsappMessage::where('wa_message_id', $messageId)->exists()) {
             Log::info("WasenderAPI: Duplicate message skipped: {$messageId}");
             return;
         }
+
+        // Secondary dedup: when fromMe=true (Wasender echo of a message WE sent),
+        // check if createInboxMessage() already stored this as an RMD_ record.
+        // If found, update the fake ID → real WhatsApp ID (enables delivery tracking)
+        // and skip creating a second row — that's what causes the inbox duplication.
+        if ($fromMe) {
+            // Extract recipient phone from key (we haven't resolved $toNumber yet)
+            $echoRemoteJid = $key['remoteJid'] ?? '';
+            $echoRecipient = preg_replace('/[^0-9]/', '', explode('@', $echoRemoteJid)[0] ?? '');
+            $echoRecipientPlus = $echoRecipient ? '+' . ltrim($echoRecipient, '+') : '';
+
+            if ($echoRecipientPlus) {
+                $existing = WhatsappMessage::where('direction', MessageDirection::Outbound)
+                    ->where('wa_message_id', 'like', 'RMD_%')
+                    ->where('created_at', '>=', now()->subMinutes(10))
+                    ->where(function ($q) use ($echoRecipientPlus, $echoRecipient) {
+                        $q->where('to_number', $echoRecipientPlus)
+                          ->orWhere('to_number', $echoRecipient);
+                    })
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+
+                if ($existing) {
+                    $existing->update(['wa_message_id' => $messageId, 'delivery_status' => DeliveryStatus::Sent]);
+                    Log::info("WasenderAPI: fromMe echo matched RMD record #{$existing->id} → updated wa_message_id to {$messageId}");
+                    return;
+                }
+            }
+        }
+
+
 
         // ── Resolve the CONTACT phone number ────────────────────────────────────
         // For inbound: the sender IS the contact (cleanedSenderPn / cleanedParticipantPn)
@@ -1095,6 +1236,143 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
 
     /**
+     * Send the "your teacher is waiting" nudge to the student when the teacher
+     * has just confirmed (via attendance poll NO) that the student hasn't joined.
+     *
+     * Mirrors the at_start student template in AutoScheduleRemindersCommand.
+     * Stores a reminder row + inbox message so the conversation stays visible.
+     */
+    private function sendTeacherWaitingNudgeToStudent(\App\Models\ClassSession $session): void
+    {
+        try {
+            $session->loadMissing(['student.guardian', 'teacher']);
+            $student = $session->student;
+            if (!$student) {
+                return;
+            }
+
+            $studentPhone = $student->guardian?->phone ?? $student->phone ?? $student->whatsapp_number ?? null;
+            if (!$studentPhone) {
+                Log::channel('reminder')->info('TEACHER_WAITING_NUDGE skipped — student has no phone', [
+                    'session_id' => $session->id,
+                    'student_id' => $student->id,
+                ]);
+                return;
+            }
+
+            $teacherName = $session->teacher?->name ?? 'المعلم';
+            $studentName = $student->name ?? 'الطالب';
+            $message     = "⏳ المعلم ينتظرك الآن | Your teacher is waiting\n👨‍🏫 المعلم: {$teacherName}";
+
+            // Idempotency guard — don't spam if we've already sent this nudge
+            // for this session in the last 2 minutes (e.g. teacher voted NO
+            // multiple times across attend_3m / attend_6m / attend_9m).
+            $recentlySent = \App\Models\Reminder::where('class_session_id', $session->id)
+                ->where('recipient_type', 'student')
+                ->whereIn('reminder_phase', ['teacher_waiting', 'at_start'])
+                ->where('status', 'sent')
+                ->where('sent_at', '>=', now()->subMinutes(2))
+                ->exists();
+
+            if ($recentlySent) {
+                return;
+            }
+
+            $reminder = \App\Models\Reminder::create([
+                'type'             => 'session_reminder',
+                'class_session_id' => $session->id,
+                'recipient_type'   => 'student',
+                'recipient_name'   => $studentName,
+                'recipient_phone'  => $studentPhone,
+                'reminder_phase'   => 'teacher_waiting',
+                'message_body'     => $message,
+                'scheduled_at'     => now(),
+                'status'           => 'sent',
+                'sent_at'          => now(),
+            ]);
+
+            /** @var \App\Services\WhatsApp\WhatsAppServiceInterface $whatsApp */
+            $whatsApp = app(\App\Services\WhatsApp\WhatsAppServiceInterface::class);
+            $whatsApp->sendText($studentPhone, $message);
+
+            // Mirror into ticket inbox so admin sees the nudge in chat history
+            $this->createInboxMessageForReminder($reminder);
+
+            Log::channel('reminder')->info('TEACHER_WAITING_NUDGE sent to student', [
+                'session_id'    => $session->id,
+                'student_id'    => $student->id,
+                'student_phone' => $studentPhone,
+            ]);
+        } catch (\Throwable $e) {
+            Log::channel('reminder')->warning('TEACHER_WAITING_NUDGE failed', [
+                'session_id' => $session->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Inbox-mirror helper for ad-hoc reminders created outside SendSessionRemindersJob.
+     */
+    private function createInboxMessageForReminder(\App\Models\Reminder $reminder): void
+    {
+        try {
+            $phone = $reminder->recipient_phone;
+            $phoneWithPlus = str_starts_with($phone, '+') ? $phone : '+' . $phone;
+
+            $guardian = Guardian::where('phone', $phone)
+                ->orWhere('phone', $phoneWithPlus)
+                ->first();
+
+            if (!$guardian) {
+                $guardian = Guardian::create([
+                    'name'  => $reminder->recipient_name ?? 'Unknown',
+                    'phone' => $phoneWithPlus,
+                ]);
+            }
+
+            $ticket = Ticket::where('guardian_id', $guardian->id)
+                ->whereIn('status', [TicketStatus::Open, TicketStatus::Pending])
+                ->latest()
+                ->first();
+
+            if (!$ticket) {
+                $ticket = Ticket::create([
+                    'ticket_number'         => Ticket::generateTicketNumber(),
+                    'guardian_id'           => $guardian->id,
+                    'status'                => TicketStatus::Open,
+                    'priority'              => TicketPriority::Normal,
+                    'channel'               => 'whatsapp',
+                    'subject'               => 'تذكير بالحصة',
+                    'session_supervisor_id' => $reminder->classSession?->supervisor_id,
+                ]);
+            }
+
+            $fromNumber = config('whatsapp.wasender.from_number', '+201554134201');
+            $whatsappMsg = WhatsappMessage::create([
+                'wa_message_id'   => 'RMD_' . Str::ulid(),
+                'ticket_id'       => $ticket->id,
+                'direction'       => MessageDirection::Outbound,
+                'from_number'     => $fromNumber,
+                'to_number'       => $phoneWithPlus,
+                'message_type'    => MessageType::Text,
+                'content'         => $reminder->message_body ?? '',
+                'delivery_status' => DeliveryStatus::Sent,
+                'timestamp'       => now(),
+            ]);
+
+            $ticket->update([
+                'last_message_preview' => Str::limit($reminder->message_body ?? 'تذكير', 80),
+                'last_message_at'      => now(),
+            ]);
+
+            event(new \App\Events\TicketMessageCreated($ticket, $whatsappMsg));
+        } catch (\Throwable $e) {
+            Log::warning("Failed to mirror reminder #{$reminder->id} to inbox: {$e->getMessage()}");
+        }
+    }
+
+    /**
      * Step 1 — Called right after the teacher's post_end poll vote = YES.
      *
      * Sets report_status = 'awaiting' and sends the teacher a plain-text
@@ -1106,6 +1384,13 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             Log::warning('ReportFlow: cannot request report — teacher phone unknown', ['session_id' => $session->id]);
             return;
         }
+
+        // Never request a report for cancelled sessions — student didn't attend
+        if ($session->status === 'cancelled') {
+            Log::info('ReportFlow: skipping report request — session is cancelled', ['session_id' => $session->id]);
+            return;
+        }
+
 
         try {
             $session->update(['report_status' => 'awaiting', 'report_nudge_count' => 0]);
