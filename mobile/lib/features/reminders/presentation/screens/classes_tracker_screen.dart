@@ -1354,15 +1354,6 @@ class _SessionCard extends StatelessWidget {
                   color: const Color(0xFFAB47BC),
                   onTap: onRemindTeacher,
                 ),
-                if (session.isCompleted && session.reportStatus != 'confirmed') ...[
-                  const SizedBox(width: 8),
-                  _ActionButton(
-                    icon: Icons.send_rounded,
-                    label: 'إرسال التقرير',
-                    color: AppColors.primary,
-                    onTap: onSendReport,
-                  ),
-                ],
                 const Spacer(),
                 // Status menu
                 PopupMenuButton<String>(
@@ -1379,6 +1370,26 @@ class _SessionCard extends StatelessWidget {
                 ),
               ],
             ),
+
+            // Send report button (own row to avoid overflow)
+            if (session.isCompleted && session.reportStatus != 'confirmed') ...[
+              const SizedBox(height: 6),
+              SizedBox(
+                height: 32,
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onSendReport,
+                  icon: const Icon(Icons.send_rounded, size: 14),
+                  label: const Text('إرسال التقرير يدوياً', style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ),
+            ],
 
             // Cancellation reason
             if (session.isCancelled && session.cancellationReason != null) ...[
