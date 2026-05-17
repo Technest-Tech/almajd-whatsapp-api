@@ -7,6 +7,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../students/data/models/class_session_model.dart';
+import '../../../sessions/data/session_repository.dart';
 import 'package:go_router/go_router.dart';
 
 /// A premium classes-tracker screen for supervisors.
@@ -273,6 +274,61 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
     }
   }
 
+  void _showReportDialog(int sessionId) {
+    final reportController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        title: const Text('إرسال تقرير الحصة'),
+        content: TextField(
+          controller: reportController,
+          decoration: const InputDecoration(
+            labelText: 'تقرير الحصة',
+            hintText: 'أدخل تقرير الحصة هنا...',
+            alignLabelWithHint: true,
+          ),
+          maxLines: 5,
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
+          TextButton(
+            onPressed: () async {
+              final text = reportController.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(ctx);
+              try {
+                await getIt<SessionRepository>().submitReport(sessionId, reportText: text);
+                _load();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم إرسال التقرير بنجاح ✅'),
+                      backgroundColor: AppColors.success,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('فشل إرسال التقرير، حاول مجدداً'),
+                      backgroundColor: AppColors.coral,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('إرسال'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showRescheduleDialog(int sessionId) async {
     DateTime? pickedDate;
     TimeOfDay? pickedStartTime;
@@ -484,7 +540,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                   const SizedBox(height: 8),
                 ],
                 SizedBox(
-                  height: 88,
+                  height: 96,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     physics: const BouncingScrollPhysics(),
@@ -579,6 +635,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
+                                      onSendReport: () => _showReportDialog(s.id),
                                     )),
                                 const SizedBox(height: 12),
                               ],
@@ -596,6 +653,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
+                                      onSendReport: () => _showReportDialog(s.id),
                                     )),
                                 const SizedBox(height: 12),
                               ],
@@ -613,6 +671,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
+                                      onSendReport: () => _showReportDialog(s.id),
                                     )),
                                 const SizedBox(height: 12),
                               ],
@@ -630,6 +689,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
+                                      onSendReport: () => _showReportDialog(s.id),
                                     )),
                               ],
                             ],
@@ -969,6 +1029,7 @@ class _SessionCard extends StatelessWidget {
   final VoidCallback? onRemindTeacher;
   final ValueChanged<String>? onStatusChange;
   final ValueChanged<int>? onStudentTap;
+  final VoidCallback? onSendReport;
 
   const _SessionCard({
     required this.session,
@@ -978,6 +1039,7 @@ class _SessionCard extends StatelessWidget {
     this.onRemindTeacher,
     this.onStatusChange,
     this.onStudentTap,
+    this.onSendReport,
   });
 
   Color get _accentColor => switch (category) {
@@ -1292,6 +1354,15 @@ class _SessionCard extends StatelessWidget {
                   color: const Color(0xFFAB47BC),
                   onTap: onRemindTeacher,
                 ),
+                if (session.isCompleted && session.reportStatus != 'confirmed') ...[
+                  const SizedBox(width: 8),
+                  _ActionButton(
+                    icon: Icons.send_rounded,
+                    label: 'إرسال التقرير',
+                    color: AppColors.primary,
+                    onTap: onSendReport,
+                  ),
+                ],
                 const Spacer(),
                 // Status menu
                 PopupMenuButton<String>(
