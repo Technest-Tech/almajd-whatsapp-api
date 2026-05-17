@@ -225,6 +225,8 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:sessions.edit');
         Route::post('{id}/remind', [SessionController::class, 'sendReminder'])
             ->middleware('permission:sessions.edit');
+        Route::post('{id}/report', [SessionController::class, 'submitReport'])
+            ->middleware('permission:sessions.edit');
     });
 
     // ── Reminders ───────────────────────────────────────

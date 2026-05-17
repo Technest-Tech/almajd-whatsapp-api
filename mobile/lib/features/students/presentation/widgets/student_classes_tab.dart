@@ -254,7 +254,7 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.primary, surface: AppColors.darkCard, onSurface: AppColors.textPrimary),
+          colorScheme: const ColorScheme.light(primary: AppColors.primary, surface: AppColors.lightCard, onSurface: AppColors.textPrimary),
         ),
         child: child!,
       ),
@@ -266,7 +266,7 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
       initialTime: TimeOfDay(hour: int.tryParse(session.startTime.split(':')[0]) ?? 8, minute: 0),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.primary, surface: AppColors.darkCard, onSurface: AppColors.textPrimary),
+          colorScheme: const ColorScheme.light(primary: AppColors.primary, surface: AppColors.lightCard, onSurface: AppColors.textPrimary),
         ),
         child: child!,
       ),
@@ -278,7 +278,7 @@ class _StudentClassesTabState extends State<StudentClassesTab> {
       initialTime: TimeOfDay(hour: start.hour + 1, minute: start.minute),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.primary, surface: AppColors.darkCard, onSurface: AppColors.textPrimary),
+          colorScheme: const ColorScheme.light(primary: AppColors.primary, surface: AppColors.lightCard, onSurface: AppColors.textPrimary),
         ),
         child: child!,
       ),

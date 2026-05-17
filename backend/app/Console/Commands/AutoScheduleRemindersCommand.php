@@ -11,6 +11,7 @@ use App\Services\SessionLoadBalancerService;
 use App\Support\ReminderTemplateResolver;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class AutoScheduleRemindersCommand extends Command
 {
@@ -26,8 +27,59 @@ class AutoScheduleRemindersCommand extends Command
         }
 
         $academyTz = env('ACADEMY_TIMEZONE', 'Africa/Cairo');
-        $todayLocal = Carbon::today($academyTz); // The local date e.g. 2026-03-15
+        $todayLocal = Carbon::today($academyTz);
         $now = Carbon::now('UTC');
+
+        $rlog = Log::channel('reminder');
+
+        // ── Auto-complete stale 'running' sessions ──────────────────────────
+        // If a session is still 'running' but its end time passed 30+ minutes ago,
+        // auto-complete it. This handles cases where the teacher didn't respond to
+        // the post_end poll or the poll was missed.
+        $staleRunning = ClassSession::where('status', 'running')
+            ->where(function ($q) use ($now, $academyTz) {
+                // Sessions that cross midnight (end_time < start_time) end on the next
+                // calendar day — add 1 day to session_date before concatenating.
+                $q->whereRaw("
+                    CASE
+                        WHEN end_time < start_time THEN
+                            CONVERT_TZ(
+                                CONCAT(DATE_ADD(session_date, INTERVAL 1 DAY), ' ', end_time),
+                                '+03:00', '+00:00'
+                            )
+                        ELSE
+                            CONVERT_TZ(
+                                CONCAT(session_date, ' ', end_time),
+                                '+03:00', '+00:00'
+                            )
+                    END <= ?",
+                    [$now->copy()->subMinutes(30)->toDateTimeString()]
+                );
+            })
+            ->get();
+
+        foreach ($staleRunning as $stale) {
+            $crossesMidnight = $stale->end_time < $stale->start_time;
+            $stale->update(['status' => 'completed']);
+
+            $rlog->warning('ReportFlow[auto-complete] stale running session auto-completed — post_end poll was missed or not confirmed', [
+                'session_id'      => $stale->id,
+                'title'           => $stale->title,
+                'session_date'    => $stale->session_date,
+                'start_time'      => $stale->start_time,
+                'end_time'        => $stale->end_time,
+                'crosses_midnight'=> $crossesMidnight,
+                'report_status'   => $stale->report_status,
+                'attendance'      => $stale->attendance_status,
+                'teacher'         => $stale->teacher?->name,
+                'student'         => $stale->student?->name ?? $stale->title,
+            ]);
+        }
+
+        if ($staleRunning->count() > 0) {
+            $rlog->info('Stale sessions auto-completed', ['count' => $staleRunning->count()]);
+        }
+
 
         // Get all relevant sessions for today:
         //  1. Sessions originally scheduled for today (session_date = today)
@@ -48,6 +100,12 @@ class AutoScheduleRemindersCommand extends Command
             ->whereIn('status', ['scheduled', 'rescheduled', 'coming', 'pending', 'running'])
             ->get();
 
+        $rlog->info('── AUTO-SCHEDULE START ──', [
+            'date'     => $todayLocal->toDateString(),
+            'utc_now'  => $now->toDateTimeString(),
+            'sessions' => $sessions->count(),
+        ]);
+
         // Load approved templates for automation (resolve by logical key + optional config name/SID)
         $approvedTemplates = WhatsappTemplate::where('status', 'approved')->get();
 
@@ -60,17 +118,25 @@ class AutoScheduleRemindersCommand extends Command
         });
 
         $created = 0;
+        $skippedPast = 0;
 
         foreach ($sessions as $session) {
             [$sessionStart, $sessionEnd, $startTimeDisp] = $this->sessionBoundsUtc($session, $todayLocal, $academyTz);
 
-            // ── Skip sessions that have already fully ended ───────────────────
-            // Without this guard, all reminders (before/at_start/after/post_end)
-            // would fire immediately for past sessions, flooding teachers & students
-            // with messages about classes that already happened.
             if ($sessionEnd->isPast()) {
+                $skippedPast++;
                 continue;
             }
+
+            $rlog->debug('Processing session', [
+                'session_id'  => $session->id,
+                'title'       => $session->title,
+                'status'      => $session->status,
+                'start_cairo' => $sessionStart->copy()->timezone($academyTz)->format('H:i'),
+                'end_cairo'   => $sessionEnd->copy()->timezone($academyTz)->format('H:i'),
+                'student'     => $session->student?->name,
+                'teacher'     => $session->teacher?->name,
+            ]);
 
             $student = $session->student;
             $teacher = $session->teacher;
@@ -92,38 +158,40 @@ class AutoScheduleRemindersCommand extends Command
             if ($now->lt($sessionStart)) {
                 $sendAt = $beforeTime->gt($now) ? $beforeTime : $now->copy();
                 if ($studentPhone) {
-                    // Student templates always have exactly 1 slot = zoom URL
-                    $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
                     $this->queueTemplate($session, 'student', 'before', $studentPhone, $studentName, $sendAt,
-                        'student_before_reminder',
-                        $studentVars,
-                        $approvedTemplates, "📚 تذكير: حصة *{$session->title}* ستبدأ خلال 5 دقائق\n⏰ الوقت: {$startTimeDisp}\n👨‍🏫 المعلم: {$teacherName}{$zoomLinkTxt}");
+                        '_none',
+                        [],
+                        $approvedTemplates, "📚 حصتك ستبدأ خلال 5 دقائق | Your lesson starts in 5 minutes\n👨‍🏫 المعلم: {$teacherName}");
                     $created++;
                 }
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'before', $teacherPhone, $teacherName, $sendAt,
-                        'teacher_before_alert',
+                        '_none',
                         [],
                         $approvedTemplates, "📚 تذكير: حصتك *{$session->title}* ستبدأ خلال 5 دقائق\n👤 الطالب: {$studentName}\nيرجى الاستعداد.");
                     $created++;
                 }
             }
 
-            // ── Phase 2: AT class start (queue until class ends so late auto-schedule still creates it) ──
-            if ($now->lt($sessionEnd)) {
+            // ── Phase 2: AT class start ──
+            // Skip if session started more than 10 minutes ago (too late to be useful)
+            $tooLateForAtStart = $now->gt($sessionStart->copy()->addMinutes(10));
+            if ($now->lt($sessionEnd) && !$tooLateForAtStart) {
                 $sendAt = $sessionStart->gt($now) ? $sessionStart : $now->copy();
+                // If 'before' phase also fired now (scheduler ran late), stagger by +2 min.
+                if ($now->gte($sessionStart) && $now->lt($sessionEnd)) {
+                    $sendAt = $now->copy()->addMinutes(2);
+                }
                 if ($studentPhone) {
-                    // Student templates always have exactly 1 slot = zoom URL
-                    $studentVars = ['1' => $zoomUrl !== '' ? $zoomUrl : 'Zoom Link'];
                     $this->queueTemplate($session, 'student', 'at_start', $studentPhone, $studentName, $sendAt,
-                        'student_at_start_reminder',
-                        $studentVars,
-                        $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n⏰ الوقت: {$startTimeDisp}\n👨‍🏫 المعلم: {$teacherName}\nيرجى الانضمام فوراً{$zoomLinkTxt}");
+                        '_none',
+                        [],
+                        $approvedTemplates, "⏳ المعلم ينتظرك الآن | Your teacher is waiting\n👨‍🏫 المعلم: {$teacherName}");
                     $created++;
                 }
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'at_start', $teacherPhone, $teacherName, $sendAt,
-                        'teacher_at_start_request',
+                        '_none',
                         [],
                         $approvedTemplates, "🔔 حصة *{$session->title}* تبدأ الآن!\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا", 'awaiting');
                     $created++;
@@ -139,9 +207,12 @@ class AutoScheduleRemindersCommand extends Command
                 foreach ([3, 6, 9] as $offsetMin) {
                     if ($teacherPhone) {
                         $sendAt = $sessionStart->copy()->addMinutes($offsetMin);
-                        $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
+                        // If time has passed, send on next job run (within 1 min)
+                        if ($sendAt->lt($now)) {
+                            $sendAt = $now->copy();
+                        }
                         $this->queueTemplate($session, 'teacher', "attend_{$offsetMin}m", $teacherPhone, $teacherName, $sendAt,
-                            'teacher_at_start_request',
+                            '_none',
                             [],
                             $approvedTemplates,
                             "⚠️ مر {$offsetMin} دقائق على بدء حصة *{$session->title}*\n👤 الطالب: {$studentName}\n\nهل انضم الطالب؟\nأرسل *1* = نعم\nأرسل *2* = لا",
@@ -159,7 +230,7 @@ class AutoScheduleRemindersCommand extends Command
                 $sendAt = $sessionStart->copy()->addMinutes(10);
                 $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
                 $this->queueTemplate($session, 'teacher', 'no_show_decision', $teacherPhone, $teacherName, $sendAt,
-                    'teacher_no_show_decision',
+                    '_none',
                     [],
                     $approvedTemplates,
                     "⏳ مر 10 دقائق على بدء حصة *{$session->title}*\n👤 الطالب: {$studentName}\n\nيبدو أن الطالب لم ينضم — هل تود الإنهاء؟\nأرسل *1* = إنهاء\nأرسل *2* = انتظار",
@@ -175,10 +246,10 @@ class AutoScheduleRemindersCommand extends Command
                 $sendAt = $sessionStart->copy()->addMinutes(15);
                 $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
                 $this->queueTemplate($session, 'teacher', 'auto_cancel', $teacherPhone, $teacherName, $sendAt,
-                    'teacher_auto_cancel_notice',
+                    '_none',
                     [],
                     $approvedTemplates,
-                    "❌ يبدو أن الطالب لم ينضم — تم إلغاء حصة *{$session->title}*",
+                    "❌ تم إلغاء حصة *{$session->title}* تلقائياً\n👤 الطالب: {$studentName}\nالسبب: لم ينضم الطالب خلال 15 دقيقة.",
                     null);
                 $created++;
             }
@@ -193,7 +264,7 @@ class AutoScheduleRemindersCommand extends Command
                 $sendAt = $afterEndTime->gt($now) ? $afterEndTime : $now->copy();
                 if ($teacherPhone) {
                     $this->queueTemplate($session, 'teacher', 'post_end', $teacherPhone, $teacherName, $sendAt,
-                        'teacher_post_end_request',
+                        '_none',
                         [],
                         $approvedTemplates, "🏁 حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، لم تكتمل", 'awaiting');
                     $created++;
@@ -212,7 +283,7 @@ class AutoScheduleRemindersCommand extends Command
                 if ($firstPostEndDenied && $teacherPhone) {
                     $sendAt = $afterEndTime10->gt($now) ? $afterEndTime10 : $now->copy();
                     $this->queueTemplate($session, 'teacher', 'post_end_2', $teacherPhone, $teacherName, $sendAt,
-                        'teacher_post_end_request',
+                        '_none',
                         [],
                         $approvedTemplates, "🏁 تذكير: حصة *{$session->title}* انتهى وقتها\n👤 الطالب: {$studentName}\n\nهل اكتملت الحصة بنجاح؟\nأرسل *1* = نعم، اكتملت\nأرسل *2* = لا، ما زالت مستمرة", 'awaiting');
                     $created++;
@@ -220,6 +291,12 @@ class AutoScheduleRemindersCommand extends Command
             }
 
         }
+
+        $rlog->info('── AUTO-SCHEDULE END ──', [
+            'created'      => $created,
+            'sessions'     => $sessions->count(),
+            'skipped_past' => $skippedPast,
+        ]);
 
         $this->info("✅ Scheduled {$created} reminders for " . $sessions->count() . " sessions.");
     }
@@ -237,12 +314,28 @@ class AutoScheduleRemindersCommand extends Command
 
         if ($session->status === 'rescheduled'
             && $session->rescheduled_date
-            && $session->rescheduled_start_time
-            && $session->rescheduled_end_time) {
-            $dateStr = $session->rescheduled_date->format('Y-m-d');
+            && $session->rescheduled_start_time) {
+            $dateStr   = $session->rescheduled_date instanceof \DateTimeInterface
+                ? $session->rescheduled_date->format('Y-m-d')
+                : Carbon::parse((string) $session->rescheduled_date)->format('Y-m-d');
             $startTime = $session->rescheduled_start_time;
-            $endTime = $session->rescheduled_end_time;
+
+            // Use rescheduled end if available; otherwise preserve original duration
+            if ($session->rescheduled_end_time) {
+                $endTime = $session->rescheduled_end_time;
+            } elseif ($session->start_time && $session->end_time) {
+                // Compute original duration and apply to rescheduled start
+                $origStart = Carbon::parse($this->formatTimeForParse($session->start_time));
+                $origEnd   = Carbon::parse($this->formatTimeForParse($session->end_time));
+                $durationMin = $origStart->diffInMinutes($origEnd);
+                $endTime = Carbon::parse($dateStr . ' ' . $this->formatTimeForParse($startTime), $academyTz)
+                    ->addMinutes($durationMin > 0 ? $durationMin : 60)
+                    ->format('H:i:s');
+            } else {
+                $endTime = null; // will default to +1 hour below
+            }
         }
+
 
         $startStr = $this->formatTimeForParse($startTime);
 
@@ -344,13 +437,38 @@ class AutoScheduleRemindersCommand extends Command
             ->exists();
 
         if ($existing) {
+            Log::channel('reminder')->debug('DEDUP: same-session duplicate', [
+                'session_id' => $session->id, 'phase' => $phase,
+                'recipient'  => $recipientType, 'phone' => $phone,
+            ]);
             return;
         }
+
+        // ── Cross-session dedup ──
+        $crossSessionDup = Reminder::where('recipient_phone', $phone)
+            ->where('recipient_type', $recipientType)
+            ->where('reminder_phase', $phase)
+            ->whereIn('status', ['pending', 'sent'])
+            ->where('scheduled_at', '>=', $scheduledAt->copy()->subMinutes(10))
+            ->where('scheduled_at', '<=', $scheduledAt->copy()->addMinutes(10))
+            ->exists();
+
+        if ($crossSessionDup) {
+            Log::channel('reminder')->debug('DEDUP: cross-session duplicate', [
+                'session_id' => $session->id, 'phase' => $phase,
+                'recipient'  => $recipientType, 'phone' => $phone,
+            ]);
+            return;
+        }
+
 
         // ── Skip logic based on session status & teacher confirmation ──
         $session->refresh();
 
         if (in_array($session->status, ['completed', 'cancelled'], true)) {
+            Log::channel('reminder')->debug('SKIP: session is ' . $session->status, [
+                'session_id' => $session->id, 'phase' => $phase,
+            ]);
             return;
         }
 
@@ -386,7 +504,7 @@ class AutoScheduleRemindersCommand extends Command
             }
         }
 
-        Reminder::create([
+        $reminder = Reminder::create([
             'type'                => 'session_reminder',
             'recipient_type'      => $recipientType,
             'reminder_phase'      => $phase,
@@ -400,6 +518,15 @@ class AutoScheduleRemindersCommand extends Command
             'scheduled_at'        => $scheduledAt,
             'status'              => 'pending',
             'confirmation_status' => $confirmationStatus,
+        ]);
+
+        Log::channel('reminder')->info('CREATED reminder', [
+            'reminder_id' => $reminder->id,
+            'session_id'  => $session->id,
+            'phase'       => $phase,
+            'recipient'   => $recipientType,
+            'phone'       => $phone,
+            'sched_at'    => $scheduledAt->toDateTimeString(),
         ]);
     }
 }

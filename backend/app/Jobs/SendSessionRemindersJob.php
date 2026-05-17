@@ -36,12 +36,24 @@ class SendSessionRemindersJob implements ShouldQueue
      */
     public function handle(WhatsAppServiceInterface $whatsAppService): void
     {
+        $rlog = Log::channel('reminder');
+
         $dueReminders = Reminder::where('status', 'pending')
             ->where('scheduled_at', '<=', now())
             ->orderBy('scheduled_at')
             ->orderByRaw("CASE reminder_phase WHEN 'before' THEN 1 WHEN 'at_start' THEN 2 WHEN 'after' THEN 3 WHEN 'post_end' THEN 4 ELSE 5 END")
             ->limit(50)
             ->get();
+
+        if ($dueReminders->isEmpty()) {
+            return;
+        }
+
+        $rlog->info('── SEND JOB START ──', ['due_count' => $dueReminders->count()]);
+
+        $sent = 0;
+        $skipped = 0;
+        $failed = 0;
 
         foreach ($dueReminders as $reminder) {
             try {
@@ -50,6 +62,14 @@ class SendSessionRemindersJob implements ShouldQueue
                         'status'         => 'cancelled',
                         'failure_reason' => 'لم يعد ينطبق على حالة الحصة',
                     ]);
+                    $rlog->info('SKIPPED reminder (no longer applicable)', [
+                        'reminder_id' => $reminder->id,
+                        'session_id'  => $reminder->class_session_id,
+                        'phase'       => $reminder->reminder_phase,
+                        'recipient'   => $reminder->recipient_type,
+                        'phone'       => $reminder->recipient_phone,
+                    ]);
+                    $skipped++;
                     continue;
                 }
 
@@ -114,7 +134,16 @@ class SendSessionRemindersJob implements ShouldQueue
                 // Create a WhatsApp message record so it appears in inbox
                 $this->createInboxMessage($reminder);
 
-                Log::info("Reminder #{$reminder->id} sent to {$reminder->recipient_phone}");
+                $rlog->info('SENT reminder', [
+                    'reminder_id'     => $reminder->id,
+                    'session_id'      => $reminder->class_session_id,
+                    'phase'           => $reminder->reminder_phase,
+                    'recipient'       => $reminder->recipient_type,
+                    'phone'           => $reminder->recipient_phone,
+                    'is_poll'         => $isTeacherConfirmation,
+                    'poll_message_id' => $pollMessageId,
+                ]);
+                $sent++;
 
             } catch (\Throwable $e) {
                 $reminder->update([
@@ -122,9 +151,21 @@ class SendSessionRemindersJob implements ShouldQueue
                     'failure_reason' => $e->getMessage(),
                 ]);
 
-                Log::error("Reminder #{$reminder->id} failed: {$e->getMessage()}");
+                $rlog->error('FAILED to send reminder', [
+                    'reminder_id' => $reminder->id,
+                    'session_id'  => $reminder->class_session_id,
+                    'phase'       => $reminder->reminder_phase,
+                    'recipient'   => $reminder->recipient_type,
+                    'phone'       => $reminder->recipient_phone,
+                    'error'       => $e->getMessage(),
+                ]);
+                $failed++;
             }
         }
+
+        $rlog->info('── SEND JOB END ──', [
+            'sent' => $sent, 'skipped' => $skipped, 'failed' => $failed,
+        ]);
     }
 
     /**
@@ -208,9 +249,10 @@ class SendSessionRemindersJob implements ShouldQueue
                 'failure_reason' => 'تم إلغاء الحصة تلقائياً (auto_cancel)',
             ]);
 
-        Log::info('Auto-cancel applied', [
+        Log::channel('reminder')->warning('AUTO-CANCEL applied', [
             'session_id'  => $session->id,
             'reminder_id' => $reminder->id,
+            'title'       => $session->title,
         ]);
     }
 
@@ -304,6 +346,19 @@ class SendSessionRemindersJob implements ShouldQueue
 
         // Skip if session is already completed or cancelled
         if (in_array($session->status, ['completed', 'cancelled'], true)) {
+            if (in_array($reminder->reminder_phase, ['post_end', 'post_end_2'], true)) {
+                Log::channel('reminder')->warning('ReportFlow[skip] post_end cancelled — session already ' . $session->status . ' when reminder fired', [
+                    'reminder_id'    => $reminder->id,
+                    'session_id'     => $session->id,
+                    'session_title'  => $session->title,
+                    'session_status' => $session->status,
+                    'report_status'  => $session->report_status,
+                    'attendance'     => $session->attendance_status,
+                    'student'        => $session->student?->name ?? $session->title,
+                    'teacher_phone'  => $reminder->recipient_phone,
+                    'scheduled_at'   => $reminder->scheduled_at,
+                ]);
+            }
             return true;
         }
 
@@ -346,6 +401,15 @@ class SendSessionRemindersJob implements ShouldQueue
         // If attendance was never confirmed, there's no class to ask about.
         if (in_array($reminder->reminder_phase, ['post_end', 'post_end_2'], true)) {
             if ($session->attendance_status !== 'both_joined') {
+                Log::channel('reminder')->warning('ReportFlow[skip] post_end cancelled — attendance was never confirmed', [
+                    'reminder_id'   => $reminder->id,
+                    'session_id'    => $session->id,
+                    'session_title' => $session->title,
+                    'attendance'    => $session->attendance_status,
+                    'report_status' => $session->report_status,
+                    'student'       => $session->student?->name ?? $session->title,
+                    'teacher_phone' => $reminder->recipient_phone,
+                ]);
                 return true;
             }
         }

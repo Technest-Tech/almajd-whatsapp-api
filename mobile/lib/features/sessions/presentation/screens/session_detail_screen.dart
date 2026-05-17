@@ -19,6 +19,7 @@ class SessionDetailScreen extends StatefulWidget {
 class _SessionDetailScreenState extends State<SessionDetailScreen> {
   SessionModel? _session;
   bool _isLoading = true;
+  bool _isSubmittingReport = false;
 
   @override
   void initState() {
@@ -145,6 +146,25 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               ),
             ),
           ],
+
+          if (session.status == 'completed' && session.reportStatus != 'confirmed') ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _isSubmittingReport ? null : () => _showSubmitReportDialog(),
+                icon: _isSubmittingReport
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.send_outlined),
+                label: const Text('إرسال التقرير يدوياً'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -165,6 +185,63 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           const Spacer(),
           Text(value, style: TextStyle(color: valueColor ?? AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
+  void _showSubmitReportDialog() {
+    final reportController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        title: const Text('إرسال تقرير الحصة'),
+        content: TextField(
+          controller: reportController,
+          decoration: const InputDecoration(
+            labelText: 'تقرير الحصة',
+            hintText: 'أدخل تقرير الحصة هنا...',
+            alignLabelWithHint: true,
+          ),
+          maxLines: 5,
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
+          TextButton(
+            onPressed: () async {
+              final text = reportController.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(ctx);
+              setState(() => _isSubmittingReport = true);
+              try {
+                final repo = getIt<SessionRepository>();
+                await repo.submitReport(widget.sessionId, reportText: text);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم إرسال التقرير بنجاح'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                  _loadSession();
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('فشل إرسال التقرير، حاول مجدداً'),
+                      backgroundColor: AppColors.coral,
+                    ),
+                  );
+                }
+              } finally {
+                if (mounted) setState(() => _isSubmittingReport = false);
+              }
+            },
+            child: const Text('إرسال'),
+          ),
         ],
       ),
     );

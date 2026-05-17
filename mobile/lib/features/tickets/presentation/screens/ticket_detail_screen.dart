@@ -60,6 +60,8 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
 
   // ── WebSocket Channel ──
   Channel? _channel;
+  StreamSubscription? _messageCreatedSub;
+  StreamSubscription? _messageStatusSub;
 
   // ── Polling fallback ──
   Timer? _pollTimer;
@@ -131,6 +133,8 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _messageCreatedSub?.cancel();
+    _messageStatusSub?.cancel();
     _channel?.unsubscribe();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
@@ -166,7 +170,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     );
     _channel = channel;
 
-    channel.bind('TicketMessageCreated').listen((event) {
+    _messageCreatedSub?.cancel();
+    _messageStatusSub?.cancel();
+
+    _messageCreatedSub = channel.bind('TicketMessageCreated').listen((event) {
       if (mounted && event.data != null) {
         try {
           final Map<String, dynamic> payload = event.data is String
@@ -196,7 +203,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
       }
     });
 
-    channel.bind('TicketMessageStatusUpdated').listen((event) {
+    _messageStatusSub = channel.bind('TicketMessageStatusUpdated').listen((event) {
       if (mounted && event.data != null) {
         try {
           final Map<String, dynamic> payload = event.data is String
@@ -392,7 +399,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B141A),
+      backgroundColor: const Color(0xFFEFEFEF),
       appBar: _buildAppBar(),
       body: Stack(
         children: [
@@ -415,11 +422,11 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1A2C34),
+                    color: Colors.white,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
+                        color: Colors.black.withValues(alpha: 0.15),
                         blurRadius: 6,
                         offset: const Offset(0, 2),
                       ),
@@ -427,7 +434,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                   ),
                   child: const Icon(
                     Icons.keyboard_arrow_down,
-                    color: Color(0xFF8696A0),
+                    color: Color(0xFF757575),
                     size: 24,
                   ),
                 ),
@@ -465,8 +472,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                 margin: const EdgeInsets.symmetric(vertical: 10),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1A2C34),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 2,
+                    ),
+                  ],
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -479,10 +492,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
+                    const Text(
                       'جاري تحميل الرسائل...',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
+                        color: Color(0xFF757575),
                         fontSize: 12,
                       ),
                     ),
@@ -497,13 +510,19 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                 margin: const EdgeInsets.symmetric(vertical: 10),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1A2C34),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 2,
+                    ),
+                  ],
                 ),
-                child: Text(
+                child: const Text(
                   'بداية المحادثة',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.35),
+                    color: Color(0xFF757575),
                     fontSize: 12,
                   ),
                 ),
@@ -559,10 +578,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   PreferredSizeWidget _buildAppBar() {
     if (_ticket == null) {
       return AppBar(
-        backgroundColor: const Color(0xFF1F2C34),
+        backgroundColor: AppColors.primary,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, size: 22),
+          icon: const Icon(Icons.arrow_back, size: 22, color: Colors.white),
           onPressed: () => context.pop(),
         ),
         titleSpacing: 0,
@@ -570,14 +589,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           children: [
             CircleAvatar(
               radius: 18,
-              backgroundColor: Colors.white.withValues(alpha: 0.1),
+              backgroundColor: Colors.white.withValues(alpha: 0.2),
             ),
             const SizedBox(width: 10),
             Text(
               'جاري التحميل...',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.white.withValues(alpha: 0.5),
+                color: Colors.white.withValues(alpha: 0.8),
               ),
             ),
           ],
@@ -593,10 +612,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         : (isAdmin && _ticket!.guardianPhone != null ? '\u200E${_ticket!.guardianPhone}' : 'جهة اتصال غير معروفة');
 
     return AppBar(
-      backgroundColor: const Color(0xFF1F2C34),
+      backgroundColor: AppColors.primary,
       elevation: 0,
       leading: IconButton(
-        icon: const Icon(Icons.arrow_back, size: 22),
+        icon: const Icon(Icons.arrow_back, size: 22, color: Colors.white),
         onPressed: () => context.pop(),
       ),
       titleSpacing: 0,
@@ -604,7 +623,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         children: [
           const CircleAvatar(
             radius: 18,
-            backgroundColor: Color(0xFF2A3942),
+            backgroundColor: Color(0xFFEEEEEE),
             backgroundImage: AssetImage('assets/images/default_avatar.png'),
           ),
           const SizedBox(width: 10),
@@ -614,13 +633,13 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
               children: [
                 Text(
                   displayName,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                   overflow: TextOverflow.ellipsis,
                 ),
                 if (_ticket!.guardianPhone != null && displayName != '\u200E${_ticket!.guardianPhone}')
                   Text(
                     '\u200E${_ticket!.guardianPhone}',
-                    style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5)),
+                    style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.8)),
                   ),
               ],
             ),
@@ -640,7 +659,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         if (_replyingTo != null) _buildReplyPreview(),
         Container(
           padding: EdgeInsets.fromLTRB(6, 6, 6, 6 + MediaQuery.of(context).padding.bottom),
-          color: const Color(0xFF1F2C34),
+          color: Colors.transparent, // Background image handles the list, this is the bottom container
           child: _isRecording && !_isRecordLocked
               ? _buildRecordingSlider()
               : _isRecordLocked
@@ -665,14 +684,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     }
 
     return Container(
-      color: const Color(0xFF1F2C34),
+      color: Colors.transparent,
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: const Color(0xFF0B141A),
+          color: const Color(0xFFEFEFEF),
           borderRadius: BorderRadius.circular(8),
-          border: const Border(right: BorderSide(color: Color(0xFF53BDEB), width: 3)),
+          border: const Border(right: BorderSide(color: Color(0xFF00A884), width: 3)),
         ),
         child: Row(
           children: [
@@ -681,14 +700,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(sender, style: const TextStyle(color: Color(0xFF53BDEB), fontSize: 12, fontWeight: FontWeight.bold)),
-                  Text(preview, style: const TextStyle(color: Color(0xFF8696A0), fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(sender, style: const TextStyle(color: Color(0xFF00A884), fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text(preview, style: const TextStyle(color: Color(0xFF757575), fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
             GestureDetector(
               onTap: () => setState(() => _replyingTo = null),
-              child: const Icon(Icons.close, size: 18, color: Color(0xFF8696A0)),
+              child: const Icon(Icons.close, size: 18, color: Color(0xFF757575)),
             ),
           ],
         ),
@@ -704,8 +723,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           child: Container(
             constraints: const BoxConstraints(minHeight: 44),
             decoration: BoxDecoration(
-              color: const Color(0xFF2A3942),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 2,
+                ),
+              ],
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -713,7 +738,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                 Padding(
                   padding: const EdgeInsets.only(bottom: 2, left: 4),
                   child: IconButton(
-                    icon: const Icon(Icons.attach_file_rounded, color: Color(0xFF8696A0), size: 22),
+                    icon: const Icon(Icons.attach_file_rounded, color: Color(0xFF757575), size: 22),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     onPressed: _showAttachmentOptions,
@@ -726,12 +751,12 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                     maxLines: 6,
                     minLines: 1,
                     textDirection: TextDirection.rtl,
-                    style: const TextStyle(color: Colors.white, fontSize: 15),
-                    decoration: InputDecoration(
+                    style: const TextStyle(color: Color(0xFF212121), fontSize: 15),
+                    decoration: const InputDecoration(
                       hintText: 'رسالة',
-                      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 15),
+                      hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 10),
                     ),
                   ),
                 ),
@@ -792,8 +817,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     return Container(
       height: 58,
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2C34),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 2,
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -805,7 +836,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
               height: 44,
               margin: const EdgeInsets.only(left: 4),
               decoration: const BoxDecoration(
-                color: Color(0xFF2A3942),
+                color: Color(0xFFEEEEEE),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350), size: 22),
@@ -823,7 +854,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
             child: Text(
               _formatDuration(_recordDuration),
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF212121),
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.5,
@@ -840,10 +871,10 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                 _AnimatedChevron(delay: 150),
                 _AnimatedChevron(delay: 300),
                 const SizedBox(width: 4),
-                Text(
+                const Text(
                   'اسحب للإلغاء',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.4),
+                    color: Color(0xFF757575),
                     fontSize: 12.5,
                   ),
                 ),
@@ -859,7 +890,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
               height: 44,
               margin: const EdgeInsets.only(right: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF2A3942),
+                color: const Color(0xFFEEEEEE),
                 shape: BoxShape.circle,
                 border: Border.all(color: const Color(0xFF00A884).withValues(alpha: 0.4), width: 1.5),
               ),
@@ -875,8 +906,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
     return Container(
       height: 58,
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2C34),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 2,
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -888,7 +925,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
               height: 44,
               margin: const EdgeInsets.only(left: 4),
               decoration: const BoxDecoration(
-                color: Color(0xFF2A3942),
+                color: Color(0xFFEEEEEE),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350), size: 22),
@@ -904,7 +941,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
           Text(
             _formatDuration(_recordDuration),
             style: const TextStyle(
-              color: Colors.white,
+              color: Color(0xFF212121),
               fontSize: 14,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
@@ -963,7 +1000,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
   void _showAttachmentOptions() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1F2C34),
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -976,7 +1013,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
               Container(
                 width: 36, height: 4,
                 margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(2)),
+                decoration: BoxDecoration(color: const Color(0xFFE0E0E0), borderRadius: BorderRadius.circular(2)),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1084,6 +1121,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
 
       if (mounted) {
         setState(() {
+          _messages.removeWhere((m) => m.id == realMessage.id);
           final idx = _messages.indexWhere((m) => m.id == tempId);
           if (idx != -1) _messages[idx] = realMessage;
         });
@@ -1134,6 +1172,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         final realMessage = await repo.replyToTicket(widget.ticketId, text, replyToMessageId: replyToId);
         if (mounted) {
           setState(() {
+            _messages.removeWhere((m) => m.id == realMessage.id);
             final idx = _messages.indexWhere((m) => m.id == tempId);
             if (idx != -1) _messages[idx] = realMessage;
           });
@@ -1177,7 +1216,7 @@ class _AttachmentOption extends StatelessWidget {
             child: Icon(icon, color: Colors.white, size: 26),
           ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF8696A0))),
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF757575))),
         ],
       ),
     );
@@ -1268,7 +1307,7 @@ class _AnimatedChevronState extends State<_AnimatedChevron>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _opacity,
-      child: const Icon(Icons.chevron_left_rounded, color: Colors.white, size: 18),
+      child: const Icon(Icons.chevron_left_rounded, color: Color(0xFF9E9E9E), size: 18),
     );
   }
 }

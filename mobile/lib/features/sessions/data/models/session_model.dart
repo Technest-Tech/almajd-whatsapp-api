@@ -10,6 +10,7 @@ class SessionModel {
   final String? startTime;
   final String? endTime;
   final String status; // scheduled, completed, cancelled
+  final String reportStatus; // none, awaiting, confirming, confirmed
   final String? cancellationReason;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -26,6 +27,7 @@ class SessionModel {
     this.startTime,
     this.endTime,
     this.status = 'scheduled',
+    this.reportStatus = 'none',
     this.cancellationReason,
     this.createdAt,
     this.updatedAt,
@@ -44,6 +46,7 @@ class SessionModel {
       startTime: json['start_time'],
       endTime: json['end_time'],
       status: json['status'] ?? 'scheduled',
+      reportStatus: json['report_status'] ?? 'none',
       cancellationReason: json['cancellation_reason'],
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at']) : null,
       updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at']) : null,

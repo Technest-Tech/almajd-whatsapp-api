@@ -12,20 +12,20 @@ class AppColors {
   static const coral = Color(0xFFFF5252);
   static const success = Color(0xFF66BB6A);
 
-  // Dark Mode
-  static const darkBg = Color(0xFF000000);
-  static const darkSurface = Color(0xFF121212);
-  static const darkCard = Color(0xFF1E1E1E);
-  static const darkCardElevated = Color(0xFF2A2A2A);
-
   // Light Mode
   static const lightBg = Color(0xFFF5F5F5);
   static const lightSurface = Color(0xFFFFFFFF);
   static const lightCard = Color(0xFFFFFFFF);
 
+  // Dark Mode aliases → remapped to light equivalents (app runs in light mode only)
+  static const darkBg = Color(0xFFF0F0F0);          // was 0xFF000000
+  static const darkSurface = Color(0xFFFFFFFF);      // was 0xFF121212
+  static const darkCard = Color(0xFFFFFFFF);          // was 0xFF1E1E1E
+  static const darkCardElevated = Color(0xFFE0E0E0); // was 0xFF2A2A2A
+
   // Text
-  static const textPrimary = Color(0xFFE0E0E0);
-  static const textSecondary = Color(0xFF9E9E9E);
+  static const textPrimary = Color(0xFF212121);      // was 0xFFE0E0E0 (dark)
+  static const textSecondary = Color(0xFF757575);    // was 0xFF9E9E9E
   static const textPrimaryLight = Color(0xFF212121);
   static const textSecondaryLight = Color(0xFF757575);
 
@@ -158,6 +158,50 @@ class AppTheme {
         color: AppColors.lightCard,
         elevation: 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      chipTheme: ChipThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.lightCard,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.lightCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: AppColors.lightSurface,
+        selectedItemColor: AppColors.primary,
+        unselectedItemColor: AppColors.textSecondary,
       ),
       snackBarTheme: const SnackBarThemeData(
         behavior: SnackBarBehavior.floating,

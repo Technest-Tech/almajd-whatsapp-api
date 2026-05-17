@@ -42,6 +42,10 @@ class SessionRepository {
     return SessionModel.fromJson(response.data['data']);
   }
 
+  Future<void> submitReport(int id, {required String reportText}) async {
+    await apiClient.dio.post('/sessions/$id/report', data: {'report_text': reportText});
+  }
+
   Future<int> getPendingCount() async {
     try {
       final response = await apiClient.dio.get('/sessions/pending-count');

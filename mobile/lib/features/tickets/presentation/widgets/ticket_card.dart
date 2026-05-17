@@ -65,7 +65,7 @@ class TicketCard extends StatelessWidget {
                               child: Text(
                                 displayName,
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: const Color(0xFF212121),
                                   fontSize: 15,
                                   fontWeight: isUnread ? FontWeight.w700 : FontWeight.w500,
                                 ),
@@ -80,12 +80,12 @@ class TicketCard extends StatelessWidget {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.08),
+                                    color: const Color(0xFF00A884).withValues(alpha: 0.08),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
                                     sub,
-                                    style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: 0.5)),
+                                    style: const TextStyle(fontSize: 10, color: Color(0xFF757575)),
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 1,
                                   ),
@@ -100,7 +100,7 @@ class TicketCard extends StatelessWidget {
                         timeLabel,
                         style: TextStyle(
                           fontSize: 11,
-                          color: isUnread ? AppColors.primary : Colors.white.withValues(alpha: 0.35),
+                          color: isUnread ? AppColors.primary : const Color(0xFF9E9E9E),
                           fontWeight: isUnread ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
@@ -130,8 +130,8 @@ class TicketCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 13,
                             color: isUnread
-                                ? Colors.white.withValues(alpha: 0.75)
-                                : Colors.white.withValues(alpha: 0.38),
+                                ? const Color(0xFF424242)
+                                : const Color(0xFF9E9E9E),
                             fontWeight: isUnread ? FontWeight.w500 : FontWeight.normal,
                           ),
                         ),
@@ -231,11 +231,11 @@ class _Avatar extends StatelessWidget {
         shape: BoxShape.circle,
         border: isUnread
             ? Border.all(color: AppColors.primary, width: 2)
-            : Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1),
+            : Border.all(color: const Color(0xFFE0E0E0), width: 1),
       ),
       child: const CircleAvatar(
         radius: 22,
-        backgroundColor: Color(0xFF2A3942), // WhatsApp dark grey fallback
+        backgroundColor: Color(0xFFEEEEEE),
         backgroundImage: AssetImage('assets/images/default_avatar.png'),
       ),
     );
@@ -252,9 +252,9 @@ class TicketDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Divider(
       height: 1,
-      thickness: 0.4,
+      thickness: 0.5,
       indent: 74,
-      color: Colors.white.withValues(alpha: 0.06),
+      color: const Color(0xFFE0E0E0),
     );
   }
 }

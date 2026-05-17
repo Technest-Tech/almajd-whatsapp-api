@@ -39,7 +39,7 @@ class AlmajdApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
-        themeMode: ThemeMode.dark,
+        themeMode: ThemeMode.light, // Always light mode regardless of device setting
         routerConfig: AppRouter.getRouter('/splash'),
         locale: const Locale('ar'),
         supportedLocales: const [Locale('ar'), Locale('en')],

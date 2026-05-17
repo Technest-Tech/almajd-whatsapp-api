@@ -130,19 +130,25 @@ class SessionController extends Controller
             return $this->response->error('رقم الهاتف غير متوفر', 422);
         }
 
-        // Create reminder record
-        $reminder = Reminder::create([
-            'type'             => 'session_reminder',
-            'recipient_type'   => $recipientType,
-            'reminder_phase'   => 'at_start',
-            'class_session_id' => $session->id,
-            'recipient_phone'  => $phone,
-            'recipient_name'   => $name,
-            'template_name'    => $logicalTemplateKey,
-            'message_body'     => $message,
-            'scheduled_at'     => now(),
-            'status'           => 'pending',
-        ]);
+        // Manual reminders use a dedicated phase so they don't collide with
+        // auto-scheduled rows (unique on session+phase+recipient_type+phone).
+        // updateOrCreate lets admins re-send from the UI without 500-ing.
+        $reminder = Reminder::updateOrCreate(
+            [
+                'class_session_id' => $session->id,
+                'reminder_phase'   => 'manual',
+                'recipient_type'   => $recipientType,
+                'recipient_phone'  => $phone,
+            ],
+            [
+                'type'           => 'session_reminder',
+                'recipient_name' => $name,
+                'template_name'  => $logicalTemplateKey,
+                'message_body'   => $message,
+                'scheduled_at'   => now(),
+                'status'         => 'pending',
+            ],
+        );
 
         try {
             $whatsAppService = app(WhatsAppServiceInterface::class);
@@ -160,6 +166,54 @@ class SessionController extends Controller
             'reminder' => $reminder->refresh(),
             'inbox'    => $inboxResult,
         ], 'تم إرسال التذكير');
+    }
+
+    /**
+     * Manually submit a session report from the mobile app.
+     * Saves the report, marks status as confirmed (stopping nudges), and forwards to student.
+     */
+    public function submitReport(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'report_text' => 'required|string|max:5000',
+        ]);
+
+        $session = ClassSession::with(['teacher', 'student'])->findOrFail($id);
+
+        $reportBody  = $data['report_text'];
+        $teacherName = $session->teacher?->name ?? 'المعلم';
+        $studentName = $session->student?->name ?? 'الطالب';
+
+        $session->update([
+            'teacher_report' => $reportBody,
+            'report_status'  => 'confirmed',
+        ]);
+
+        $studentMessage = implode("\n", [
+            "📋 *تقرير الحصة*",
+            "من المعلم: {$teacherName}",
+            "",
+            $reportBody,
+        ]);
+
+        $studentPhone = $session->student?->whatsapp_number;
+        $sent = false;
+
+        if ($studentPhone) {
+            try {
+                $whatsApp = app(WhatsAppServiceInterface::class);
+                $whatsApp->sendText($studentPhone, $studentMessage);
+                $sent = true;
+                Log::info("submitReport: report sent to student {$studentName} [{$studentPhone}] for session {$id}");
+            } catch (\Throwable $e) {
+                Log::error("submitReport: failed to send to student for session {$id}: " . $e->getMessage());
+            }
+        }
+
+        return $this->response->success([
+            'session'      => $session->refresh(),
+            'student_sent' => $sent,
+        ], 'تم حفظ التقرير وإرساله');
     }
 
     /**

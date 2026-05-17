@@ -97,9 +97,9 @@ class _ReminderListView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.notifications_off_outlined, size: 80, color: Colors.white.withValues(alpha: 0.2)),
+              Icon(Icons.notifications_off_outlined, size: 80, color: const Color(0xFFBDBDBD)),
               const SizedBox(height: 16),
-              const Text('لا توجد تنبيهات', style: TextStyle(color: AppColors.textSecondary, fontSize: 18)),
+              const Text('لا توجد تنبيهات', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 18)),
             ],
           ),
         );
@@ -129,15 +129,15 @@ class _ReminderListView extends StatelessWidget {
 
   Widget _buildShimmer() {
     return Shimmer.fromColors(
-      baseColor: AppColors.darkCard,
-      highlightColor: AppColors.darkCardElevated,
+      baseColor: const Color(0xFFEEEEEE),
+      highlightColor: const Color(0xFFF5F5F5),
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         itemCount: 5,
         itemBuilder: (_, __) => Container(
           height: 90,
           margin: const EdgeInsets.symmetric(vertical: 4),
-          decoration: BoxDecoration(color: AppColors.darkCard, borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
@@ -253,7 +253,7 @@ class _ReminderCard extends StatelessWidget {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: AppColors.darkCardElevated, borderRadius: BorderRadius.circular(6)),
+                        decoration: BoxDecoration(color: const Color(0xFFEEEEEE), borderRadius: BorderRadius.circular(6)),
                         child: Text(reminder.typeDisplay, style: const TextStyle(color: AppColors.textSecondary, fontSize: 10)),
                       ),
                       const SizedBox(width: 8),

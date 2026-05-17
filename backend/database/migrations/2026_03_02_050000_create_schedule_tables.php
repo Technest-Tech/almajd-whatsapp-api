@@ -69,7 +69,7 @@ return new class extends Migration
         Schema::create('reminders', function (Blueprint $table) {
             $table->id();
             $table->string('type', 50); // session_reminder, guardian_notification, custom
-            $table->foreignId('class_session_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('class_session_id')->nullable()->constrained()->cascadeOnDelete();
             $table->string('recipient_phone', 20);
             $table->string('recipient_name')->nullable();
             $table->string('template_name')->nullable();

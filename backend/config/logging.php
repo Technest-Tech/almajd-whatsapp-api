@@ -127,6 +127,17 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        // ── Dedicated reminder & report flow log ──
+        // Separate from the main app log for easy analysis.
+        // Rotated daily, kept for 30 days.
+        'reminder' => [
+            'driver' => 'daily',
+            'path'   => storage_path('logs/reminders.log'),
+            'level'  => 'debug',
+            'days'   => 30,
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

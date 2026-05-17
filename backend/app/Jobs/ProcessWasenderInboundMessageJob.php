@@ -339,6 +339,14 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             if (in_array($phase, ['post_end', 'post_end_2'], true)) {
                 $session->update(['status' => 'completed', 'attendance_status' => 'both_joined']);
 
+                Log::channel('reminder')->info('ReportFlow — post_end YES: session completed, kicking off report request', [
+                    'session_id'    => $session->id,
+                    'session_title' => $session->title,
+                    'phase'         => $phase,
+                    'voter_phone'   => $voterPhone,
+                    'student'       => $session->student?->name,
+                ]);
+
                 // ── Kick off the report collection flow ───────────────────────
                 $this->maybeRequestSessionReport($session, $voterPhone);
             } else {
@@ -1380,17 +1388,30 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
      */
     private function maybeRequestSessionReport(\App\Models\ClassSession $session, ?string $teacherPhone): void
     {
+        Log::channel('reminder')->info('ReportFlow[1/4] maybeRequestSessionReport called', [
+            'session_id'     => $session->id,
+            'session_title'  => $session->title,
+            'session_status' => $session->status,
+            'report_status'  => $session->report_status,
+            'student'        => $session->student?->name,
+            'teacher_phone'  => $teacherPhone,
+        ]);
+
         if (!$teacherPhone) {
-            Log::warning('ReportFlow: cannot request report — teacher phone unknown', ['session_id' => $session->id]);
+            Log::channel('reminder')->warning('ReportFlow[1/4] BLOCKED — teacher has no WhatsApp number', [
+                'session_id' => $session->id,
+                'teacher_id' => $session->teacher_id,
+            ]);
             return;
         }
 
         // Never request a report for cancelled sessions — student didn't attend
         if ($session->status === 'cancelled') {
-            Log::info('ReportFlow: skipping report request — session is cancelled', ['session_id' => $session->id]);
+            Log::channel('reminder')->info('ReportFlow[1/4] SKIPPED — session is cancelled', [
+                'session_id' => $session->id,
+            ]);
             return;
         }
-
 
         try {
             $session->update(['report_status' => 'awaiting', 'report_nudge_count' => 0]);
@@ -1412,12 +1433,15 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             $whatsApp = app(\App\Services\WhatsApp\WhatsAppServiceInterface::class);
             $whatsApp->sendText($teacherPhone, $message);
 
-            Log::info('ReportFlow: report requested from teacher', [
+            Log::channel('reminder')->info('ReportFlow[1/4] OK — report requested from teacher', [
                 'session_id'    => $session->id,
+                'session_title' => $session->title,
                 'teacher_phone' => $teacherPhone,
+                'student'       => $studentName,
+                'report_status' => 'awaiting',
             ]);
         } catch (\Throwable $e) {
-            Log::warning('ReportFlow: failed to request report', [
+            Log::channel('reminder')->error('ReportFlow[1/4] FAILED — could not send report request', [
                 'session_id' => $session->id,
                 'error'      => $e->getMessage(),
             ]);
@@ -1454,6 +1478,13 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             return; // Not a teacher — nothing to do
         }
 
+        Log::channel('reminder')->info('ReportFlow[2/4] maybeHandleReportSubmission — teacher identified', [
+            'teacher_id'   => $teacher->id,
+            'teacher_name' => $teacher->name,
+            'phone'        => $phone,
+            'body_preview' => mb_substr($body, 0, 80),
+        ]);
+
         // Find the most recently completed session for this teacher that is awaiting a report
         $session = \App\Models\ClassSession::where('teacher_id', $teacher->id)
             ->where('report_status', 'awaiting')
@@ -1463,8 +1494,37 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             ->first();
 
         if (!$session) {
-            return; // No session waiting for a report
+            // Log all recent sessions for this teacher to help diagnose why none matched
+            $recentSessions = \App\Models\ClassSession::where('teacher_id', $teacher->id)
+                ->orderByDesc('session_date')
+                ->orderByDesc('updated_at')
+                ->limit(5)
+                ->get(['id', 'title', 'status', 'report_status', 'session_date', 'updated_at']);
+
+            Log::channel('reminder')->warning('ReportFlow[2/4] SKIPPED — no completed+awaiting session found for teacher', [
+                'teacher_id'      => $teacher->id,
+                'teacher_name'    => $teacher->name,
+                'phone'           => $phone,
+                'recent_sessions' => $recentSessions->map(fn($s) => [
+                    'id'            => $s->id,
+                    'title'         => $s->title,
+                    'status'        => $s->status,
+                    'report_status' => $s->report_status,
+                    'session_date'  => $s->session_date,
+                    'updated_at'    => $s->updated_at,
+                ])->toArray(),
+            ]);
+            return;
         }
+
+        Log::channel('reminder')->info('ReportFlow[2/4] session matched — storing candidate report', [
+            'session_id'    => $session->id,
+            'session_title' => $session->title,
+            'student'       => $session->student?->name,
+            'session_date'  => $session->session_date,
+            'report_status' => $session->report_status,
+            'body_len'      => mb_strlen($body),
+        ]);
 
         try {
             // Store the candidate report text and move to 'confirming'
@@ -1500,14 +1560,18 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 selectableCount: 1,
             );
 
-            Log::info('ReportFlow: candidate report received — awaiting teacher confirmation', [
-                'session_id' => $session->id,
-                'teacher'    => $phone,
-                'body_len'   => mb_strlen($body),
+            Log::channel('reminder')->info('ReportFlow[2/4] OK — confirmation poll sent to teacher', [
+                'session_id'    => $session->id,
+                'session_title' => $session->title,
+                'teacher'       => $phone,
+                'student'       => $studentName,
+                'body_len'      => mb_strlen($body),
+                'report_status' => 'confirming',
             ]);
         } catch (\Throwable $e) {
-            Log::warning('ReportFlow: failed to send report confirmation poll', [
+            Log::channel('reminder')->error('ReportFlow[2/4] FAILED — could not send confirmation poll', [
                 'session_id' => $session->id,
+                'teacher'    => $phone,
                 'error'      => $e->getMessage(),
             ]);
         }
@@ -1528,15 +1592,31 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         // Extract session ID from the encoded poll question (format: 'تأكيد_تقرير:<id>')
         $sessionId = (int) trim(mb_substr($pollQuestion, mb_strpos($pollQuestion, ':') + 1));
         if ($sessionId <= 0) {
-            Log::warning('ReportFlow: could not parse session_id from poll question', ['q' => $pollQuestion]);
+            Log::channel('reminder')->error('ReportFlow[3/4] FAILED — could not parse session_id from poll question', [
+                'poll_question' => $pollQuestion,
+            ]);
             return;
         }
 
         $session = \App\Models\ClassSession::find($sessionId);
         if (!$session || $session->report_status !== 'confirming') {
-            Log::info('ReportFlow: session not in confirming state — ignoring vote', ['session_id' => $sessionId]);
+            Log::channel('reminder')->warning('ReportFlow[3/4] IGNORED — session not in confirming state', [
+                'session_id'    => $sessionId,
+                'found'         => $session ? 'yes' : 'no',
+                'report_status' => $session?->report_status,
+                'voter_phone'   => $voterPhone,
+            ]);
             return;
         }
+
+        Log::channel('reminder')->info('ReportFlow[3/4] teacher voted on confirm poll', [
+            'session_id'    => $session->id,
+            'session_title' => $session->title,
+            'voter_phone'   => $voterPhone,
+            'vote'          => $voteValue,
+            'student'       => $session->student?->name,
+            'report_stored' => !empty($session->teacher_report),
+        ]);
 
         /** @var \App\Services\WhatsApp\WasenderWhatsAppService $whatsApp */
         $whatsApp = app(\App\Services\WhatsApp\WhatsAppServiceInterface::class);
@@ -1562,20 +1642,26 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             if ($studentPhone) {
                 try {
                     $whatsApp->sendText($studentPhone, $studentMessage);
-                    Log::info('ReportFlow: report forwarded to student', [
+                    Log::channel('reminder')->info('ReportFlow[3/4] OK — report forwarded to student', [
                         'session_id'    => $session->id,
+                        'session_title' => $session->title,
+                        'teacher'       => $teacherName,
+                        'student'       => $studentName,
                         'student_phone' => $studentPhone,
+                        'report_len'    => mb_strlen($reportBody),
                     ]);
                 } catch (\Throwable $e) {
-                    Log::warning('ReportFlow: failed to send report to student', [
-                        'session_id' => $session->id,
-                        'error'      => $e->getMessage(),
+                    Log::channel('reminder')->error('ReportFlow[3/4] FAILED — could not send report to student', [
+                        'session_id'    => $session->id,
+                        'student_phone' => $studentPhone,
+                        'error'         => $e->getMessage(),
                     ]);
                 }
             } else {
-                Log::warning('ReportFlow: student has no WhatsApp number — report not forwarded', [
+                Log::channel('reminder')->warning('ReportFlow[3/4] BLOCKED — student has no WhatsApp number', [
                     'session_id' => $session->id,
                     'student_id' => $session->student_id,
+                    'student'    => $studentName,
                 ]);
             }
 
@@ -1597,8 +1683,10 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 'report_status'  => 'awaiting',
             ]);
 
-            Log::info('ReportFlow: teacher discarded candidate report — reset to awaiting', [
-                'session_id' => $session->id,
+            Log::channel('reminder')->info('ReportFlow[3/4] teacher rejected report — reset to awaiting', [
+                'session_id'    => $session->id,
+                'session_title' => $session->title,
+                'student'       => $session->student?->name,
             ]);
 
             try {

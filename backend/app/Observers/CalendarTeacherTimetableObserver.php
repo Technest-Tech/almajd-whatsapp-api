@@ -19,7 +19,7 @@ class CalendarTeacherTimetableObserver
      */
     public function created(CalendarTeacherTimetable $timetable): void
     {
-        $this->triggerSync();
+        $this->triggerStudentSync($timetable);
     }
 
     /**
@@ -27,7 +27,10 @@ class CalendarTeacherTimetableObserver
      */
     public function updated(CalendarTeacherTimetable $timetable): void
     {
-        $this->triggerSync();
+        if ($timetable->isDirty('student_name') && $timetable->getOriginal('student_name')) {
+            $this->syncService->syncStudentFutureDays($timetable->getOriginal('student_name'), 90);
+        }
+        $this->triggerStudentSync($timetable);
     }
 
     /**
@@ -35,15 +38,13 @@ class CalendarTeacherTimetableObserver
      */
     public function deleted(CalendarTeacherTimetable $timetable): void
     {
-        // For simple bridging, regenerating the upcoming 7 days implicitly deletes missing ones if we built it that way
-        // Or we just update statuses. In our bridge, we rely on the command.
-        // A deletion in timetable doesn't perfectly map to class_session deletion directly unless we do exact matching.
-        // We'll let stops handle mass cancellations. 
+        $this->triggerStudentSync($timetable);
     }
 
-    private function triggerSync(): void
+    private function triggerStudentSync(CalendarTeacherTimetable $timetable): void
     {
-        // Sync the next 7 days immediately so the front-facing class_sessions table reflects this change
-        $this->syncService->syncFutureDays(7);
+        if ($timetable->student_name) {
+            $this->syncService->syncStudentFutureDays($timetable->student_name, 90);
+        }
     }
 }

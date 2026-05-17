@@ -28,7 +28,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   bool _showMineOnly = true;
   int _allCount = 0;
   int _mineCount = 0;
-  _TimeCategory? _selectedCategory;
+  String? _selectedStatus;
 
   @override
   void initState() {
@@ -84,7 +84,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
         // Can't load "mine" without supervisor id; still show "all" counters.
         final allResp = await _apiClient.dio.get(
           '/sessions',
-          queryParameters: respToQuery(100, mine: false),
+          queryParameters: respToQuery(500, mine: false),
         );
         final allData = allResp.data['data'] ?? [];
         final allTotal =
@@ -103,7 +103,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       if (showMineOnly) {
         final mineResp = await _apiClient.dio.get(
           '/sessions',
-          queryParameters: respToQuery(100, mine: true),
+          queryParameters: respToQuery(500, mine: true),
         );
         final allTotalResp = await _apiClient.dio.get(
           '/sessions',
@@ -130,7 +130,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       } else {
         final allResp = await _apiClient.dio.get(
           '/sessions',
-          queryParameters: respToQuery(100, mine: false),
+          queryParameters: respToQuery(500, mine: false),
         );
         final mineTotalResp = supervisorId == null
             ? null
@@ -214,32 +214,36 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   }
 
   Future<void> _sendReminder(int sessionId, String recipientType) async {
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
     showDialog(
       context: context,
       barrierDismissible: false,
+      useRootNavigator: true,
       builder: (ctx) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
     );
     try {
       await _apiClient.dio.post('/sessions/$sessionId/remind', data: {
         'recipient_type': recipientType,
       });
-      if (mounted) {
-        Navigator.pop(context); // close loading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(recipientType == 'student' ? 'تم إرسال التذكير للطالب ✅' : 'تم إرسال التذكير للمعلم ✅'),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (!mounted) return;
+      rootNavigator.pop(); // close loading dialog only
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(recipientType == 'student' ? 'تم إرسال التذكير للطالب ✅' : 'تم إرسال التذكير للمعلم ✅'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // close loading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('فشل إرسال التذكير'), backgroundColor: AppColors.coral, behavior: SnackBarBehavior.floating),
-        );
-      }
+      if (!mounted) return;
+      rootNavigator.pop(); // close loading dialog only
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('فشل إرسال التذكير: $e'),
+          backgroundColor: AppColors.coral,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -280,10 +284,10 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: ColorScheme.dark(
+        data: ThemeData.light().copyWith(
+          colorScheme: ColorScheme.light(
             primary: AppColors.primary,
-            surface: AppColors.darkCard,
+            surface: AppColors.lightCard,
           ),
         ),
         child: child!,
@@ -296,8 +300,8 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       initialTime: const TimeOfDay(hour: 16, minute: 0),
       helpText: 'وقت البداية',
       builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: ColorScheme.dark(primary: AppColors.primary, surface: AppColors.darkCard),
+        data: ThemeData.light().copyWith(
+          colorScheme: ColorScheme.light(primary: AppColors.primary, surface: AppColors.lightCard),
         ),
         child: child!,
       ),
@@ -309,8 +313,8 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       initialTime: TimeOfDay(hour: pickedStartTime.hour + 1, minute: pickedStartTime.minute),
       helpText: 'وقت النهاية',
       builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: ColorScheme.dark(primary: AppColors.primary, surface: AppColors.darkCard),
+        data: ThemeData.light().copyWith(
+          colorScheme: ColorScheme.light(primary: AppColors.primary, surface: AppColors.lightCard),
         ),
         child: child!,
       ),
@@ -345,14 +349,51 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   }
 
   // ── Build ──────────────────────────────────────────────
+  bool _matchesStatusFilter(ClassSessionModel s) {
+    if (_selectedStatus == null) return true;
+    if (_selectedStatus == 'coming') {
+      // Treat scheduled and coming as the same "upcoming" bucket for filtering.
+      return s.status == 'coming' || s.status == 'scheduled';
+    }
+    return s.status == _selectedStatus;
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Group sessions
+    // Status-based counts — these always sum to _sessions.length (every session
+    // is counted in exactly one bucket).
+    int pendingCount = 0;
+    int runningCount = 0;
+    int comingCount = 0;
+    int completedCount = 0;
+    int cancelledCount = 0;
+    int rescheduledCount = 0;
+    for (final s in _sessions) {
+      switch (s.status) {
+        case 'pending':
+          pendingCount++;
+        case 'running':
+          runningCount++;
+        case 'completed':
+          completedCount++;
+        case 'cancelled':
+          cancelledCount++;
+        case 'rescheduled':
+          rescheduledCount++;
+        case 'coming':
+        case 'scheduled':
+        default:
+          comingCount++;
+      }
+    }
+
+    // Apply the active status filter, then group by time category for display.
+    final filtered = _sessions.where(_matchesStatusFilter).toList();
     final current = <ClassSessionModel>[];
     final upcoming = <ClassSessionModel>[];
     final passed = <ClassSessionModel>[];
     final waiting = <ClassSessionModel>[];
-    for (final s in _sessions) {
+    for (final s in filtered) {
       switch (_categorize(s)) {
         case _TimeCategory.current:
           current.add(s);
@@ -365,10 +406,10 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       }
     }
 
-    final filteredCurrent = _selectedCategory == null || _selectedCategory == _TimeCategory.current ? current : <ClassSessionModel>[];
-    final filteredUpcoming = _selectedCategory == null || _selectedCategory == _TimeCategory.upcoming ? upcoming : <ClassSessionModel>[];
-    final filteredPassed = _selectedCategory == null || _selectedCategory == _TimeCategory.passed ? passed : <ClassSessionModel>[];
-    final filteredWaiting = _selectedCategory == null || _selectedCategory == _TimeCategory.waiting ? waiting : <ClassSessionModel>[];
+    final filteredCurrent = current;
+    final filteredUpcoming = upcoming;
+    final filteredPassed = passed;
+    final filteredWaiting = waiting;
 
     return Column(
       children: [
@@ -378,7 +419,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                icon: const Icon(Icons.arrow_back, color: Color(0xFF212121)),
                 onPressed: () => context.go('/management'),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -386,7 +427,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
               const SizedBox(width: 8),
               const Text(
                 'الحصص والتذكيرات',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF212121)),
               ),
             ],
           ),
@@ -442,44 +483,67 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                   ),
                   const SizedBox(height: 8),
                 ],
-                Row(
-                  children: [
-                    _SummaryChip(
-                      icon: Icons.error_outline_rounded,
-                      label: 'معلّقة',
-                      count: waiting.length,
-                      color: AppColors.amber,
-                      isSelected: _selectedCategory == _TimeCategory.waiting,
-                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.waiting ? null : _TimeCategory.waiting),
-                    ),
-                    const SizedBox(width: 6),
-                    _SummaryChip(
-                      icon: Icons.play_circle_fill_rounded,
-                      label: 'جارية',
-                      count: current.length,
-                      color: const Color(0xFF00E676),
-                      isSelected: _selectedCategory == _TimeCategory.current,
-                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.current ? null : _TimeCategory.current),
-                    ),
-                    const SizedBox(width: 6),
-                    _SummaryChip(
-                      icon: Icons.schedule_rounded,
-                      label: 'قادمة',
-                      count: upcoming.length,
-                      color: const Color(0xFF448AFF),
-                      isSelected: _selectedCategory == _TimeCategory.upcoming,
-                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.upcoming ? null : _TimeCategory.upcoming),
-                    ),
-                    const SizedBox(width: 6),
-                    _SummaryChip(
-                      icon: Icons.check_circle_rounded,
-                      label: 'منتهية',
-                      count: passed.length,
-                      color: const Color(0xFF8696A0),
-                      isSelected: _selectedCategory == _TimeCategory.passed,
-                      onTap: () => setState(() => _selectedCategory = _selectedCategory == _TimeCategory.passed ? null : _TimeCategory.passed),
-                    ),
-                  ],
+                SizedBox(
+                  height: 88,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    children: [
+                      _SummaryChip(
+                        icon: Icons.error_outline_rounded,
+                        label: 'معلّقة',
+                        count: pendingCount,
+                        color: AppColors.amber,
+                        isSelected: _selectedStatus == 'pending',
+                        onTap: () => setState(() => _selectedStatus = _selectedStatus == 'pending' ? null : 'pending'),
+                      ),
+                      const SizedBox(width: 6),
+                      _SummaryChip(
+                        icon: Icons.play_circle_fill_rounded,
+                        label: 'جارية',
+                        count: runningCount,
+                        color: const Color(0xFF00E676),
+                        isSelected: _selectedStatus == 'running',
+                        onTap: () => setState(() => _selectedStatus = _selectedStatus == 'running' ? null : 'running'),
+                      ),
+                      const SizedBox(width: 6),
+                      _SummaryChip(
+                        icon: Icons.schedule_rounded,
+                        label: 'قادمة',
+                        count: comingCount,
+                        color: const Color(0xFF448AFF),
+                        isSelected: _selectedStatus == 'coming',
+                        onTap: () => setState(() => _selectedStatus = _selectedStatus == 'coming' ? null : 'coming'),
+                      ),
+                      const SizedBox(width: 6),
+                      _SummaryChip(
+                        icon: Icons.check_circle_rounded,
+                        label: 'مكتملة',
+                        count: completedCount,
+                        color: const Color(0xFF8696A0),
+                        isSelected: _selectedStatus == 'completed',
+                        onTap: () => setState(() => _selectedStatus = _selectedStatus == 'completed' ? null : 'completed'),
+                      ),
+                      const SizedBox(width: 6),
+                      _SummaryChip(
+                        icon: Icons.cancel_rounded,
+                        label: 'ملغاة',
+                        count: cancelledCount,
+                        color: AppColors.coral,
+                        isSelected: _selectedStatus == 'cancelled',
+                        onTap: () => setState(() => _selectedStatus = _selectedStatus == 'cancelled' ? null : 'cancelled'),
+                      ),
+                      const SizedBox(width: 6),
+                      _SummaryChip(
+                        icon: Icons.calendar_month_rounded,
+                        label: 'مُؤجَّلة',
+                        count: rescheduledCount,
+                        color: const Color(0xFF26C6DA),
+                        isSelected: _selectedStatus == 'rescheduled',
+                        onTap: () => setState(() => _selectedStatus = _selectedStatus == 'rescheduled' ? null : 'rescheduled'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -493,7 +557,9 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                   ? _buildError()
                   : _sessions.isEmpty
                       ? _buildEmpty()
-                      : RefreshIndicator(
+                      : filtered.isEmpty
+                          ? _buildFilteredEmpty()
+                          : RefreshIndicator(
                           color: AppColors.primary,
                           onRefresh: _load,
                           child: ListView(
@@ -612,7 +678,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.event_busy_rounded,
-                size: 80, color: Colors.white.withValues(alpha: 0.15)),
+                size: 80, color: const Color(0xFFBDBDBD)),
             const SizedBox(height: 16),
             const Text('لا توجد حصص لهذا اليوم',
                 style: TextStyle(
@@ -620,6 +686,26 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
             const SizedBox(height: 8),
             const Text('اختر يوماً آخر أو أنشئ حصصاً جديدة',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          ],
+        ),
+      );
+
+  Widget _buildFilteredEmpty() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.filter_alt_off_outlined,
+                size: 72, color: const Color(0xFFBDBDBD)),
+            const SizedBox(height: 16),
+            const Text('لا توجد حصص بهذه الحالة',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 16)),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => setState(() => _selectedStatus = null),
+              icon: const Icon(Icons.close, size: 16),
+              label: const Text('إزالة الفلتر'),
+            ),
           ],
         ),
       );
@@ -786,35 +872,48 @@ class _SummaryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: isSelected ? 0.2 : 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: color.withValues(alpha: isSelected ? 0.6 : 0.2),
-              width: isSelected ? 1.5 : 1.0,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 84,
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? color : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? color : color.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(height: 4),
-              Text(
-                '$count',
-                style: TextStyle(
-                    color: color, fontWeight: FontWeight.w900, fontSize: 18),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : color, size: 22),
+            const SizedBox(height: 4),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: isSelected ? Colors.white : color,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
               ),
-              Text(
-                label,
-                style: TextStyle(
-                    color: color.withValues(alpha: 0.8), fontSize: 10, fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : color.withValues(alpha: 0.9),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

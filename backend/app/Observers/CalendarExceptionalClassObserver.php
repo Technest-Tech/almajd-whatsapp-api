@@ -17,18 +17,26 @@ class CalendarExceptionalClassObserver
 
     public function created(CalendarExceptionalClass $exceptionalClass): void
     {
-        // Only sync if the exception is happening within the next 7 days buffer
-        $date = Carbon::parse($exceptionalClass->date);
-        if ($date->between(Carbon::today(), Carbon::today()->addDays(7))) {
-            $this->syncService->syncDate($date);
-        }
+        $this->triggerStudentSync($exceptionalClass);
     }
 
     public function updated(CalendarExceptionalClass $exceptionalClass): void
     {
-        $date = Carbon::parse($exceptionalClass->date);
-        if ($date->between(Carbon::today(), Carbon::today()->addDays(7))) {
-            $this->syncService->syncDate($date);
+        if ($exceptionalClass->isDirty('student_name') && $exceptionalClass->getOriginal('student_name')) {
+            $this->syncService->syncStudentFutureDays($exceptionalClass->getOriginal('student_name'), 90);
+        }
+        $this->triggerStudentSync($exceptionalClass);
+    }
+
+    public function deleted(CalendarExceptionalClass $exceptionalClass): void
+    {
+        $this->triggerStudentSync($exceptionalClass);
+    }
+
+    private function triggerStudentSync(CalendarExceptionalClass $exceptionalClass): void
+    {
+        if ($exceptionalClass->student_name) {
+            $this->syncService->syncStudentFutureDays($exceptionalClass->student_name, 90);
         }
     }
 }

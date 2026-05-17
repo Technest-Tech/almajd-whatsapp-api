@@ -18,14 +18,14 @@ use Illuminate\Support\Facades\Log;
  * report after completing a session.
  *
  * Fired every hour via the scheduler (console.php).
- * Maximum 2 nudges per session to avoid spamming the teacher.
+ * Maximum 24 nudges per session (one per hour for 24 hours).
  */
 class SendReportNudgeJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /** Maximum nudge messages to send per session before giving up. */
-    private const MAX_NUDGES = 2;
+    private const MAX_NUDGES = 24;
 
     /** Minimum minutes after last update before sending the first nudge. */
     private const NUDGE_AFTER_MINUTES = 60;
@@ -40,19 +40,30 @@ class SendReportNudgeJob implements ShouldQueue
         // Find sessions that are waiting for a report and haven't been nudged
         // the maximum number of times yet.
         $sessions = ClassSession::with(['teacher', 'student'])
-            ->where('status', 'completed')
+            ->where('status', 'completed')           // only completed — never cancelled
             ->whereIn('report_status', ['awaiting', 'confirming'])
             ->where('report_nudge_count', '<', self::MAX_NUDGES)
-            // Only nudge after the grace period has elapsed since the last update
             ->where('updated_at', '<=', now()->subMinutes(self::NUDGE_AFTER_MINUTES))
             ->get();
+
+        Log::channel('reminder')->info('ReportFlow[4/4] SendReportNudgeJob — sessions pending nudge', [
+            'count'        => $sessions->count(),
+            'max_nudges'   => self::MAX_NUDGES,
+            'nudge_after'  => self::NUDGE_AFTER_MINUTES . ' min',
+        ]);
 
         foreach ($sessions as $session) {
             try {
                 $teacherPhone = $session->teacher?->whatsapp_number;
 
                 if (!$teacherPhone) {
-                    Log::warning('ReportNudge: teacher has no WhatsApp number', ['session_id' => $session->id]);
+                    Log::channel('reminder')->warning('ReportFlow[4/4] SKIPPED — teacher has no WhatsApp number', [
+                        'session_id'    => $session->id,
+                        'session_title' => $session->title,
+                        'teacher_id'    => $session->teacher_id,
+                        'student'       => $session->student?->name,
+                        'report_status' => $session->report_status,
+                    ]);
                     continue;
                 }
 
@@ -79,17 +90,23 @@ class SendReportNudgeJob implements ShouldQueue
 
                 $session->increment('report_nudge_count');
 
-                Log::info('ReportNudge: nudge sent to teacher', [
-                    'session_id'   => $session->id,
-                    'nudge_number' => $nudgeNum,
-                    'teacher'      => $teacherPhone,
-                    'status'       => $session->report_status,
+                Log::channel('reminder')->info('ReportFlow[4/4] OK — nudge sent to teacher', [
+                    'session_id'    => $session->id,
+                    'session_title' => $session->title,
+                    'nudge_number'  => $nudgeNum,
+                    'teacher'       => $teacherPhone,
+                    'teacher_name'  => $session->teacher?->name,
+                    'student'       => $studentName,
+                    'report_status' => $session->report_status,
+                    'nudges_left'   => self::MAX_NUDGES - $nudgeNum,
                 ]);
 
             } catch (\Throwable $e) {
-                Log::warning('ReportNudge: failed to send nudge', [
-                    'session_id' => $session->id,
-                    'error'      => $e->getMessage(),
+                Log::channel('reminder')->error('ReportFlow[4/4] FAILED — nudge send error', [
+                    'session_id'    => $session->id,
+                    'session_title' => $session->title,
+                    'teacher'       => $session->teacher?->whatsapp_number,
+                    'error'         => $e->getMessage(),
                 ]);
             }
         }

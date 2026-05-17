@@ -64,6 +64,74 @@ class LegacyCalendarSyncService
         }
     }
 
+    /**
+     * Generate class sessions for the next $daysToLookAhead days for a specific student.
+     */
+    public function syncStudentFutureDays(string $studentName, int $daysToLookAhead = 90): void
+    {
+        $studentId = $this->resolveGlobalStudentId($studentName);
+        if (!$studentId) return;
+
+        // 1. Delete all future 'scheduled' OR 'coming' sessions for this student
+        // This clears out any sessions from old timetable configurations.
+        // 'coming' sessions are included because auto-schedule transitions them
+        // from 'scheduled' → 'coming', so a second sync would otherwise skip them
+        // and create duplicates alongside the existing coming sessions.
+        // Completed/cancelled/rescheduled history is preserved.
+        ClassSession::where('student_id', $studentId)
+            ->where('session_date', '>=', Carbon::today()->format('Y-m-d'))
+            ->whereIn('status', ['scheduled', 'coming'])
+            ->delete();
+
+        // 2. Rebuild sessions from today to +90 days
+        for ($i = 0; $i <= $daysToLookAhead; $i++) {
+            $date = Carbon::today()->addDays($i);
+            $this->syncDateForStudent($date, $studentName);
+        }
+    }
+
+    /**
+     * Sync a specific date from legacy calendar to class_sessions for a specific student.
+     */
+    public function syncDateForStudent(Carbon $date, string $studentName): void
+    {
+        $dateString = $date->format('Y-m-d');
+        $dayOfWeekName = $date->format('l');
+
+        // 1. Check if student is stopped on this date
+        $isStopped = CalendarStudentStop::where('student_name', $studentName)
+            ->where('date_from', '<=', $dateString)
+            ->where('date_to', '>=', $dateString)
+            ->exists();
+            
+        if ($isStopped) return; // Skip generating if stopped
+
+        // 2. Fetch standard recurring timetables for this student
+        $timetables = CalendarTeacherTimetable::with('teacher')
+            ->where('student_name', $studentName)
+            ->where('day', $dayOfWeekName)
+            ->where('status', 'active')
+            ->where(function ($query) {
+                $query->whereNull('deleted_date')
+                    ->orWhere('deleted_date', '>', Carbon::now()->format('Y-m-d'));
+            })
+            ->get();
+
+        foreach ($timetables as $timetable) {
+            $this->createSessionFromTimetable($timetable, $date);
+        }
+
+        // 3. Fetch exceptional classes specifically scheduled for this date & student
+        $exceptionalClasses = CalendarExceptionalClass::with('teacher')
+            ->where('student_name', $studentName)
+            ->where('date', $dateString)
+            ->get();
+
+        foreach ($exceptionalClasses as $exceptional) {
+            $this->createSessionFromExceptional($exceptional, $date);
+        }
+    }
+
     private function createSessionFromTimetable(CalendarTeacherTimetable $timetable, Carbon $date): void
     {
         $sessionDate = $date->format('Y-m-d');

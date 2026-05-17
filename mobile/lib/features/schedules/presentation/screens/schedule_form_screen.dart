@@ -152,10 +152,10 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
+            colorScheme: const ColorScheme.light(
               primary: AppColors.primary,
               onPrimary: Colors.white,
-              surface: AppColors.darkCard,
+              surface: AppColors.lightCard,
               onSurface: AppColors.textPrimary,
             ),
           ),

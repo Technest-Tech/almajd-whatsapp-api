@@ -38,11 +38,11 @@ class DateSeparator extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 12),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A2C34),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(8),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 2,
               offset: const Offset(0, 1),
             ),
@@ -51,7 +51,7 @@ class DateSeparator extends StatelessWidget {
         child: Text(
           _label(),
           style: const TextStyle(
-            color: Color(0xFF8696A0),
+            color: Color(0xFF757575),
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
@@ -93,19 +93,19 @@ class MessageBubble extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
-            color: const Color(0xFF1A2C34),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 1,
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 2,
               ),
             ],
           ),
           child: Text(
             message.body,
             style: const TextStyle(
-              color: Color(0xFF8696A0),
+              color: Color(0xFF757575),
               fontSize: 12,
             ),
             textAlign: TextAlign.center,
@@ -176,8 +176,8 @@ class MessageBubble extends StatelessWidget {
 
     final alignment = isInbound ? Alignment.centerRight : Alignment.centerLeft;
     final bgColor = isInbound
-        ? const Color(0xFF1A2C34)
-        : const Color(0xFF005C4B);
+        ? Colors.white
+        : const Color(0xFFE7FFDB);
 
     final borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(12),
@@ -202,10 +202,10 @@ class MessageBubble extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: Colors.black.withValues(alpha: 0.05),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.reply, color: Colors.white70, size: 20),
+            child: const Icon(Icons.reply, color: Color(0xFF757575), size: 20),
           ),
         ),
         child: Align(
@@ -235,7 +235,7 @@ class MessageBubble extends StatelessWidget {
                     child: Text(
                       message.senderName!,
                       style: const TextStyle(
-                        color: Color(0xFF53BDEB),
+                        color: Color(0xFF00A884),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -284,10 +284,10 @@ class MessageBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.15),
+          color: Colors.black.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
           border: const Border(
-            right: BorderSide(color: Color(0xFF53BDEB), width: 3),
+            right: BorderSide(color: Color(0xFF00A884), width: 3),
           ),
         ),
         child: Column(
@@ -296,7 +296,7 @@ class MessageBubble extends StatelessWidget {
             Text(
               message.replyToSender ?? 'المستخدم',
               style: const TextStyle(
-                color: Color(0xFF53BDEB),
+                color: Color(0xFF00A884),
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
@@ -304,8 +304,8 @@ class MessageBubble extends StatelessWidget {
             const SizedBox(height: 1),
             Text(
               preview,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
+              style: const TextStyle(
+                color: Color(0xFF757575),
                 fontSize: 12,
               ),
               maxLines: 2,
@@ -348,7 +348,7 @@ class MessageBubble extends StatelessWidget {
           child: Text(
             message.body,
             style: const TextStyle(
-              color: Colors.white,
+              color: Color(0xFF212121),
               fontSize: 15.5,
               height: 1.45,
               letterSpacing: 0.2,
@@ -362,8 +362,8 @@ class MessageBubble extends StatelessWidget {
           children: [
             Text(
               message.timeFormatted,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
+              style: const TextStyle(
+                color: Color(0xFF9E9E9E),
                 fontSize: 11,
               ),
             ),
@@ -385,8 +385,8 @@ class MessageBubble extends StatelessWidget {
       children: [
         Text(
           message.timeFormatted,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.45),
+          style: const TextStyle(
+            color: Color(0xFF9E9E9E),
             fontSize: 10.5,
           ),
         ),
@@ -460,7 +460,7 @@ class MessageBubble extends StatelessWidget {
     HapticFeedback.mediumImpact();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1A2C34),
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -474,7 +474,7 @@ class MessageBubble extends StatelessWidget {
                 width: 36, height: 4,
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: const Color(0xFFE0E0E0),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -510,7 +510,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _contextMenuItem(BuildContext ctx, IconData icon, String label, VoidCallback onTap, {Color? color}) {
-    final c = color ?? Colors.white;
+    final c = color ?? const Color(0xFF212121);
     return ListTile(
       leading: Icon(icon, color: c, size: 22),
       title: Text(label, style: TextStyle(color: c, fontSize: 15)),
@@ -524,17 +524,17 @@ class MessageBubble extends StatelessWidget {
   Widget _deliveryIcon() {
     switch (message.deliveryStatus) {
       case 'read':
-        return const Icon(Icons.done_all, size: 15, color: Color(0xFF53BDEB));
+        return const Icon(Icons.done_all, size: 15, color: Color(0xFF34B7F1));
       case 'delivered':
-        return Icon(Icons.done_all, size: 15, color: Colors.white.withValues(alpha: 0.5));
+        return const Icon(Icons.done_all, size: 15, color: Color(0xFF9E9E9E));
       case 'sent':
-        return Icon(Icons.done, size: 15, color: Colors.white.withValues(alpha: 0.5));
+        return const Icon(Icons.done, size: 15, color: Color(0xFF9E9E9E));
       case 'sending':
-        return Icon(Icons.access_time, size: 13, color: Colors.white.withValues(alpha: 0.4));
+        return const Icon(Icons.access_time, size: 13, color: Color(0xFF9E9E9E));
       case 'failed':
         return const Icon(Icons.error_outline, size: 15, color: AppColors.coral);
       default:
-        return Icon(Icons.done, size: 15, color: Colors.white.withValues(alpha: 0.5));
+        return const Icon(Icons.done, size: 15, color: Color(0xFF9E9E9E));
     }
   }
 }
@@ -633,8 +633,8 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
               height: 42,
               decoration: BoxDecoration(
                 color: widget.isInbound
-                    ? const Color(0xFF00A884)
-                    : Colors.white.withValues(alpha: 0.9),
+                    ? Colors.white
+                    : const Color(0xFF00A884),
                 shape: BoxShape.circle,
               ),
               child: _isLoading
@@ -642,12 +642,12 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
                       padding: const EdgeInsets.all(10),
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: widget.isInbound ? Colors.white : const Color(0xFF005C4B),
+                        color: widget.isInbound ? const Color(0xFF00A884) : Colors.white,
                       ),
                     )
                   : Icon(
                       _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                      color: widget.isInbound ? Colors.white : const Color(0xFF005C4B),
+                      color: widget.isInbound ? const Color(0xFF00A884) : Colors.white,
                       size: 24,
                     ),
             ),
@@ -678,10 +678,10 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
                         progress: progress,
                         activeColor: widget.isInbound
                             ? const Color(0xFF00A884)
-                            : Colors.white.withValues(alpha: 0.9),
+                            : const Color(0xFF00A884), // Or keep it white for outbound, but the bubble is light green now. Let's use 0xFF00A884 for both or dark grey. Let's use 0xFF00A884 for active.
                         inactiveColor: widget.isInbound
-                            ? Colors.white.withValues(alpha: 0.25)
-                            : Colors.white.withValues(alpha: 0.3),
+                            ? const Color(0xFFE0E0E0)
+                            : const Color(0xFFB9E5CB), // darker green for inactive on light green bubble
                       ),
                       size: Size.infinite,
                     ),
@@ -695,8 +695,8 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
                       timeStr,
                       style: TextStyle(
                         color: widget.isInbound
-                            ? Colors.white.withValues(alpha: 0.55)
-                            : Colors.white.withValues(alpha: 0.6),
+                            ? const Color(0xFF757575)
+                            : const Color(0xFF616161),
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
                       ),
@@ -708,17 +708,17 @@ class _AudioMessageWidgetState extends State<AudioMessageWidget> {
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                         decoration: BoxDecoration(
                           color: (widget.isInbound
-                                  ? const Color(0xFF00A884)
-                                  : Colors.white)
-                              .withValues(alpha: _speed != 1.0 ? 0.2 : 0.0),
+                                  ? const Color(0xFFEEEEEE)
+                                  : const Color(0xFFB9E5CB))
+                              .withValues(alpha: _speed != 1.0 ? 1.0 : 0.0),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           speedLabel,
                           style: TextStyle(
                             color: widget.isInbound
-                                ? Colors.white.withValues(alpha: _speed != 1.0 ? 0.9 : 0.4)
-                                : Colors.white.withValues(alpha: _speed != 1.0 ? 1.0 : 0.5),
+                                ? const Color(0xFF757575)
+                                : const Color(0xFF616161),
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
                           ),

@@ -878,9 +878,9 @@ class _EditEntrySheetState extends State<_EditEntrySheet> {
       initialTime: isStart ? _start : _end,
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(
+          colorScheme: const ColorScheme.light(
             primary: AppColors.primary,
-            surface: AppColors.darkCard,
+            surface: AppColors.lightCard,
             onSurface: AppColors.textPrimary,
           ),
         ),

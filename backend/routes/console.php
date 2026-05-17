@@ -3,8 +3,9 @@
 use Illuminate\Support\Facades\Schedule;
 
 // ── Reminders ────────────────────────────────────────────────────────────────
-// Run auto-scheduler every 5 minutes to create reminder rows for today's sessions
-Schedule::command('reminders:auto-schedule')->everyFiveMinutes()->withoutOverlapping(10);
+// Run auto-scheduler every minute to create reminder rows for today's sessions
+// (runs frequently so rescheduled sessions get correct reminders immediately)
+Schedule::command('reminders:auto-schedule')->everyMinute()->withoutOverlapping(5);
 
 // Process and send pending reminders every minute
 Schedule::job(new \App\Jobs\SendSessionRemindersJob())->everyMinute()->withoutOverlapping(5);

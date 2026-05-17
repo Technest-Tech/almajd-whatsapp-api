@@ -223,13 +223,21 @@ class _ManagementHubScreenState extends State<ManagementHubScreen> {
   }
 
   Future<void> _generateSessions(BuildContext context) async {
+    final selectedStudents = await showDialog<List<String>>(
+      context: context,
+      builder: (ctx) => const _GenerateSessionsDialog(),
+    );
+
+    if (selectedStudents == null || !mounted) return;
+
     setState(() { _isGenerating = true; _lastAction = null; });
     try {
       final api = ApiService();
-      final response = await api.post('/v1/calendar/sessions/generate');
-      final data = response.data as Map<String, dynamic>;
-      final created = data['sessions_created'] ?? 0;
-      final total = data['total_sessions'] ?? 0;
+      final payload = selectedStudents.isNotEmpty ? {'student_names': selectedStudents} : null;
+      final response = await api.post('/v1/calendar/sessions/generate', data: payload);
+      final responseData = response.data as Map<String, dynamic>?;
+      final created = responseData?['sessions_created'] ?? 0;
+      final total = responseData?['total_sessions'] ?? 0;
       if (mounted) {
         setState(() {
           _lastAction = 'تم توليد $created جلسة جديدة — الإجمالي: $total';
@@ -356,6 +364,152 @@ class _HubCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _GenerateSessionsDialog extends StatefulWidget {
+  const _GenerateSessionsDialog();
+
+  @override
+  State<_GenerateSessionsDialog> createState() => _GenerateSessionsDialogState();
+}
+
+class _GenerateSessionsDialogState extends State<_GenerateSessionsDialog> {
+  bool _isLoading = true;
+  List<String> _allStudents = [];
+  List<String> _filteredStudents = [];
+  final List<String> _selectedStudents = [];
+  bool _generateForAll = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchStudents();
+  }
+
+  Future<void> _fetchStudents() async {
+    try {
+      final api = ApiService();
+      final response = await api.get('/v1/calendar/students/list');
+      if (response.data != null && response.data['students'] != null) {
+        final students = List<String>.from(response.data['students']);
+        if (mounted) {
+          setState(() {
+            _allStudents = students;
+            _filteredStudents = students;
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _filter(String query) {
+    setState(() {
+      _filteredStudents = _allStudents
+          .where((s) => s.toLowerCase().contains(query.toLowerCase()))
+          .toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('خيارات التوليد', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RadioListTile<bool>(
+              title: const Text('لجميع الطلاب', style: TextStyle(fontSize: 14)),
+              value: true,
+              groupValue: _generateForAll,
+              onChanged: (val) => setState(() => _generateForAll = val!),
+              contentPadding: EdgeInsets.zero,
+            ),
+            RadioListTile<bool>(
+              title: const Text('لطلاب محددين', style: TextStyle(fontSize: 14)),
+              value: false,
+              groupValue: _generateForAll,
+              onChanged: (val) => setState(() => _generateForAll = val!),
+              contentPadding: EdgeInsets.zero,
+            ),
+            if (!_generateForAll) ...[
+              const SizedBox(height: 10),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'ابحث عن طالب...',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                ),
+                onChanged: _filter,
+              ),
+              const SizedBox(height: 10),
+              if (_isLoading)
+                const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()))
+              else
+                Flexible(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    constraints: const BoxConstraints(maxHeight: 250),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _filteredStudents.length,
+                      itemBuilder: (context, index) {
+                        final student = _filteredStudents[index];
+                        final isSelected = _selectedStudents.contains(student);
+                        return CheckboxListTile(
+                          title: Text(student, style: const TextStyle(fontSize: 13)),
+                          value: isSelected,
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) {
+                                _selectedStudents.add(student);
+                              } else {
+                                _selectedStudents.remove(student);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+          onPressed: (!_generateForAll && _selectedStudents.isEmpty)
+              ? null
+              : () {
+                  Navigator.pop(
+                    context,
+                    _generateForAll ? <String>[] : _selectedStudents,
+                  );
+                },
+          child: const Text('تأكيد وتوليد'),
+        ),
+      ],
     );
   }
 }

@@ -155,9 +155,9 @@ class _StudentScheduleFormState extends State<StudentScheduleForm> {
       initialTime: initial,
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.dark(
+          colorScheme: const ColorScheme.light(
             primary: AppColors.primary,
-            surface: AppColors.darkCard,
+            surface: AppColors.lightCard,
             onSurface: AppColors.textPrimary,
           ),
         ),

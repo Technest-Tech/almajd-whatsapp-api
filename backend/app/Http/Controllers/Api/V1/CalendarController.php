@@ -1017,20 +1017,35 @@ class CalendarController extends Controller
      * Admin-triggered: Generate sessions for the next 90 days (3 months).
      * POST /api/v1/calendar/sessions/generate
      */
-    public function generateSessions(LegacyCalendarSyncService $syncService): JsonResponse
+    public function generateSessions(Request $request, LegacyCalendarSyncService $syncService): JsonResponse
     {
+        $request->validate([
+            'student_names' => 'nullable|array',
+            'student_names.*' => 'string',
+        ]);
+
         try {
             $beforeCount = ClassSession::count();
 
-            // Sync next 90 days from legacy calendar
-            $syncService->syncFutureDays(90);
+            $studentNames = $request->input('student_names');
+
+            if (!empty($studentNames)) {
+                // Sync specific students
+                foreach ($studentNames as $name) {
+                    $syncService->syncStudentFutureDays($name, 90);
+                }
+            } else {
+                // Sync next 90 days from legacy calendar for everyone
+                $syncService->syncFutureDays(90);
+            }
 
             $afterCount = ClassSession::count();
-            $created    = $afterCount - $beforeCount;
+            $created    = max(0, $afterCount - $beforeCount);
 
             Log::info('Admin triggered session generation.', [
                 'created' => $created,
                 'total'   => $afterCount,
+                'specific_students' => $studentNames,
             ]);
 
             return response()->json([

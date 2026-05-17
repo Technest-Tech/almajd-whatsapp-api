@@ -202,17 +202,17 @@ class _InboxViewState extends State<_InboxView> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2C34),
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('حذف المحادثة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        title: const Text('حذف المحادثة', style: TextStyle(color: Color(0xFF212121), fontWeight: FontWeight.w700)),
         content: const Text(
           'هل أنت متأكد من حذف هذه المحادثة؟ لا يمكن التراجع عن هذا الإجراء.',
-          style: TextStyle(color: Color(0xFF8696A0), fontSize: 14),
+          style: TextStyle(color: Color(0xFF757575), fontSize: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF8696A0))),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF757575))),
           ),
           TextButton(
             onPressed: () {
@@ -278,7 +278,7 @@ class _InboxViewState extends State<_InboxView> {
                           decoration: BoxDecoration(
                             color: isActive
                                 ? const Color(0xFF00A884)
-                                : const Color(0xFF2A3942),
+                                : const Color(0xFFEEEEEE),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           alignment: Alignment.center,
@@ -290,7 +290,7 @@ class _InboxViewState extends State<_InboxView> {
                                 style: TextStyle(
                                   color: isActive
                                       ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.55),
+                                      : const Color(0xFF616161),
                                   fontSize: 13,
                                   fontWeight: isActive
                                       ? FontWeight.w700
@@ -304,7 +304,7 @@ class _InboxViewState extends State<_InboxView> {
                                   decoration: BoxDecoration(
                                     color: isActive
                                         ? Colors.white.withValues(alpha: 0.25)
-                                        : Colors.white.withValues(alpha: 0.1),
+                                        : const Color(0xFF00A884).withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
@@ -312,7 +312,7 @@ class _InboxViewState extends State<_InboxView> {
                                     style: TextStyle(
                                       color: isActive
                                           ? Colors.white
-                                          : Colors.white.withValues(alpha: 0.55),
+                                          : const Color(0xFF00A884),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -378,14 +378,14 @@ class _InboxViewState extends State<_InboxView> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.chat_bubble_outline,
-                  size: 80, color: Colors.white.withValues(alpha: 0.15)),
+                  size: 80, color: const Color(0xFF00A884).withValues(alpha: 0.3)),
               const SizedBox(height: 16),
               Text(
                 hasSearchQuery
                     ? 'لا توجد نتائج لـ "${state.searchQuery}"'
                     : 'لا توجد محادثات',
                 style: const TextStyle(
-                    color: AppColors.textSecondary, fontSize: 16),
+                    color: Color(0xFF9E9E9E), fontSize: 16),
               ),
             ],
           ),
@@ -394,7 +394,7 @@ class _InboxViewState extends State<_InboxView> {
 
       return RefreshIndicator(
         color: const Color(0xFF00A884),
-        backgroundColor: const Color(0xFF1F2C34),
+        backgroundColor: Colors.white,
         onRefresh: () async {
           context
               .read<TicketListBloc>()
@@ -493,8 +493,8 @@ class _InboxViewState extends State<_InboxView> {
 
   Widget _buildShimmer() {
     return Shimmer.fromColors(
-      baseColor: const Color(0xFF1F2C34),
-      highlightColor: const Color(0xFF2A3942),
+      baseColor: const Color(0xFFEEEEEE),
+      highlightColor: const Color(0xFFF5F5F5),
       child: ListView.separated(
         itemCount: 7,
         separatorBuilder: (_, __) =>
@@ -503,7 +503,7 @@ class _InboxViewState extends State<_InboxView> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             children: [
-              const CircleAvatar(radius: 26, backgroundColor: Color(0xFF2A3942)),
+              const CircleAvatar(radius: 26, backgroundColor: Color(0xFFE0E0E0)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -513,14 +513,14 @@ class _InboxViewState extends State<_InboxView> {
                         height: 14,
                         width: 160,
                         decoration: BoxDecoration(
-                            color: const Color(0xFF2A3942),
+                            color: const Color(0xFFE0E0E0),
                             borderRadius: BorderRadius.circular(7))),
                     const SizedBox(height: 8),
                     Container(
                         height: 11,
                         width: 220,
                         decoration: BoxDecoration(
-                            color: const Color(0xFF2A3942),
+                            color: const Color(0xFFE0E0E0),
                             borderRadius: BorderRadius.circular(6))),
                   ],
                 ),
@@ -560,7 +560,7 @@ class _StudentRow extends StatelessWidget {
           children: [
             const CircleAvatar(
               radius: 22,
-              backgroundColor: Color(0xFF2A3942),
+              backgroundColor: Color(0xFFE0E0E0),
               backgroundImage: AssetImage('assets/images/default_avatar.png'),
             ),
             const SizedBox(width: 12),
@@ -568,11 +568,11 @@ class _StudentRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  Text(displayName, style: const TextStyle(color: Color(0xFF212121), fontSize: 15, fontWeight: FontWeight.w600)),
                   if (isAdmin && student.whatsappNumber != null && student.whatsappNumber!.isNotEmpty && displayName != '\u200E${student.whatsappNumber}')
                     Text(
                       '\u200E${student.whatsappNumber}',
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+                      style: const TextStyle(color: Color(0xFF757575), fontSize: 12),
                     ),
                 ],
               ),
@@ -626,7 +626,7 @@ class _TeacherRow extends StatelessWidget {
           children: [
             const CircleAvatar(
               radius: 22,
-              backgroundColor: Color(0xFF2A3942),
+              backgroundColor: Color(0xFFE0E0E0),
               backgroundImage: AssetImage('assets/images/default_avatar.png'),
             ),
             const SizedBox(width: 12),
@@ -636,13 +636,13 @@ class _TeacherRow extends StatelessWidget {
                 children: [
                   Text(
                     teacher.name,
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: Color(0xFF212121), fontSize: 15, fontWeight: FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (teacher.whatsappNumber != null && teacher.whatsappNumber!.isNotEmpty)
                     Text(
                       teacher.whatsappNumber!,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+                      style: const TextStyle(color: Color(0xFF757575), fontSize: 12),
                       overflow: TextOverflow.ellipsis,
                     ),
                 ],
@@ -696,23 +696,23 @@ class _SearchBar extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A3942),
+        color: const Color(0xFFEEEEEE),
         borderRadius: BorderRadius.circular(12),
       ),
       child: TextField(
         controller: controller,
         onChanged: onChanged,
         textDirection: TextDirection.rtl,
-        style: const TextStyle(color: Colors.white, fontSize: 15),
+        style: const TextStyle(color: Color(0xFF212121), fontSize: 15),
         decoration: InputDecoration(
           hintText: 'بحث عن طالب أو رسالة...',
           hintStyle:
-              TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 15),
+              const TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),
           prefixIcon:
-              Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.5)),
+              const Icon(Icons.search_rounded, color: Color(0xFF9E9E9E)),
           suffixIcon: IconButton(
-            icon: Icon(Icons.close_rounded,
-                color: Colors.white.withValues(alpha: 0.5)),
+            icon: const Icon(Icons.close_rounded,
+                color: Color(0xFF9E9E9E)),
             onPressed: onClose,
           ),
           border: InputBorder.none,
