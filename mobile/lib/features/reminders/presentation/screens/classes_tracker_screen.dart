@@ -21,6 +21,7 @@ class ClassesTrackerScreen extends StatefulWidget {
 
 class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   final _apiClient = getIt<ApiClient>();
+  final _searchController = TextEditingController();
 
   List<ClassSessionModel> _sessions = [];
   bool _loading = true;
@@ -30,6 +31,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
   int _allCount = 0;
   int _mineCount = 0;
   String? _selectedStatus;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -42,6 +44,12 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       }
       _load();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   bool _isSessionAdmin() {
@@ -385,6 +393,14 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
     return s.status == _selectedStatus;
   }
 
+  bool _matchesSearch(ClassSessionModel s) {
+    if (_searchQuery.isEmpty) return true;
+    final q = _searchQuery.toLowerCase();
+    final teacher = (s.teacherName ?? '').toLowerCase();
+    final student = (s.studentName ?? '').toLowerCase();
+    return teacher.contains(q) || student.contains(q);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Status-based counts — these always sum to _sessions.length (every session
@@ -414,8 +430,8 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
       }
     }
 
-    // Apply the active status filter, then group by time category for display.
-    final filtered = _sessions.where(_matchesStatusFilter).toList();
+    // Apply both the status chip filter and the search query.
+    final filtered = _sessions.where((s) => _matchesStatusFilter(s) && _matchesSearch(s)).toList();
     final current = <ClassSessionModel>[];
     final upcoming = <ClassSessionModel>[];
     final passed = <ClassSessionModel>[];
@@ -477,6 +493,45 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
               _load();
             }
           },
+        ),
+
+        // ── Search Bar ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: TextField(
+            controller: _searchController,
+            textDirection: TextDirection.rtl,
+            decoration: InputDecoration(
+              hintText: 'ابحث عن معلم أو طالب...',
+              hintStyle: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              prefixIcon: const Icon(Icons.search_rounded, size: 20),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    )
+                  : null,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              filled: true,
+              fillColor: AppColors.darkCard,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.darkCardElevated, width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+              ),
+            ),
+            onChanged: (v) => setState(() => _searchQuery = v.trim()),
+          ),
         ),
 
         // ── Filter Toggle + Summary Chips ──
@@ -585,7 +640,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                   : _sessions.isEmpty
                       ? _buildEmpty()
                       : filtered.isEmpty
-                          ? _buildFilteredEmpty()
+                          ? (_searchQuery.isNotEmpty ? _buildSearchEmpty() : _buildFilteredEmpty())
                           : RefreshIndicator(
                           color: AppColors.primary,
                           onRefresh: _load,
@@ -736,6 +791,31 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
               onPressed: () => setState(() => _selectedStatus = null),
               icon: const Icon(Icons.close, size: 16),
               label: const Text('إزالة الفلتر'),
+            ),
+          ],
+        ),
+      );
+
+  Widget _buildSearchEmpty() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off_rounded,
+                size: 72, color: const Color(0xFFBDBDBD)),
+            const SizedBox(height: 16),
+            Text(
+              'لا نتائج لـ "$_searchQuery"',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () {
+                _searchController.clear();
+                setState(() => _searchQuery = '');
+              },
+              icon: const Icon(Icons.close, size: 16),
+              label: const Text('مسح البحث'),
             ),
           ],
         ),
