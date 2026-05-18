@@ -58,6 +58,9 @@ Route::post('webhooks/wasender', [WasenderWebhookController::class, 'receive'])
 Route::get('media/tickets/{ticket}/{filename}', [TicketMediaController::class, 'download'])
     ->name('ticket.media.download');
 
+// ── Public Exports ─────────────────────────────────────────
+Route::get('export/teachers-connectrs', [\App\Http\Controllers\Api\ExportController::class, 'exportTeachersConnectrs']);
+
 // ── Public Auth ───────────────────────────────────────────
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login']);

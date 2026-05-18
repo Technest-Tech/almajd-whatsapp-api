@@ -656,8 +656,12 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             $echoRecipientPlus = $echoRecipient ? '+' . ltrim($echoRecipient, '+') : '';
 
             if ($echoRecipientPlus) {
+                // Pass 1: match by temp ID prefix — RMD_ (reminders) or out_ (admin ticket replies)
                 $existing = WhatsappMessage::where('direction', MessageDirection::Outbound)
-                    ->where('wa_message_id', 'like', 'RMD_%')
+                    ->where(function ($q) {
+                        $q->where('wa_message_id', 'like', 'RMD_%')
+                          ->orWhere('wa_message_id', 'like', 'out_%');
+                    })
                     ->where('created_at', '>=', now()->subMinutes(10))
                     ->where(function ($q) use ($echoRecipientPlus, $echoRecipient) {
                         $q->where('to_number', $echoRecipientPlus)
@@ -666,9 +670,27 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                     ->orderBy('created_at', 'desc')
                     ->first();
 
+                // Pass 2: content-based fallback — handles the case where SendWhatsAppMessageJob
+                // already replaced the temp ID with Wasender's internal numeric ID before this
+                // echo arrived, so the prefix check above would miss it.
+                if (!$existing) {
+                    $echoBody = trim((string) ($messages['messageBody'] ?? ''));
+                    if ($echoBody !== '') {
+                        $existing = WhatsappMessage::where('direction', MessageDirection::Outbound)
+                            ->where('created_at', '>=', now()->subMinutes(10))
+                            ->where('content', $echoBody)
+                            ->where(function ($q) use ($echoRecipientPlus, $echoRecipient) {
+                                $q->where('to_number', $echoRecipientPlus)
+                                  ->orWhere('to_number', $echoRecipient);
+                            })
+                            ->orderBy('created_at', 'desc')
+                            ->first();
+                    }
+                }
+
                 if ($existing) {
                     $existing->update(['wa_message_id' => $messageId, 'delivery_status' => DeliveryStatus::Sent]);
-                    Log::info("WasenderAPI: fromMe echo matched RMD record #{$existing->id} → updated wa_message_id to {$messageId}");
+                    Log::info("WasenderAPI: fromMe echo matched outbound record #{$existing->id} → updated wa_message_id to {$messageId}");
                     return;
                 }
             }
