@@ -504,21 +504,31 @@ class AutoScheduleRemindersCommand extends Command
             }
         }
 
-        $reminder = Reminder::create([
-            'type'                => 'session_reminder',
-            'recipient_type'      => $recipientType,
-            'reminder_phase'      => $phase,
-            'class_session_id'    => $session->id,
-            'recipient_phone'     => $phone,
-            'recipient_name'      => $name,
-            'template_name'       => $templateName,
-            'template_sid'        => $templateSid,
-            'template_params'     => $templateParams,
-            'message_body'        => $messageBody,
-            'scheduled_at'        => $scheduledAt,
-            'status'              => 'pending',
-            'confirmation_status' => $confirmationStatus,
-        ]);
+        try {
+            $reminder = Reminder::create([
+                'type'                => 'session_reminder',
+                'recipient_type'      => $recipientType,
+                'reminder_phase'      => $phase,
+                'class_session_id'    => $session->id,
+                'recipient_phone'     => $phone,
+                'recipient_name'      => $name,
+                'template_name'       => $templateName,
+                'template_sid'        => $templateSid,
+                'template_params'     => $templateParams,
+                'message_body'        => $messageBody,
+                'scheduled_at'        => $scheduledAt,
+                'status'              => 'pending',
+                'confirmation_status' => $confirmationStatus,
+            ]);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Race condition: two concurrent scheduler runs both passed the dedup
+            // check before either inserted. The reminder already exists — safe to skip.
+            Log::channel('reminder')->debug('DEDUP: unique constraint race — reminder already exists', [
+                'session_id' => $session->id, 'phase' => $phase,
+                'recipient'  => $recipientType, 'phone' => $phone,
+            ]);
+            return;
+        }
 
         Log::channel('reminder')->info('CREATED reminder', [
             'reminder_id' => $reminder->id,
