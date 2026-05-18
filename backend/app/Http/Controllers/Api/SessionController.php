@@ -217,6 +217,44 @@ class SessionController extends Controller
     }
 
     /**
+     * Manually nudge the teacher to submit the session report.
+     * Sends the same WhatsApp reminder as SendReportNudgeJob and increments report_nudge_count.
+     */
+    public function remindTeacherReport(int $id): JsonResponse
+    {
+        $session = ClassSession::with(['teacher', 'student'])->findOrFail($id);
+
+        $teacherPhone = $session->teacher?->whatsapp_number;
+        if (!$teacherPhone) {
+            return $this->response->error('المعلم لا يملك رقم واتساب مسجّل', 422);
+        }
+
+        $studentName = $session->student?->name ?? 'الطالب';
+        $subject     = $session->title ?? 'الحصة';
+        $timeRaw     = $session->rescheduled_start_time ?? $session->start_time;
+        $timeTag     = $timeRaw ? ' (' . substr((string) $timeRaw, 0, 5) . ')' : '';
+        $nudgeNum    = $session->report_nudge_count + 1;
+
+        $message = $session->report_status === 'confirming'
+            ? "⏰ *تذكير #$nudgeNum*\n"
+              . "يبدو أنك أرسلت تقرير حصة {$subject}{$timeTag} مع {$studentName} "
+              . "لكنك لم تؤكد إرساله للطالب بعد.\n"
+              . "يرجى الرد على استطلاع التأكيد أعلاه."
+            : "⏰ *تذكير #$nudgeNum*\n"
+              . "لم يصلنا بعد تقرير حصة {$subject}{$timeTag} مع {$studentName}.\n"
+              . "يرجى إرسال التقرير وسيتم توجيهه للطالب بعد تأكيدك.";
+
+        $whatsApp = app(WhatsAppServiceInterface::class);
+        $whatsApp->sendText($teacherPhone, $message);
+
+        $session->increment('report_nudge_count');
+
+        Log::info("remindTeacherReport: manual nudge #{$nudgeNum} sent for session {$id} to {$teacherPhone}");
+
+        return $this->response->success(['nudge_number' => $nudgeNum], 'تم إرسال التذكير للمعلم');
+    }
+
+    /**
      * Create a WhatsappMessage in the inbox so supervisors see the sent reminder.
      */
     private function createInboxMessage(string $phone, ?string $name, string $message): array

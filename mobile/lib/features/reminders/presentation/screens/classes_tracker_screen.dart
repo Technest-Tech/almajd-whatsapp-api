@@ -274,59 +274,30 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
     }
   }
 
-  void _showReportDialog(int sessionId) {
-    final reportController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkCard,
-        title: const Text('إرسال تقرير الحصة'),
-        content: TextField(
-          controller: reportController,
-          decoration: const InputDecoration(
-            labelText: 'تقرير الحصة',
-            hintText: 'أدخل تقرير الحصة هنا...',
-            alignLabelWithHint: true,
+  Future<void> _remindTeacherReport(int sessionId) async {
+    try {
+      await getIt<SessionRepository>().remindTeacherReport(sessionId);
+      _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم إرسال التذكير للمعلم ✅'),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
           ),
-          maxLines: 5,
-          textDirection: TextDirection.rtl,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
-          TextButton(
-            onPressed: () async {
-              final text = reportController.text.trim();
-              if (text.isEmpty) return;
-              Navigator.pop(ctx);
-              try {
-                await getIt<SessionRepository>().submitReport(sessionId, reportText: text);
-                _load();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('تم إرسال التقرير بنجاح ✅'),
-                      backgroundColor: AppColors.success,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('فشل إرسال التقرير، حاول مجدداً'),
-                      backgroundColor: AppColors.coral,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('إرسال'),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('فشل إرسال التذكير، حاول مجدداً'),
+            backgroundColor: AppColors.coral,
+            behavior: SnackBarBehavior.floating,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    }
   }
 
   Future<void> _showRescheduleDialog(int sessionId) async {
@@ -635,7 +606,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
-                                      onSendReport: () => _showReportDialog(s.id),
+                                      onSendReport: () => _remindTeacherReport(s.id),
                                     )),
                                 const SizedBox(height: 12),
                               ],
@@ -653,7 +624,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
-                                      onSendReport: () => _showReportDialog(s.id),
+                                      onSendReport: () => _remindTeacherReport(s.id),
                                     )),
                                 const SizedBox(height: 12),
                               ],
@@ -671,7 +642,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
-                                      onSendReport: () => _showReportDialog(s.id),
+                                      onSendReport: () => _remindTeacherReport(s.id),
                                     )),
                                 const SizedBox(height: 12),
                               ],
@@ -689,7 +660,7 @@ class _ClassesTrackerScreenState extends State<ClassesTrackerScreen> {
                                       onRemindStudent: () => _sendReminder(s.id, 'student'),
                                       onRemindTeacher: () => _sendReminder(s.id, 'teacher'),
                                       onStatusChange: (status) => _updateSessionStatus(s.id, status),
-                                      onSendReport: () => _showReportDialog(s.id),
+                                      onSendReport: () => _remindTeacherReport(s.id),
                                     )),
                               ],
                             ],
@@ -1371,23 +1342,46 @@ class _SessionCard extends StatelessWidget {
               ],
             ),
 
-            // Send report button (own row to avoid overflow)
+            // Report-not-sent badge + remind button
             if (session.isCompleted && session.reportStatus != 'confirmed') ...[
               const SizedBox(height: 6),
-              SizedBox(
-                height: 32,
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onSendReport,
-                  icon: const Icon(Icons.send_rounded, size: 14),
-                  label: const Text('إرسال التقرير يدوياً', style: TextStyle(fontSize: 12)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.amber.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.assignment_late_rounded, size: 11, color: AppColors.amber),
+                        const SizedBox(width: 4),
+                        Text(
+                          'التقرير لم يُرسل بعد',
+                          style: TextStyle(fontSize: 10, color: AppColors.amber, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                  const Spacer(),
+                  SizedBox(
+                    height: 30,
+                    child: OutlinedButton.icon(
+                      onPressed: onSendReport,
+                      icon: const Icon(Icons.notifications_active_rounded, size: 13),
+                      label: const Text('تذكير المعلم', style: TextStyle(fontSize: 11)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.amber,
+                        side: BorderSide(color: AppColors.amber.withValues(alpha: 0.5)),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
 

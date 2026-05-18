@@ -24,8 +24,8 @@ class SendReportNudgeJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Maximum nudge messages to send per session before giving up. */
-    private const MAX_NUDGES = 24;
+    /** Maximum automatic nudges per session — after this the admin must remind manually. */
+    private const MAX_NUDGES = 2;
 
     /** Minimum minutes after last update before sending the first nudge. */
     private const NUDGE_AFTER_MINUTES = 60;

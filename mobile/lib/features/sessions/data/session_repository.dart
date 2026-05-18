@@ -46,6 +46,10 @@ class SessionRepository {
     await apiClient.dio.post('/sessions/$id/report', data: {'report_text': reportText});
   }
 
+  Future<void> remindTeacherReport(int id) async {
+    await apiClient.dio.post('/sessions/$id/remind-report');
+  }
+
   Future<int> getPendingCount() async {
     try {
       final response = await apiClient.dio.get('/sessions/pending-count');
