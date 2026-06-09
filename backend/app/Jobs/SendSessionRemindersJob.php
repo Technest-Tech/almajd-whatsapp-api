@@ -38,8 +38,21 @@ class SendSessionRemindersJob implements ShouldQueue
     {
         $rlog = Log::channel('reminder');
 
+        // Exclude reminders belonging to teachers with reminders paused.
+        // We filter at query level so paused reminders don't clog the 50-slot batch
+        // and prevent active teachers' reminders from being processed.
+        $pausedTeacherIds = \App\Models\Teacher::where('reminders_paused', true)->pluck('id');
+
         $dueReminders = Reminder::where('status', 'pending')
             ->where('scheduled_at', '<=', now())
+            ->where(function ($q) use ($pausedTeacherIds) {
+                $q->whereNull('class_session_id')
+                  ->orWhereHas('classSession', function ($q2) use ($pausedTeacherIds) {
+                      $q2->whereNull('teacher_id')
+                         ->orWhereNotIn('teacher_id', $pausedTeacherIds);
+                  });
+            })
+            ->with(['classSession.teacher'])
             ->orderBy('scheduled_at')
             ->orderByRaw("CASE reminder_phase WHEN 'before' THEN 1 WHEN 'at_start' THEN 2 WHEN 'after' THEN 3 WHEN 'post_end' THEN 4 ELSE 5 END")
             ->limit(50)
@@ -146,6 +159,26 @@ class SendSessionRemindersJob implements ShouldQueue
                 $sent++;
 
             } catch (\Throwable $e) {
+                // ── Transient rate-limit (HTTP 429) → keep PENDING and retry ──
+                // Wasender "Account Protection" caps sends at 1 msg / 5s and returns
+                // 429. Marking the reminder 'failed' here would permanently drop a
+                // time-critical message (the before/at_start polls cluster at session
+                // start and get throttled). Instead leave it pending so the next
+                // per-minute run resends it. shouldSkipReminder() still cancels
+                // anything that becomes stale (>2h overdue), so this can't loop forever.
+                if (str_contains($e->getMessage(), '429') || stripos($e->getMessage(), 'account protection') !== false) {
+                    $rlog->warning('RATE-LIMITED reminder (kept pending, will retry)', [
+                        'reminder_id' => $reminder->id,
+                        'session_id'  => $reminder->class_session_id,
+                        'phase'       => $reminder->reminder_phase,
+                        'phone'       => $reminder->recipient_phone,
+                    ]);
+                    $skipped++;
+                    // Brief pause so the rest of this batch isn't hammered into 429s too.
+                    usleep(1_200_000); // 1.2s
+                    continue;
+                }
+
                 $reminder->update([
                     'status'         => 'failed',
                     'failure_reason' => $e->getMessage(),
@@ -303,7 +336,7 @@ class SendSessionRemindersJob implements ShouldQueue
             }
 
             // Create outbound message
-            $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number', '+201554134201'));
+            $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number'));
             $whatsappMsg = WhatsappMessage::create([
                 'wa_message_id'   => 'RMD_' . Str::ulid(),
                 'ticket_id'       => $ticket->id,
@@ -341,6 +374,18 @@ class SendSessionRemindersJob implements ShouldQueue
 
         $session = ClassSession::query()->find($reminder->class_session_id);
         if (!$session) {
+            return true;
+        }
+
+        // Cancel stale time-critical reminders that are more than 2 hours overdue
+        // while the session is still in 'scheduled' state — this prevents a flood of
+        // outdated messages firing after a teacher's reminders are resumed from pause.
+        $timeCriticalPhases = ['before', 'at_start', 'after', 'attend_3m', 'attend_6m', 'attend_9m', 'no_show_decision', 'auto_cancel'];
+        if (
+            in_array($reminder->reminder_phase, $timeCriticalPhases, true)
+            && $session->status === 'scheduled'
+            && $reminder->scheduled_at->lt(now()->subHours(2))
+        ) {
             return true;
         }
 

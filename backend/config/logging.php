@@ -129,12 +129,15 @@ return [
 
         // ── Dedicated reminder & report flow log ──
         // Separate from the main app log for easy analysis.
-        // Rotated daily, kept for 30 days.
+        // Rotated daily, kept for 7 days. Level is INFO so the high-volume
+        // per-minute DEDUP debug lines (one per already-scheduled reminder)
+        // don't flood the disk — they were generating ~350MB/day. Override
+        // with REMINDER_LOG_LEVEL=debug temporarily when diagnosing.
         'reminder' => [
             'driver' => 'daily',
             'path'   => storage_path('logs/reminders.log'),
-            'level'  => 'debug',
-            'days'   => 30,
+            'level'  => env('REMINDER_LOG_LEVEL', 'info'),
+            'days'   => env('REMINDER_LOG_DAYS', 7),
             'replace_placeholders' => true,
         ],
 

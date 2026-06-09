@@ -71,7 +71,17 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         $event    = $this->payload['event'] ?? '';
         $messages = $this->payload['data']['messages'] ?? [];
 
-        Log::info('WASENDER_WEBHOOK_DUMP', ['payload' => $this->payload]);
+        // Full-payload dump is debug-only: at INFO level (production default) this
+        // is suppressed. Every webhook hit (delivery receipts, presence, typing…)
+        // would otherwise dump its entire JSON body and bloat laravel.log to GBs.
+        Log::debug('WASENDER_WEBHOOK_DUMP', ['event' => $event, 'payload' => $this->payload]);
+
+        // Normalise event name — Wassender sends 'messages-personal.received' for
+        // personal/private inbound messages in newer API versions; treat it identically
+        // to 'messages.received' so existing handlers work without modification.
+        if ($event === 'messages-personal.received') {
+            $event = 'messages.received';
+        }
 
         // Detect poll vote events — they arrive either as 'poll.results' or inside 'messages.upsert'
         $isPollVote = $event === 'poll.results' || (
@@ -112,7 +122,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
      */
     private function handlePollVote(): void
     {
-        Log::info('WasenderAPI: Poll vote payload', [
+        Log::debug('WasenderAPI: Poll vote payload', [
             'payload' => $this->payload,
         ]);
 
