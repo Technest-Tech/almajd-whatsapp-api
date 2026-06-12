@@ -1388,7 +1388,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ]);
             }
 
-            $fromNumber = config('whatsapp.wasender.from_number', '+201554134201');
+            $fromNumber = config('whatsapp.wasender.from_number', '');
             $whatsappMsg = WhatsappMessage::create([
                 'wa_message_id'   => 'RMD_' . Str::ulid(),
                 'ticket_id'       => $ticket->id,

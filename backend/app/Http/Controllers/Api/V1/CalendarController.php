@@ -344,7 +344,12 @@ class CalendarController extends Controller
                 return response()->json(['error' => true, 'message' => 'لا توجد حصص في هذا التوقيت'], 422);
             }
 
-            $this->sendInChunks('201554134201', $message);
+            // Send the daily summary to our own current Wasender number (digits only, no '+').
+            $selfNumber = preg_replace('/\D/', '', (string) config('whatsapp.wasender.from_number', ''));
+            if ($selfNumber === '') {
+                return response()->json(['error' => true, 'message' => 'WhatsApp sender number is not configured'], 422);
+            }
+            $this->sendInChunks($selfNumber, $message);
 
             return response()->json([
                 'success' => true,

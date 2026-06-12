@@ -291,7 +291,7 @@ class SessionController extends Controller
         }
 
         // Create outbound message
-        $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number', '+201554134201'));
+        $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number'));
 
         $whatsappMsg = WhatsappMessage::create([
             'wa_message_id'   => 'RMD_' . Str::ulid(),
