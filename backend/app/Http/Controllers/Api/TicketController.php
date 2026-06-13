@@ -321,7 +321,7 @@ class TicketController extends Controller
                             ->from('class_sessions as cs_s')
                             ->join('students as st', 'st.id', '=', 'cs_s.student_id')
                             ->whereColumn('st.whatsapp_number', 'guardians.phone')
-                            ->whereDate('cs_s.session_date', $today)
+                            ->where('cs_s.session_date', $today)
                             ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
                             ->whereExists(function ($sh) use ($supervisorId) {
                                 $sh->selectRaw('1')
@@ -337,7 +337,7 @@ class TicketController extends Controller
                             ->from('class_sessions as cs_t')
                             ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
                             ->whereColumn('t.whatsapp_number', 'guardians.phone')
-                            ->whereDate('cs_t.session_date', $today)
+                            ->where('cs_t.session_date', $today)
                             ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
                             ->whereExists(function ($sh) use ($supervisorId) {
                                 $sh->selectRaw('1')

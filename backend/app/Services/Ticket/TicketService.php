@@ -59,7 +59,7 @@ class TicketService
                             ->from('class_sessions as cs_s')
                             ->join('students as st', 'st.id', '=', 'cs_s.student_id')
                             ->whereColumn('st.whatsapp_number', 'guardians.phone')
-                            ->whereDate('cs_s.session_date', $today)
+                            ->where('cs_s.session_date', $today)
                             ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
                             ->whereExists(function ($sh) use ($supervisorId) {
                                 $sh->selectRaw('1')
@@ -75,7 +75,7 @@ class TicketService
                             ->from('class_sessions as cs_t')
                             ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
                             ->whereColumn('t.whatsapp_number', 'guardians.phone')
-                            ->whereDate('cs_t.session_date', $today)
+                            ->where('cs_t.session_date', $today)
                             ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
                             ->whereExists(function ($sh) use ($supervisorId) {
                                 $sh->selectRaw('1')
@@ -173,7 +173,7 @@ class TicketService
                             ->from('students')
                             ->join('class_sessions', 'class_sessions.student_id', '=', 'students.id')
                             ->whereColumn('students.whatsapp_number', 'guardians.phone')
-                            ->whereDate('class_sessions.session_date', $today)
+                            ->where('class_sessions.session_date', $today)
                             ->whereNotIn('class_sessions.status', ['cancelled', 'completed']);
                     });
                 })->orWhereHas('guardian', function ($gq) use ($today) {
@@ -182,7 +182,7 @@ class TicketService
                             ->from('teachers')
                             ->join('class_sessions', 'class_sessions.teacher_id', '=', 'teachers.id')
                             ->whereColumn('teachers.whatsapp_number', 'guardians.phone')
-                            ->whereDate('class_sessions.session_date', $today)
+                            ->where('class_sessions.session_date', $today)
                             ->whereNotIn('class_sessions.status', ['cancelled', 'completed']);
                     });
                 });
@@ -443,7 +443,7 @@ class TicketService
                             ->from('class_sessions as cs_s')
                             ->join('students as st', 'st.id', '=', 'cs_s.student_id')
                             ->whereColumn('st.whatsapp_number', 'guardians.phone')
-                            ->whereDate('cs_s.session_date', $today)
+                            ->where('cs_s.session_date', $today)
                             ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
                             ->whereExists(function ($sh) use ($supervisorId) {
                                 $sh->selectRaw('1')
@@ -459,7 +459,7 @@ class TicketService
                             ->from('class_sessions as cs_t')
                             ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
                             ->whereColumn('t.whatsapp_number', 'guardians.phone')
-                            ->whereDate('cs_t.session_date', $today)
+                            ->where('cs_t.session_date', $today)
                             ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
                             ->whereExists(function ($sh) use ($supervisorId) {
                                 $sh->selectRaw('1')
