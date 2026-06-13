@@ -13,6 +13,11 @@ Schedule::job(new \App\Jobs\SendSessionRemindersJob())->everyMinute()->withoutOv
 // Hourly: nudge teachers who haven't yet submitted their session report (max 2 nudges)
 Schedule::job(new \App\Jobs\SendReportNudgeJob())->hourly()->withoutOverlapping();
 
+// ── Storage hygiene ───────────────────────────────────────────────────────────
+// Weekly: prune WhatsApp messages older than 30 days (bounds table growth; does
+// not affect inbox/chat speed). Runs Monday 03:30.
+Schedule::command('messages:prune --days=30')->weeklyOn(1, '03:30')->withoutOverlapping();
+
 // ── Session Generation ────────────────────────────────────────────────────────
 // NOTE: Session generation is now ADMIN-TRIGGERED via the Calendar app buttons.
 // The commands below have been intentionally removed to prevent uncontrolled
