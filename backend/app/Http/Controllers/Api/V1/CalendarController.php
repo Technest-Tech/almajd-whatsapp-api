@@ -724,9 +724,37 @@ class CalendarController extends Controller
             $report = urlencode($message);
             $phoneNumber = $teacher->whatsapp;
 
+            // Deliver the timetable through the academy bot directly to the teacher.
+            // (The app also opens a wa.me link as a manual fallback, but this makes
+            // the send actually happen without relying on the operator tapping send.)
+            $cleanPhone = preg_replace('/\D/', '', (string) $phoneNumber);
+            $sent       = false;
+            $sendError  = null;
+
+            if ($cleanPhone === '') {
+                $sendError = 'Teacher does not have a valid WhatsApp number';
+            } else {
+                try {
+                    $this->whatsAppService->sendText($cleanPhone, $message);
+                    $sent = true;
+                } catch (\Throwable $e) {
+                    $sendError = $e->getMessage();
+                    Log::error('Teacher timetable bot-send failed', [
+                        'teacher_id' => $id,
+                        'phone'      => $cleanPhone,
+                        'error'      => $sendError,
+                    ]);
+                }
+            }
+
             return response()->json([
-                'report' => $report,
-                'phoneNumber' => $phoneNumber
+                'report'      => $report,
+                'phoneNumber' => $phoneNumber,
+                'sent'        => $sent,
+                'success'     => $sent,
+                'message'     => $sent
+                    ? 'تم إرسال جدول المعلم عبر واتساب بنجاح ✅'
+                    : ('فشل إرسال الجدول عبر واتساب: ' . $sendError),
             ], 200, [
                 'Content-Type' => 'application/json; charset=utf-8'
             ]);

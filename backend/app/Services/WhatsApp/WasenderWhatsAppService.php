@@ -253,8 +253,9 @@ class WasenderWhatsAppService implements WhatsAppServiceInterface
             return $to;
         }
 
-        // Strip leading + to get numeric-only
-        $digits = ltrim($to, '+');
+        // Reduce to digits only — numbers may arrive with spaces/dashes/+
+        // (e.g. "+20 10 22126863"), which would otherwise form an invalid JID.
+        $digits = preg_replace('/\D/', '', $to);
 
         return $digits . '@s.whatsapp.net';
     }
