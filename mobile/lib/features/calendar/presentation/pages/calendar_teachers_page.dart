@@ -340,77 +340,17 @@ class _CalendarTeachersPageState extends State<CalendarTeachersPage>
       final apiService = ApiService();
       final remoteDataSource = CalendarRemoteDataSourceImpl(apiService);
       final repository = CalendarRepositoryImpl(remoteDataSource);
-      
-      // Get the WhatsApp message and phone number from API
-      final result = await repository.getTeacherTimetableWhatsApp(teacherId);
-      final message = result['report'] as String? ?? '';
-      final apiPhoneNumber = result['phoneNumber'] as String? ?? phoneNumber;
-      
-      // Use API phone number if available, otherwise use provided phone number
-      final finalPhoneNumber = apiPhoneNumber ?? phoneNumber;
-      
-      if (finalPhoneNumber == null || finalPhoneNumber.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('لا يوجد رقم واتساب للمعلم'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-        return;
-      }
 
-      // Format phone number
-      final formattedPhone = _formatPhoneNumber(finalPhoneNumber);
-      if (formattedPhone.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('رقم واتساب غير صحيح'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-        return;
-      }
+      // Send the timetable through the academy bot directly to the teacher.
+      // The backend (POST teacher/{id}/send-whatsapp) does the real send and
+      // throws on failure, so the message below reflects the actual outcome.
+      await repository.sendTeacherTimetableWhatsApp(teacherId);
 
-      // Build WhatsApp URL - message is already URL-encoded from backend
-      // Construct URL manually to avoid double encoding
-      final whatsappUrl = Uri.parse('https://wa.me/$formattedPhone?text=$message');
-      
-      // Try to launch WhatsApp
-      bool launched = false;
-      
-      // First try: external non-browser application (preferred for Android)
-      try {
-        launched = await launchUrl(
-          whatsappUrl,
-          mode: LaunchMode.externalNonBrowserApplication,
-        );
-      } catch (e) {
-        // If that fails, try external application
-        try {
-          launched = await launchUrl(
-            whatsappUrl,
-            mode: LaunchMode.externalApplication,
-          );
-        } catch (e2) {
-          // Last resort: platform default
-          launched = await launchUrl(
-            whatsappUrl,
-            mode: LaunchMode.platformDefault,
-          );
-        }
-      }
-      
-      if (!launched && mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تعذر فتح واتساب. تأكد من تثبيت التطبيق'),
-            backgroundColor: Colors.orange,
+            content: Text('تم إرسال جدول المعلم عبر واتساب بنجاح ✅'),
+            backgroundColor: Colors.green,
             duration: Duration(seconds: 3),
           ),
         );
@@ -418,10 +358,10 @@ class _CalendarTeachersPageState extends State<CalendarTeachersPage>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ في فتح واتساب: $e'),
+          const SnackBar(
+            content: Text('فشل إرسال الجدول عبر واتساب. حاول مرة أخرى'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+            duration: Duration(seconds: 4),
           ),
         );
       }
