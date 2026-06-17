@@ -32,9 +32,25 @@ class SessionController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $filters = $request->only(['date', 'from', 'to', 'status', 'teacher_id', 'supervisor_id']);
+
+        // "My shift" view: when a supervisor asks for their OWN id, show every
+        // session inside their shift window — not just sessions where they are the
+        // single recorded owner. This is what lets co-shift supervisors all see the
+        // same lessons (shift-based visibility). Admins filtering by some OTHER
+        // supervisor's id keep literal owner filtering.
+        $shiftWindowUserId = null;
+        $user = $request->user();
+        if ($user && !empty($filters['supervisor_id'])
+            && (int) $filters['supervisor_id'] === (int) $user->id) {
+            $shiftWindowUserId = (int) $user->id;
+            unset($filters['supervisor_id']);
+        }
+
         $paginator = $this->sessionService->list(
-            filters: $request->only(['date', 'from', 'to', 'status', 'teacher_id', 'supervisor_id']),
+            filters: $filters,
             perPage: (int) $request->input('per_page', 20),
+            shiftWindowUserId: $shiftWindowUserId,
         );
         return $this->response->paginated($paginator);
     }
