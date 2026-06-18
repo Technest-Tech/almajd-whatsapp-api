@@ -40,6 +40,12 @@ return [
         'base_url'       => env('WASENDER_BASE_URL', 'https://www.wasenderapi.com/api'),
         'from_number'    => env('WASENDER_FROM_NUMBER'), // Your linked WA number e.g. +201234567890
         'webhook_secret' => env('WASENDER_WEBHOOK_SECRET'),
+
+        // Secondary (legacy "015") Wasender session used ONLY for teacher
+        // timetables and the daily-reminder self-summary. Session reminders keep
+        // using the primary session above. If unset, these flows fall back to it.
+        'old_api_key'     => env('WASENDER_OLD_API_KEY'),
+        'old_from_number' => env('WASENDER_OLD_FROM_NUMBER'), // e.g. +201554134201
     ],
 
     /*

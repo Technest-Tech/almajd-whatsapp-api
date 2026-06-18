@@ -25,9 +25,14 @@ class WasenderWhatsAppService implements WhatsAppServiceInterface
     private string $apiKey;
     private string $baseUrl;
 
-    public function __construct()
+    /**
+     * @param string|null $apiKey Override the Wasender session key. Defaults to the
+     *        primary session; pass a secondary session's key to send from another
+     *        linked number (e.g. the legacy "015" number for teacher timetables).
+     */
+    public function __construct(?string $apiKey = null)
     {
-        $this->apiKey  = config('whatsapp.wasender.api_key');
+        $this->apiKey  = $apiKey ?: (string) config('whatsapp.wasender.api_key');
         $this->baseUrl = config('whatsapp.wasender.base_url', 'https://www.wasenderapi.com/api');
     }
 

@@ -10,6 +10,7 @@ use App\Models\CalendarTeacherTimetable;
 use App\Models\ClassSession;
 use App\Models\Reminder;
 use App\Services\LegacyCalendarSyncService;
+use App\Services\WhatsApp\WasenderWhatsAppService;
 use App\Services\WhatsApp\WhatsAppServiceInterface;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -23,9 +24,28 @@ class CalendarController extends Controller
 {
     protected $whatsAppService;
 
+    private ?WhatsAppServiceInterface $oldNumberSender = null;
+
     public function __construct(WhatsAppServiceInterface $whatsAppService)
     {
         $this->whatsAppService = $whatsAppService;
+    }
+
+    /**
+     * Sender bound to the legacy "015" Wasender session, used for teacher
+     * timetables and the daily-reminder self-summary. Falls back to the primary
+     * sender if the secondary session isn't configured yet.
+     */
+    private function oldNumberSender(): WhatsAppServiceInterface
+    {
+        if ($this->oldNumberSender === null) {
+            $key = (string) config('whatsapp.wasender.old_api_key', '');
+            $this->oldNumberSender = $key !== ''
+                ? new WasenderWhatsAppService($key)
+                : $this->whatsAppService;
+        }
+
+        return $this->oldNumberSender;
     }
 
     /**
@@ -344,12 +364,15 @@ class CalendarController extends Controller
                 return response()->json(['error' => true, 'message' => 'لا توجد حصص في هذا التوقيت'], 422);
             }
 
-            // Send the daily summary to our own current Wasender number (digits only, no '+').
-            $selfNumber = preg_replace('/\D/', '', (string) config('whatsapp.wasender.from_number', ''));
+            // Send the daily summary FROM and TO the legacy "015" number (self-message),
+            // digits only, no '+'. Falls back to the primary number if 015 isn't set up.
+            $selfRaw = config('whatsapp.wasender.old_from_number')
+                ?: config('whatsapp.wasender.from_number', '');
+            $selfNumber = preg_replace('/\D/', '', (string) $selfRaw);
             if ($selfNumber === '') {
                 return response()->json(['error' => true, 'message' => 'WhatsApp sender number is not configured'], 422);
             }
-            $this->sendInChunks($selfNumber, $message);
+            $this->sendInChunks($selfNumber, $message, sender: $this->oldNumberSender());
 
             return response()->json([
                 'success' => true,
@@ -408,8 +431,10 @@ class CalendarController extends Controller
      * Splits cleanly on separator lines (------------------------) to avoid
      * cutting a time-slot block in the middle.
      */
-    private function sendInChunks(string $phoneNumber, string $message, int $maxLength = 4000): void
+    private function sendInChunks(string $phoneNumber, string $message, int $maxLength = 4000, ?WhatsAppServiceInterface $sender = null): void
     {
+        $sender ??= $this->whatsAppService;
+
         // Split the message into logical blocks separated by the divider line
         $blocks = preg_split('/(-{10,}\n)/u', $message, -1, PREG_SPLIT_DELIM_CAPTURE);
 
@@ -432,7 +457,7 @@ class CalendarController extends Controller
 
         // If the message fits in one chunk (most common case), just send it
         if (count($chunks) === 0) {
-            $this->whatsAppService->sendText($phoneNumber, trim($message));
+            $sender->sendText($phoneNumber, trim($message));
             return;
         }
 
@@ -441,7 +466,7 @@ class CalendarController extends Controller
             if ($i > 0) {
                 sleep(1);
             }
-            $this->whatsAppService->sendText($phoneNumber, $part);
+            $sender->sendText($phoneNumber, $part);
         }
     }
 
@@ -735,7 +760,7 @@ class CalendarController extends Controller
                 $sendError = 'Teacher does not have a valid WhatsApp number';
             } else {
                 try {
-                    $this->whatsAppService->sendText($cleanPhone, $message);
+                    $this->oldNumberSender()->sendText($cleanPhone, $message);
                     $sent = true;
                 } catch (\Throwable $e) {
                     $sendError = $e->getMessage();
@@ -839,7 +864,7 @@ class CalendarController extends Controller
             $message .= "_جدول محدث بتاريخ " . Carbon::now()->format('Y-m-d') . "_\n\n";
             $message .= "Thank you for choosing Almajd Academy! 🌟";
 
-            $result = $this->whatsAppService->sendText($phoneNumber, $message);
+            $result = $this->oldNumberSender()->sendText($phoneNumber, $message);
 
             return response()->json([
                 'success' => true,
