@@ -42,6 +42,20 @@ class TeacherController extends CrudController
      * admin changes a teacher name we also update guardians for matching
      * whatsapp numbers.
      */
+    public function pauseReminders(int $id): \Illuminate\Http\JsonResponse
+    {
+        $teacher = $this->service->show($id);
+        $teacher->update(['reminders_paused' => true]);
+        return $this->response->success($teacher->fresh(), 'Reminders paused');
+    }
+
+    public function resumeReminders(int $id): \Illuminate\Http\JsonResponse
+    {
+        $teacher = $this->service->show($id);
+        $teacher->update(['reminders_paused' => false]);
+        return $this->response->success($teacher->fresh(), 'Reminders resumed');
+    }
+
     public function update(Request $request, int $id): \Illuminate\Http\JsonResponse
     {
         $teacher = $this->service->show($id);

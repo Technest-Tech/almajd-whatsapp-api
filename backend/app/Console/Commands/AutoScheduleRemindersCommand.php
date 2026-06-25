@@ -128,6 +128,52 @@ class AutoScheduleRemindersCommand extends Command
                 continue;
             }
 
+            // ── Reschedule guard / review-state guard ─────────────────────────
+            // Anchor on the teacher's at_start reminder. If it points at a
+            // DIFFERENT start time than the current one, the session was
+            // rescheduled after those reminders were made: the already-sent early
+            // phases would otherwise block regeneration via dedup, leaving the new
+            // slot with only the tail (attend_9m → no_show → auto_cancel) and the
+            // flow jumps mid-stream and prematurely cancels. So cancel the stale
+            // chain (and clear the no-reply review flag) to rebuild it fresh.
+            $anchor = Reminder::where('class_session_id', $session->id)
+                ->where('reminder_phase', 'at_start')
+                ->where('recipient_type', 'teacher')
+                ->whereNotIn('status', ['cancelled'])
+                ->orderByDesc('id')
+                ->first();
+            $isReschedule = $anchor && $anchor->scheduled_at
+                && abs(Carbon::parse((string) $anchor->scheduled_at)->diffInMinutes($sessionStart, false)) > 5;
+
+            if ($isReschedule) {
+                // DELETE (not cancel) the stale chain: the unique key
+                // (session, phase, recipient) ignores status, so leaving cancelled
+                // rows behind would block re-inserting the fresh ones. A reschedule
+                // is a fresh session at a new time, so prior attendance state from
+                // the old slot is reset too.
+                $reset = Reminder::where('class_session_id', $session->id)->delete();
+                if ($session->attendance_status !== 'pending') {
+                    $session->update(['attendance_status' => 'pending']);
+                }
+                $rlog->info('RESCHEDULE: stale reminder chain reset', [
+                    'session_id'    => $session->id,
+                    'reset_count'   => $reset,
+                    'old_start_utc' => (string) $anchor->scheduled_at,
+                    'new_start_utc' => (string) $sessionStart,
+                ]);
+                // If the new slot's attendance window has already passed, the
+                // cleanup above is enough — don't regenerate a fresh chain, or the
+                // attend polls (which lack a "too late" cutoff) would fire late.
+                if ($now->gt($sessionStart->copy()->addMinutes(10))) {
+                    continue;
+                }
+            } elseif ($session->attendance_status === 'teacher_didnt_reply') {
+                // Already went through the no-reply review path for THIS slot.
+                // Don't regenerate the attendance flow (would re-poll & re-cancel
+                // every run) — leave it for the supervisor to resolve.
+                continue;
+            }
+
             $rlog->debug('Processing session', [
                 'session_id'  => $session->id,
                 'title'       => $session->title,
@@ -140,6 +186,14 @@ class AutoScheduleRemindersCommand extends Command
 
             $student = $session->student;
             $teacher = $session->teacher;
+
+            if ($teacher?->reminders_paused) {
+                $rlog->debug('SKIP: teacher reminders paused', [
+                    'session_id' => $session->id,
+                    'teacher'    => $teacher->name,
+                ]);
+                continue;
+            }
 
             $studentPhone = null;
             $studentName = null;
@@ -204,7 +258,7 @@ class AutoScheduleRemindersCommand extends Command
             //  "did the student join?" question with a unique minute-marker so
             //  webhook responses match back to the specific reminder row.
             if ($now->lt($sessionEnd)) {
-                foreach ([3, 6, 9] as $offsetMin) {
+                foreach ([3, 6, 9, 12, 15] as $offsetMin) {
                     if ($teacherPhone) {
                         $sendAt = $sessionStart->copy()->addMinutes($offsetMin);
                         // If time has passed, send on next job run (within 1 min)
@@ -222,34 +276,20 @@ class AutoScheduleRemindersCommand extends Command
                 }
             }
 
-            // ── Phase 3b: T+10 no-show decision poll ──
-            //  Asks teacher whether to end the class or wait. If "إنهاء" → cancel
-            //  immediately (handled in inbound job). If "انتظار" or no reply →
-            //  silent until T+15 auto_cancel.
+            // ── Phase 3c: T+16 auto-end notice ──
+            //  Plain text, no buttons. At send time the job ends (cancels) the
+            //  session and sets attendance_status = teacher_didnt_reply. Skipped if
+            //  the student was confirmed as joined. There is no longer a T+10
+            //  end/wait decision poll — the attendance reminders above simply
+            //  repeat every 3 minutes until this auto-end fires.
             if ($now->lt($sessionEnd) && $teacherPhone) {
-                $sendAt = $sessionStart->copy()->addMinutes(10);
-                $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
-                $this->queueTemplate($session, 'teacher', 'no_show_decision', $teacherPhone, $teacherName, $sendAt,
-                    '_none',
-                    [],
-                    $approvedTemplates,
-                    "⏳ مر 10 دقائق على بدء حصة *{$session->title}*\n👤 الطالب: {$studentName}\n\nيبدو أن الطالب لم ينضم — هل تود الإنهاء؟\nأرسل *1* = إنهاء\nأرسل *2* = انتظار",
-                    'awaiting');
-                $created++;
-            }
-
-            // ── Phase 3c: T+15 auto-cancel notice ──
-            //  Plain text, no buttons. At send time the job cancels the session
-            //  and sets attendance_status = teacher_didnt_reply. Skipped if the
-            //  student was confirmed as joined OR إنهاء was already clicked.
-            if ($now->lt($sessionEnd) && $teacherPhone) {
-                $sendAt = $sessionStart->copy()->addMinutes(15);
+                $sendAt = $sessionStart->copy()->addMinutes(16);
                 $sendAt = $sendAt->gt($now) ? $sendAt : $now->copy();
                 $this->queueTemplate($session, 'teacher', 'auto_cancel', $teacherPhone, $teacherName, $sendAt,
                     '_none',
                     [],
                     $approvedTemplates,
-                    "❌ تم إلغاء حصة *{$session->title}* تلقائياً\n👤 الطالب: {$studentName}\nالسبب: لم ينضم الطالب خلال 15 دقيقة.",
+                    "❌ تم إنهاء حصة *{$session->title}* تلقائياً\n👤 الطالب: {$studentName}\nالسبب: لم يتم تأكيد انضمام الطالب خلال 16 دقيقة.",
                     null);
                 $created++;
             }
@@ -472,13 +512,11 @@ class AutoScheduleRemindersCommand extends Command
             return;
         }
 
-        $attendanceFlowPhases = [
-            'before', 'at_start', 'after',
-            'attend_3m', 'attend_6m', 'attend_9m',
-            'no_show_decision', 'auto_cancel',
-        ];
+        $isAttendanceFlow = in_array($phase, [
+            'before', 'at_start', 'after', 'no_show_decision', 'auto_cancel',
+        ], true) || str_starts_with($phase, 'attend_');
 
-        if (in_array($phase, $attendanceFlowPhases, true)) {
+        if ($isAttendanceFlow) {
             // Pre-class phases skip if class already running; attendance-window
             // phases (attend_*, no_show_decision, auto_cancel) are meant to fire
             // *during* a running session, so don't skip on running.
@@ -495,14 +533,22 @@ class AutoScheduleRemindersCommand extends Command
 
             $alreadyConfirmed = Reminder::where('class_session_id', $session->id)
                 ->where('confirmation_status', 'confirmed')
-                ->whereIn('reminder_phase', ['before', 'at_start', 'after',
-                    'attend_3m', 'attend_6m', 'attend_9m'])
+                ->where(function ($q) {
+                    $q->whereIn('reminder_phase', ['before', 'at_start', 'after'])
+                      ->orWhere('reminder_phase', 'like', 'attend_%');
+                })
                 ->exists();
 
             if ($alreadyConfirmed) {
                 return;
             }
         }
+
+        // If this teacher↔student pair has a shared WhatsApp group, the message
+        // is posted there instead of the private number. recipient_phone stays
+        // the individual's personal number so inbound vote/report matching
+        // (keyed on recipient_phone) keeps working. Null → legacy 1:1 send.
+        $destinationJid = \App\Models\WhatsappGroup::jidFor($session->teacher_id, $session->student_id);
 
         try {
             $reminder = Reminder::create([
@@ -511,6 +557,7 @@ class AutoScheduleRemindersCommand extends Command
                 'reminder_phase'      => $phase,
                 'class_session_id'    => $session->id,
                 'recipient_phone'     => $phone,
+                'destination_jid'     => $destinationJid,
                 'recipient_name'      => $name,
                 'template_name'       => $templateName,
                 'template_sid'        => $templateSid,

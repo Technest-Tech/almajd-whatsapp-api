@@ -67,6 +67,7 @@ class DateSeparator extends StatelessWidget {
 class MessageBubble extends StatelessWidget {
   final MessageModel message;
   final ValueChanged<MessageModel>? onSwipeReply;
+  final ValueChanged<MessageModel>? onForward;
   final ValueChanged<MessageModel>? onLongPress;
   final ValueChanged<int>? onQuoteReplyTap; // tapped the quoted preview → scroll to that msg id
 
@@ -74,6 +75,7 @@ class MessageBubble extends StatelessWidget {
     super.key,
     required this.message,
     this.onSwipeReply,
+    this.onForward,
     this.onLongPress,
     this.onQuoteReplyTap,
   });
@@ -495,7 +497,7 @@ class MessageBubble extends StatelessWidget {
               }),
               _contextMenuItem(ctx, Icons.shortcut_rounded, 'إعادة توجيه', () {
                 Navigator.pop(ctx);
-                // Forward placeholder
+                onForward?.call(message);
               }),
               if (!message.isInbound)
                 _contextMenuItem(ctx, Icons.delete_outline_rounded, 'حذف', () {

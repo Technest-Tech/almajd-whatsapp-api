@@ -5,6 +5,7 @@ class TeacherModel {
   final String? zoomLink;
   final List<String> subjects;
   final String availability; // available, busy, offline
+  final bool remindersPaused;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -15,6 +16,7 @@ class TeacherModel {
     this.zoomLink,
     this.subjects = const [],
     this.availability = 'available',
+    this.remindersPaused = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -29,6 +31,7 @@ class TeacherModel {
           ? (json['subjects'] as List).map((s) => s.toString()).toList()
           : [],
       availability: json['availability'] ?? 'available',
+      remindersPaused: json['reminders_paused'] == true,
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
     );

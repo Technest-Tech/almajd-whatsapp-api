@@ -196,6 +196,10 @@ Route::middleware('auth:api')->group(function () {
             ->middleware('permission:teachers.edit');
         Route::delete('{id}', [TeacherController::class, 'destroy'])
             ->middleware('permission:teachers.delete');
+        Route::post('{id}/pause-reminders', [TeacherController::class, 'pauseReminders'])
+            ->middleware('permission:teachers.edit');
+        Route::post('{id}/resume-reminders', [TeacherController::class, 'resumeReminders'])
+            ->middleware('permission:teachers.edit');
     });
 
     // ── Schedules ───────────────────────────────────────
@@ -341,6 +345,20 @@ Route::middleware('auth:api')->group(function () {
         // Audit Log
         Route::get('audit-log', [AdminController::class, 'auditLog'])
             ->middleware('permission:audit.view');
+
+        // Active WhatsApp number (Wasender session switch)
+        Route::get('whatsapp-number', [AdminController::class, 'getWhatsAppNumber'])
+            ->middleware('role:admin');
+        Route::put('whatsapp-number', [AdminController::class, 'setWhatsAppNumber'])
+            ->middleware('role:admin');
+
+        // WhatsApp group routing — map teacher↔student pairs to a shared group
+        Route::prefix('whatsapp-groups')->middleware('role:admin')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\WhatsappGroupController::class, 'index']);
+            Route::get('discover', [\App\Http\Controllers\Api\WhatsappGroupController::class, 'discover']);
+            Route::post('/', [\App\Http\Controllers\Api\WhatsappGroupController::class, 'store']);
+            Route::delete('{id}', [\App\Http\Controllers\Api\WhatsappGroupController::class, 'destroy']);
+        });
     });
 });
 

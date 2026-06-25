@@ -30,15 +30,16 @@ class TicketService
      * List tickets with filters and pagination.
      *
      * Scoping rules:
-     *  - admin / senior_supervisor → see ALL tickets (including those without a session today)
-     *  - supervisor                → see only tickets whose contact has a session TODAY
-     *                                that falls within the supervisor's active shift window
+     *  - admin / senior_supervisor / supervisor → see ALL tickets (the full inbox)
      *
      * When `unassigned=1` filter is passed, only show tickets with no session supervisor (admin only).
      */
     public function list(array $filters = [], int $perPage = 20, ?User $viewer = null): LengthAwarePaginator
     {
+        // Per-number isolation: only show conversations on the active number so
+        // 012 and 015 inboxes never mix.
         $query = Ticket::with(['guardian', 'student', 'assignedTo', 'tags'])
+            ->where('whatsapp_number', \App\Services\WhatsApp\WasenderSession::fromNumber())
             ->orderByDesc('last_message_at')
             ->orderByDesc('created_at');
 
@@ -47,50 +48,10 @@ class TicketService
             && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api');
 
         // ── Role-based scoping ──────────────────────────────────────────────
-        if ($isRegularSupervisor) {
-            // Shift-based scope: contact must have a session today during the supervisor's shift
-            $supervisorId = $viewer->id;
-            $today        = now()->toDateString();
-
-            $query->whereHas('guardian', function ($gq) use ($supervisorId, $today) {
-                $gq->where(function ($inner) use ($supervisorId, $today) {
-                    $inner->whereExists(function ($sub) use ($supervisorId, $today) {
-                        $sub->selectRaw('1')
-                            ->from('class_sessions as cs_s')
-                            ->join('students as st', 'st.id', '=', 'cs_s.student_id')
-                            ->whereColumn('st.whatsapp_number', 'guardians.phone')
-                            ->where('cs_s.session_date', $today)
-                            ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
-                            ->whereExists(function ($sh) use ($supervisorId) {
-                                $sh->selectRaw('1')
-                                    ->from('shifts')
-                                    ->where('shifts.user_id', $supervisorId)
-                                    ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_s.session_date) - 1')
-                                    ->whereRaw('shifts.start_time <= cs_s.start_time')
-                                    ->whereRaw('shifts.end_time > cs_s.start_time');
-                            });
-                    })->orWhereExists(function ($sub) use ($supervisorId, $today) {
-                        $sub->selectRaw('1')
-                            ->from('class_sessions as cs_t')
-                            ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
-                            ->whereColumn('t.whatsapp_number', 'guardians.phone')
-                            ->where('cs_t.session_date', $today)
-                            ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
-                            ->whereExists(function ($sh) use ($supervisorId) {
-                                $sh->selectRaw('1')
-                                    ->from('shifts')
-                                    ->where('shifts.user_id', $supervisorId)
-                                    ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_t.session_date) - 1')
-                                    ->whereRaw('shifts.start_time <= cs_t.start_time')
-                                    ->whereRaw('shifts.end_time > cs_t.start_time');
-                            });
-                    });
-                });
-            });
-        } elseif ($viewer && isset($filters['unassigned']) && (bool) $filters['unassigned']) {
-            // Admins requesting the unassigned (orphaned) queue
+        // Supervisors now see the full inbox (every conversation), like admins —
+        // no longer limited to contacts whose session falls in their shift today.
+        // Only the admin "unassigned" (orphaned) queue applies an extra filter.
+        if ($viewer && isset($filters['unassigned']) && (bool) $filters['unassigned']) {
             $query->whereNull('session_supervisor_id');
         }
 
@@ -236,7 +197,7 @@ class TicketService
             'wa_message_id'       => 'out_' . Str::uuid(),
             'ticket_id'           => $ticket->id,
             'direction'           => MessageDirection::Outbound,
-            'from_number'         => config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number')),
+            'from_number'         => $ticket->whatsapp_number ?: (\App\Services\WhatsApp\WasenderSession::fromNumber() ?: config('whatsapp.twilio.from_number')),
             'to_number'           => $guardian->phone,
             'message_type'        => $mediaUrl ? $this->detectMediaType($mediaUrl) : MessageType::Text,
             'content'             => $content,
@@ -298,7 +259,7 @@ class TicketService
             'wa_message_id'       => 'out_' . Str::uuid(),
             'ticket_id'           => $ticket->id,
             'direction'           => MessageDirection::Outbound,
-            'from_number'         => config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number')),
+            'from_number'         => $ticket->whatsapp_number ?: (\App\Services\WhatsApp\WasenderSession::fromNumber() ?: config('whatsapp.twilio.from_number')),
             'to_number'           => $guardian->phone,
             'message_type'        => MessageType::Text,
             'content'             => $bodyPreview,
@@ -431,49 +392,9 @@ class TicketService
     {
         $query = Ticket::query();
 
-        // Role-based scoping for stats — mirrors list() scope
-        if ($viewer && $viewer->hasRole('supervisor', 'api') && !$viewer->hasAnyRole(['admin', 'senior_supervisor'], 'api')) {
-            $supervisorId = $viewer->id;
-            $today        = now()->toDateString();
-
-            $query->whereHas('guardian', function ($gq) use ($supervisorId, $today) {
-                $gq->where(function ($inner) use ($supervisorId, $today) {
-                    $inner->whereExists(function ($sub) use ($supervisorId, $today) {
-                        $sub->selectRaw('1')
-                            ->from('class_sessions as cs_s')
-                            ->join('students as st', 'st.id', '=', 'cs_s.student_id')
-                            ->whereColumn('st.whatsapp_number', 'guardians.phone')
-                            ->where('cs_s.session_date', $today)
-                            ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
-                            ->whereExists(function ($sh) use ($supervisorId) {
-                                $sh->selectRaw('1')
-                                    ->from('shifts')
-                                    ->where('shifts.user_id', $supervisorId)
-                                    ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_s.session_date) - 1')
-                                    ->whereRaw('shifts.start_time <= cs_s.start_time')
-                                    ->whereRaw('shifts.end_time > cs_s.start_time');
-                            });
-                    })->orWhereExists(function ($sub) use ($supervisorId, $today) {
-                        $sub->selectRaw('1')
-                            ->from('class_sessions as cs_t')
-                            ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
-                            ->whereColumn('t.whatsapp_number', 'guardians.phone')
-                            ->where('cs_t.session_date', $today)
-                            ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
-                            ->whereExists(function ($sh) use ($supervisorId) {
-                                $sh->selectRaw('1')
-                                    ->from('shifts')
-                                    ->where('shifts.user_id', $supervisorId)
-                                    ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_t.session_date) - 1')
-                                    ->whereRaw('shifts.start_time <= cs_t.start_time')
-                                    ->whereRaw('shifts.end_time > cs_t.start_time');
-                            });
-                    });
-                });
-            });
-        } elseif ($userId) {
+        // Supervisors see full-inbox stats (no shift/session scoping), matching
+        // list(). An explicit user_id still scopes to that user's assigned tickets.
+        if ($userId) {
             $query->where('assigned_to', $userId);
         }
 

@@ -269,6 +269,25 @@ class _SessionCard extends StatelessWidget {
                           Icon(Icons.person_outline, size: 13, color: AppColors.textSecondary.withValues(alpha: 0.7)),
                           const SizedBox(width: 3),
                           Text(session.teacherName!, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                          if (session.teacherRemindersPaused) ...[
+                            const SizedBox(width: 5),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.notifications_paused_rounded, size: 10, color: Colors.orange),
+                                  SizedBox(width: 2),
+                                  Text('إجازة', style: TextStyle(fontSize: 9, color: Colors.orange, fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                            ),
+                          ],
                           const SizedBox(width: 12),
                         ],
                         Icon(Icons.calendar_today_outlined, size: 13, color: AppColors.textSecondary.withValues(alpha: 0.7)),

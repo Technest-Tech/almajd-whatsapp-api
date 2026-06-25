@@ -51,4 +51,14 @@ class TeacherRepository {
   Future<void> deleteTeacher(int id) async {
     await apiClient.dio.delete('/teachers/$id');
   }
+
+  Future<TeacherModel> pauseReminders(int id) async {
+    final response = await apiClient.dio.post('/teachers/$id/pause-reminders');
+    return TeacherModel.fromJson(response.data['data']);
+  }
+
+  Future<TeacherModel> resumeReminders(int id) async {
+    final response = await apiClient.dio.post('/teachers/$id/resume-reminders');
+    return TeacherModel.fromJson(response.data['data']);
+  }
 }

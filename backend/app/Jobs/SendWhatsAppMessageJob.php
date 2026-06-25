@@ -25,7 +25,7 @@ class SendWhatsAppMessageJob implements ShouldQueue
     public function __construct(
         private readonly int $messageId
     ) {
-        $this->onQueue('default');
+        $this->onQueue('urgent');
     }
 
     /**
@@ -41,6 +41,15 @@ class SendWhatsAppMessageJob implements ShouldQueue
 
         if (!$message || $message->delivery_status === DeliveryStatus::Sent) {
             return; // Already sent or deleted
+        }
+
+        // Per-number isolation: send from the session that owns this message's
+        // own number, so a 015 chat always goes out via 015 even if 012 is the
+        // active session (and vice-versa). Non-Wasender providers are untouched.
+        if (config('whatsapp.provider') === 'wasender') {
+            $whatsAppService = new \App\Services\WhatsApp\WasenderWhatsAppService(
+                \App\Services\WhatsApp\WasenderSession::apiKeyForNumber($message->from_number)
+            );
         }
 
         try {

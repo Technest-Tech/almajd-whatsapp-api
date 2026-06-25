@@ -43,12 +43,14 @@ class AdminController extends Controller
 
     public function updateShifts(Request $request, int $id): JsonResponse
     {
+        // A supervisor can have any number of shifts per day (or none), so the
+        // list is variable-length and multiple entries may share a day_of_week.
         $data = $request->validate([
-            'shifts'              => 'required|array|size:7',
+            'shifts'              => 'present|array',
             'shifts.*.day_of_week'=> 'required|integer|min:0|max:6',
             'shifts.*.start_time' => 'required|date_format:H:i',
             'shifts.*.end_time'   => 'required|date_format:H:i',
-            'shifts.*.is_active'  => 'required|boolean',
+            'shifts.*.is_active'  => 'sometimes|boolean',
         ]);
 
         $shifts = $this->adminService->updateShifts($id, $data['shifts']);
@@ -112,5 +114,52 @@ class AdminController extends Controller
         );
 
         return $this->response->paginated($paginator, 'Audit log retrieved');
+    }
+
+    // ── Active WhatsApp Number ─────────────────────────
+    //
+    // Exactly one Wasender session sends + receives reminders and inbox traffic
+    // at a time. The admin switches the active number here; the choice is stored
+    // in `settings` and consulted by WasenderSession everywhere.
+
+    public function getWhatsAppNumber(): JsonResponse
+    {
+        return $this->response->success($this->whatsAppNumberState(), 'WhatsApp number retrieved');
+    }
+
+    public function setWhatsAppNumber(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session' => 'required|string|in:' . \App\Services\WhatsApp\WasenderSession::PRIMARY . ',' . \App\Services\WhatsApp\WasenderSession::OLD,
+        ]);
+
+        \App\Models\Setting::set(\App\Services\WhatsApp\WasenderSession::SETTING_KEY, $validated['session']);
+
+        return $this->response->success($this->whatsAppNumberState(), 'WhatsApp number updated');
+    }
+
+    /**
+     * @return array{active: string, options: array<int, array{session: string, number: string, configured: bool}>}
+     */
+    private function whatsAppNumberState(): array
+    {
+        $primaryNumber = (string) config('whatsapp.wasender.from_number');
+        $oldNumber     = (string) config('whatsapp.wasender.old_from_number');
+
+        return [
+            'active'  => \App\Services\WhatsApp\WasenderSession::active(),
+            'options' => [
+                [
+                    'session'    => \App\Services\WhatsApp\WasenderSession::PRIMARY,
+                    'number'     => $primaryNumber,
+                    'configured' => $primaryNumber !== '' && (string) config('whatsapp.wasender.api_key') !== '',
+                ],
+                [
+                    'session'    => \App\Services\WhatsApp\WasenderSession::OLD,
+                    'number'     => $oldNumber,
+                    'configured' => $oldNumber !== '' && (string) config('whatsapp.wasender.old_api_key') !== '',
+                ],
+            ],
+        ];
     }
 }

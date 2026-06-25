@@ -20,7 +20,9 @@ class Teacher extends Model
         });
     }
 
-    protected $fillable = ['name', 'whatsapp_number', 'zoom_link'];
+    protected $fillable = ['name', 'whatsapp_number', 'zoom_link', 'reminders_paused'];
+
+    protected $casts = ['reminders_paused' => 'boolean'];
 
     public function sessions(): HasMany
     {

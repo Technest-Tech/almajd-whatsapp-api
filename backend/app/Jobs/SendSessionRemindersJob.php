@@ -87,12 +87,17 @@ class SendSessionRemindersJob implements ShouldQueue
                 }
 
                 $isTeacherConfirmation = $reminder->recipient_type === 'teacher'
-                    && in_array($reminder->reminder_phase, [
+                    && (in_array($reminder->reminder_phase, [
                         'at_start', 'after', 'post_end', 'post_end_2',
-                        'attend_3m', 'attend_6m', 'attend_9m', 'no_show_decision',
-                    ], true);
+                    ], true)
+                    || str_starts_with($reminder->reminder_phase, 'attend_'));
 
                 $pollMessageId = null;
+
+                // Where the message is physically sent: the shared teacher↔student
+                // group when one is mapped, otherwise the individual's number.
+                // recipient_phone is kept separately for inbound vote/report matching.
+                $sendTo = $reminder->destination_jid ?: $reminder->recipient_phone;
 
                 if ($isTeacherConfirmation && $whatsAppService instanceof \App\Services\WhatsApp\WasenderWhatsAppService) {
                     // ── Build the poll question ───────────────────────────────────────
@@ -105,7 +110,7 @@ class SendSessionRemindersJob implements ShouldQueue
                     $reminder->update(['message_body' => $pollQuestion]);
 
                     $pollResult = $whatsAppService->sendPoll(
-                        to: $reminder->recipient_phone,
+                        to: $sendTo,
                         name: $pollQuestion,
                         options: $pollOptions,
                         selectableCount: 1,
@@ -117,7 +122,7 @@ class SendSessionRemindersJob implements ShouldQueue
                 } else {
                     // ── Plain text for all other reminder types ──
                     $whatsAppService->sendText(
-                        to: $reminder->recipient_phone,
+                        to: $sendTo,
                         message: $reminder->message_body ?? '',
                     );
                 }
@@ -225,13 +230,16 @@ class SendSessionRemindersJob implements ShouldQueue
             $timeTag = '';
         }
 
+        // Repeated attendance polls (attend_3m / 6m / 9m / 12m / 15m): same
+        // "did the student join?" question with a unique minute-marker so each
+        // poll-vote webhook matches back to its own reminder row.
+        if (preg_match('/^attend_(\d+)m$/', $reminder->reminder_phase, $m)) {
+            return "⚠️ مر {$m[1]} دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟";
+        }
+
         return match ($reminder->reminder_phase) {
             'at_start'         => "هل انضم {$studentName} إلى حصة {$subject}{$timeTag}؟",
             'after'            => "⚠️ مر 5 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
-            'attend_3m'        => "⚠️ مر 3 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
-            'attend_6m'        => "⚠️ مر 6 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
-            'attend_9m'        => "⚠️ مر 9 دقائق على بدء حصة {$subject}{$timeTag} — هل انضم {$studentName}؟",
-            'no_show_decision' => "⏳ مر 10 دقائق ولم ينضم {$studentName} لحصة {$subject}{$timeTag} — هل تود الإنهاء؟",
             'post_end'         => "هل أتممت حصة {$subject}{$timeTag} مع {$studentName}؟",
             'post_end_2'       => "هل أتممت حصة {$subject}{$timeTag} مع {$studentName}؟ (تذكير)",
             default            => "تأكيد حصة {$subject}{$timeTag}",
@@ -253,9 +261,12 @@ class SendSessionRemindersJob implements ShouldQueue
     }
 
     /**
-     * Side-effect for the T+15 auto-cancel notice: cancel the session, mark
-     * attendance, and tear down any other pending reminders so the inbox stops
-     * polling for a class that's been auto-cancelled.
+     * Side-effect for the T+16 notice: end (cancel) the session because the
+     * teacher never confirmed the student joined, mark attendance, and tear down
+     * any other pending reminders so the inbox stops polling. A late "نعم، انضم"
+     * vote can still REVERT this end within a grace window (handled in
+     * ProcessWasenderInboundMessageJob). Teacher-initiated cancellations are
+     * unaffected.
      */
     private function applyAutoCancel(Reminder $reminder): void
     {
@@ -271,7 +282,7 @@ class SendSessionRemindersJob implements ShouldQueue
         $session->update([
             'status'              => 'cancelled',
             'attendance_status'   => 'teacher_didnt_reply',
-            'cancellation_reason' => 'لم يرد المعلم على استطلاعات الحضور خلال 15 دقيقة من بدء الحصة',
+            'cancellation_reason' => 'لم يتم تأكيد انضمام الطالب خلال 16 دقيقة من بدء الحصة',
         ]);
 
         Reminder::where('class_session_id', $session->id)
@@ -279,10 +290,10 @@ class SendSessionRemindersJob implements ShouldQueue
             ->where('status', 'pending')
             ->update([
                 'status'         => 'cancelled',
-                'failure_reason' => 'تم إلغاء الحصة تلقائياً (auto_cancel)',
+                'failure_reason' => 'تم إنهاء الحصة تلقائياً (auto_end)',
             ]);
 
-        Log::channel('reminder')->warning('AUTO-CANCEL applied', [
+        Log::channel('reminder')->warning('AUTO-END applied (16m no-show)', [
             'session_id'  => $session->id,
             'reminder_id' => $reminder->id,
             'title'       => $session->title,
@@ -311,8 +322,10 @@ class SendSessionRemindersJob implements ShouldQueue
                 ]);
             }
 
-            // Find or create ticket
+            // Find or create ticket (scoped to the active number for isolation)
+            $ourNumber = \App\Services\WhatsApp\WasenderSession::fromNumber();
             $ticket = Ticket::where('guardian_id', $guardian->id)
+                ->where('whatsapp_number', $ourNumber)
                 ->whereIn('status', [\App\Enums\TicketStatus::Open, \App\Enums\TicketStatus::Pending])
                 ->latest()
                 ->first();
@@ -327,6 +340,7 @@ class SendSessionRemindersJob implements ShouldQueue
                     'status'               => \App\Enums\TicketStatus::Open,
                     'priority'             => \App\Enums\TicketPriority::Normal,
                     'channel'              => 'whatsapp',
+                    'whatsapp_number'      => $ourNumber,
                     'subject'              => 'تذكير بالحصة',
                     'session_supervisor_id' => $sessionSupervisorId,
                 ]);
@@ -336,7 +350,7 @@ class SendSessionRemindersJob implements ShouldQueue
             }
 
             // Create outbound message
-            $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number'));
+            $fromNumber = \App\Services\WhatsApp\WasenderSession::fromNumber() ?: config('whatsapp.twilio.from_number');
             $whatsappMsg = WhatsappMessage::create([
                 'wa_message_id'   => 'RMD_' . Str::ulid(),
                 'ticket_id'       => $ticket->id,
@@ -380,9 +394,10 @@ class SendSessionRemindersJob implements ShouldQueue
         // Cancel stale time-critical reminders that are more than 2 hours overdue
         // while the session is still in 'scheduled' state — this prevents a flood of
         // outdated messages firing after a teacher's reminders are resumed from pause.
-        $timeCriticalPhases = ['before', 'at_start', 'after', 'attend_3m', 'attend_6m', 'attend_9m', 'no_show_decision', 'auto_cancel'];
+        $isTimeCritical = in_array($reminder->reminder_phase, ['before', 'at_start', 'after', 'no_show_decision', 'auto_cancel'], true)
+            || str_starts_with($reminder->reminder_phase, 'attend_');
         if (
-            in_array($reminder->reminder_phase, $timeCriticalPhases, true)
+            $isTimeCritical
             && $session->status === 'scheduled'
             && $reminder->scheduled_at->lt(now()->subHours(2))
         ) {
@@ -435,8 +450,9 @@ class SendSessionRemindersJob implements ShouldQueue
         // Skip the entire flow once the teacher has confirmed the student joined
         // (attendance_status='both_joined' is set by ProcessWasenderInboundMessageJob
         // on any YES vote to at_start / attend_*).
-        $attendanceFlowPhases = ['attend_3m', 'attend_6m', 'attend_9m', 'no_show_decision', 'auto_cancel'];
-        if (in_array($reminder->reminder_phase, $attendanceFlowPhases, true)) {
+        $isAttendanceFlow = in_array($reminder->reminder_phase, ['no_show_decision', 'auto_cancel'], true)
+            || str_starts_with($reminder->reminder_phase, 'attend_');
+        if ($isAttendanceFlow) {
             if ($session->attendance_status === 'both_joined') {
                 return true;
             }

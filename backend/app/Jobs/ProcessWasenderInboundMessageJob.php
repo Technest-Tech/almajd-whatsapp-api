@@ -71,6 +71,22 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         $event    = $this->payload['event'] ?? '';
         $messages = $this->payload['data']['messages'] ?? [];
 
+        // ── Single-active-number guard ───────────────────────────────────────
+        // Wasender stamps every webhook with `sessionId` (= that session's API
+        // key). Only ONE Wasender session is active at a time for the inbox +
+        // session reminders; ignore everything arriving on the dormant session
+        // so the inactive number neither sends nor receives. Teacher timetables
+        // are still SENT from the legacy "015" session, but those are outbound —
+        // no inbound processing is needed for them.
+        $sessionId = $this->payload['sessionId'] ?? null;
+        if (!\App\Services\WhatsApp\WasenderSession::isActiveSessionId(is_string($sessionId) ? $sessionId : null)) {
+            Log::debug('WasenderAPI webhook: ignored event from non-active session', [
+                'event'      => $event,
+                'session_id' => $sessionId,
+            ]);
+            return;
+        }
+
         // Full-payload dump is debug-only: at INFO level (production default) this
         // is suppressed. Every webhook hit (delivery receipts, presence, typing…)
         // would otherwise dump its entire JSON body and bloat laravel.log to GBs.
@@ -324,8 +340,24 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         // ── Apply session status change ───────────────────────────────────────
         $session = \App\Models\ClassSession::find($reminder->class_session_id);
         if (!$session || in_array($session->status, ['completed', 'cancelled'], true)) {
+            // A late "نعم، انضم" can REVERT a recent auto-end: the teacher did
+            // confirm the student joined, the vote just lost the race to the T+16
+            // auto-end. Allow it through (within a grace window) so the YES branch
+            // below un-ends the session.
+            $isAttendancePhase = in_array($reminder->reminder_phase, ['at_start', 'after'], true)
+                || str_starts_with($reminder->reminder_phase, 'attend_');
+            $lateJoinedRevert = $session
+                && $voteValue === 'yes'
+                && $isAttendancePhase
+                && $session->status === 'cancelled'
+                && $session->attendance_status === 'teacher_didnt_reply'
+                && $session->updated_at
+                && $session->updated_at->gt(now()->subMinutes(30));
+
             // Allow post_end confirmations even on "completed" — admin may have pre-closed it
-            if (!($session && $reminder->reminder_phase === 'post_end')) {
+            $postEndOnClosed = $session && $reminder->reminder_phase === 'post_end';
+
+            if (!$postEndOnClosed && !$lateJoinedRevert) {
                 Log::channel('reminder')->info('POLL VOTE IGNORED — session already closed', [
                     'session_id'  => $reminder->class_session_id,
                     'status'      => $session?->status,
@@ -336,11 +368,20 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ]);
                 return;
             }
+
+            if ($lateJoinedRevert) {
+                Log::channel('reminder')->info('POLL LATE-JOINED → reverting auto-end', [
+                    'session_id'  => $session->id,
+                    'reminder_id' => $reminder->id,
+                    'phase'       => $reminder->reminder_phase,
+                    'voter'       => $voterPhone,
+                ]);
+            }
         }
 
         $phase = $reminder->reminder_phase;
 
-        $attendancePollPhases = ['at_start', 'after', 'attend_3m', 'attend_6m', 'attend_9m'];
+        $attendancePollPhases = ['at_start', 'after', 'attend_3m', 'attend_6m', 'attend_9m', 'attend_12m', 'attend_15m'];
 
         if ($voteValue === 'yes') {
             // ── Teacher confirmed: student joined / session completed ──────────
@@ -369,11 +410,11 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             // Cancel superseded pre-class + attendance-flow reminders
             \App\Models\Reminder::where('class_session_id', $session->id)
                 ->where('status', 'pending')
-                ->whereIn('reminder_phase', [
-                    'before', 'at_start', 'after',
-                    'attend_3m', 'attend_6m', 'attend_9m',
-                    'no_show_decision', 'auto_cancel',
-                ])
+                ->where(function ($q) {
+                    $q->whereIn('reminder_phase', [
+                        'before', 'at_start', 'after', 'no_show_decision', 'auto_cancel',
+                    ])->orWhere('reminder_phase', 'like', 'attend_%');
+                })
                 ->update(['status' => 'cancelled', 'failure_reason' => 'Teacher confirmed via poll']);
 
             // Mark other awaiting reminders as no_reply
@@ -480,8 +521,9 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
 
             if (!$guardian) return;
 
-            // Find existing ticket
+            // Find existing ticket (scoped to the active number for isolation)
             $ticket = Ticket::where('guardian_id', $guardian->id)
+                ->where('whatsapp_number', \App\Services\WhatsApp\WasenderSession::fromNumber())
                 ->whereIn('status', [\App\Enums\TicketStatus::Open, \App\Enums\TicketStatus::Pending])
                 ->latest()
                 ->first();
@@ -505,7 +547,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 'ticket_id'       => $ticket->id,
                 'direction'       => MessageDirection::Inbound,
                 'from_number'     => $phoneWithPlus,
-                'to_number'       => config('whatsapp.wasender.from_number', ''),
+                'to_number'       => \App\Services\WhatsApp\WasenderSession::fromNumber(),
                 'message_type'    => MessageType::Text,
                 'content'         => $voteText,
                 'delivery_status' => DeliveryStatus::Delivered,
@@ -736,7 +778,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
         $contactPhone = str_starts_with($contactPhone, '+') ? $contactPhone : "+{$contactPhone}";
 
         // ── Determine our number ─────────────────────────────────────────────
-        $ourNumber = config('whatsapp.wasender.from_number', '');
+        $ourNumber = \App\Services\WhatsApp\WasenderSession::fromNumber();
 
         // from_number / to_number differ based on direction
         $fromNumber = $fromMe ? $ourNumber : $contactPhone;
@@ -785,19 +827,22 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
             }
         }
 
+        $ourNumber = \App\Services\WhatsApp\WasenderSession::fromNumber();
         $ticket = Ticket::where('guardian_id', $guardian->id)
+            ->where('whatsapp_number', $ourNumber)
             ->whereIn('status', [TicketStatus::Open, TicketStatus::Pending])
             ->latest()
             ->first();
 
         if (!$ticket) {
             $ticket = Ticket::create([
-                'ticket_number' => Ticket::generateTicketNumber(),
-                'guardian_id'   => $guardian->id,
-                'status'        => TicketStatus::Open,
-                'priority'      => TicketPriority::Normal,
-                'channel'       => 'whatsapp',
-                'subject'       => 'New WhatsApp Inquiry',
+                'ticket_number'   => Ticket::generateTicketNumber(),
+                'guardian_id'     => $guardian->id,
+                'status'          => TicketStatus::Open,
+                'priority'        => TicketPriority::Normal,
+                'channel'         => 'whatsapp',
+                'whatsapp_number' => $ourNumber,
+                'subject'         => 'New WhatsApp Inquiry',
             ]);
         } elseif ($ticket->status === TicketStatus::Pending) {
             // Re-open pending ticket on new inbound message only
@@ -1161,7 +1206,7 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
      */
     private function decryptMediaViaApi(array $messagesPayload): ?string
     {
-        $apiKey  = config('whatsapp.wasender.api_key');
+        $apiKey  = \App\Services\WhatsApp\WasenderSession::apiKey();
         $baseUrl = config('whatsapp.wasender.base_url', 'https://www.wasenderapi.com/api');
 
         $requestBody = ['data' => ['messages' => $messagesPayload]];
@@ -1371,7 +1416,9 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                 ]);
             }
 
+            $ourNumber = \App\Services\WhatsApp\WasenderSession::fromNumber();
             $ticket = Ticket::where('guardian_id', $guardian->id)
+                ->where('whatsapp_number', $ourNumber)
                 ->whereIn('status', [TicketStatus::Open, TicketStatus::Pending])
                 ->latest()
                 ->first();
@@ -1383,12 +1430,13 @@ class ProcessWasenderInboundMessageJob implements ShouldQueue
                     'status'                => TicketStatus::Open,
                     'priority'              => TicketPriority::Normal,
                     'channel'               => 'whatsapp',
+                    'whatsapp_number'       => $ourNumber,
                     'subject'               => 'تذكير بالحصة',
                     'session_supervisor_id' => $reminder->classSession?->supervisor_id,
                 ]);
             }
 
-            $fromNumber = config('whatsapp.wasender.from_number', '');
+            $fromNumber = $ourNumber;
             $whatsappMsg = WhatsappMessage::create([
                 'wa_message_id'   => 'RMD_' . Str::ulid(),
                 'ticket_id'       => $ticket->id,

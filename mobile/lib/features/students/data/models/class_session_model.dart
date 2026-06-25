@@ -18,6 +18,7 @@ class ClassSessionModel {
   final String? rescheduledEndTime;
   final String? attendanceStatus; // pending, teacher_joined, student_absent, both_joined, no_show
   final String reportStatus; // none, awaiting, confirming, confirmed
+  final bool teacherRemindersPaused;
 
   const ClassSessionModel({
     required this.id,
@@ -39,6 +40,7 @@ class ClassSessionModel {
     this.rescheduledEndTime,
     this.attendanceStatus,
     this.reportStatus = 'none',
+    this.teacherRemindersPaused = false,
   });
 
   factory ClassSessionModel.fromJson(Map<String, dynamic> json) {
@@ -62,6 +64,7 @@ class ClassSessionModel {
       rescheduledEndTime: json['rescheduled_end_time'],
       attendanceStatus: json['attendance_status'],
       reportStatus: json['report_status'] ?? 'none',
+      teacherRemindersPaused: json['teacher'] != null && json['teacher']['reminders_paused'] == true,
     );
   }
 

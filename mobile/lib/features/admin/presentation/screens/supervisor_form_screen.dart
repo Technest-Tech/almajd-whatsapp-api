@@ -5,32 +5,31 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/admin_repository.dart';
 
-// ── Shift state for one day ───────────────────────────────────────────────────
-class _ShiftDay {
+// ── A single work shift (one supervisor can have several per day) ─────────────
+class _ShiftSlot {
   final int dayOfWeek;
-  bool isActive;
   TimeOfDay startTime;
   TimeOfDay endTime;
 
-  _ShiftDay({
+  _ShiftSlot({
     required this.dayOfWeek,
-    required this.isActive,
     required this.startTime,
     required this.endTime,
   });
 
-  static _ShiftDay defaultFor(int day) => _ShiftDay(
-        dayOfWeek: day,
-        isActive: false,
-        startTime: const TimeOfDay(hour: 8, minute: 0),
-        endTime: const TimeOfDay(hour: 16, minute: 0),
-      );
+  // A shift whose end is at or before its start is treated as crossing midnight
+  // (e.g. 22:00 → 00:30), matching the backend's overnight-window handling.
+  bool get crossesMidnight {
+    final s = startTime.hour * 60 + startTime.minute;
+    final e = endTime.hour * 60 + endTime.minute;
+    return e <= s;
+  }
 
   Map<String, dynamic> toPayload() => {
         'day_of_week': dayOfWeek,
         'start_time': '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
         'end_time': '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
-        'is_active': isActive,
+        'is_active': true,
       };
 }
 
@@ -54,7 +53,7 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
   String? _phone;
   String? _password;
 
-  final List<_ShiftDay> _shifts = List.generate(7, _ShiftDay.defaultFor);
+  final List<_ShiftSlot> _shifts = [];
 
   static const _dayNames = [
     'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء',
@@ -89,17 +88,16 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
           _email = data['email'];
           _phone = data['phone'];
 
+          _shifts.clear();
           for (final s in shiftsRaw) {
             final day = (s['day_of_week'] as num).toInt();
             if (day < 0 || day > 6) continue;
-            final start = _parseTime(s['start_time'] as String? ?? '08:00');
-            final end   = _parseTime(s['end_time']   as String? ?? '16:00');
-            _shifts[day] = _ShiftDay(
+            if (s['is_active'] == false) continue;
+            _shifts.add(_ShiftSlot(
               dayOfWeek: day,
-              isActive: s['is_active'] == true,
-              startTime: start,
-              endTime: end,
-            );
+              startTime: _parseTime(s['start_time'] as String? ?? '17:00'),
+              endTime: _parseTime(s['end_time'] as String? ?? '21:30'),
+            ));
           }
 
           _loading = false;
@@ -124,12 +122,22 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     );
   }
 
-  Future<void> _pickTime(int dayIndex, bool isStart) async {
+  void _addSlot(int day) {
+    setState(() {
+      _shifts.add(_ShiftSlot(
+        dayOfWeek: day,
+        startTime: const TimeOfDay(hour: 17, minute: 0),
+        endTime: const TimeOfDay(hour: 21, minute: 30),
+      ));
+    });
+  }
+
+  Future<void> _pickTime(_ShiftSlot slot, bool isStart) async {
     // Dismiss keyboard and unfocus any text field before opening the picker
     FocusScope.of(context).unfocus();
     await Future.delayed(const Duration(milliseconds: 50));
 
-    final current = isStart ? _shifts[dayIndex].startTime : _shifts[dayIndex].endTime;
+    final current = isStart ? slot.startTime : slot.endTime;
     final picked = await showTimePicker(
       context: context,
       initialTime: current,
@@ -139,26 +147,30 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
       ),
     );
     if (picked == null) return;
+    // Note: end <= start is allowed and treated as an overnight shift.
     setState(() {
       if (isStart) {
-        _shifts[dayIndex].startTime = picked;
-        // Auto-fix: if end is now <= start, push end forward by 1 hour (cap at 23:59)
-        final endMinutes   = _shifts[dayIndex].endTime.hour * 60 + _shifts[dayIndex].endTime.minute;
-        final startMinutes = picked.hour * 60 + picked.minute;
-        if (endMinutes <= startMinutes) {
-          final newHour = picked.hour + 1;
-          _shifts[dayIndex].endTime = newHour >= 24
-              ? const TimeOfDay(hour: 23, minute: 59)
-              : TimeOfDay(hour: newHour, minute: picked.minute);
-        }
+        slot.startTime = picked;
       } else {
-        _shifts[dayIndex].endTime = picked;
+        slot.endTime = picked;
       }
     });
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Reject zero-length shifts (start == end); overnight (end < start) is fine.
+    final hasZeroLength = _shifts.any((s) =>
+        s.startTime.hour == s.endTime.hour &&
+        s.startTime.minute == s.endTime.minute);
+    if (hasZeroLength) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('وقت بداية ونهاية الفترة لا يمكن أن يكونا متطابقين')),
+      );
+      return;
+    }
+
     _formKey.currentState!.save();
     setState(() => _saving = true);
 
@@ -288,7 +300,7 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Column(
-                        children: List.generate(7, (i) => _buildShiftRow(i)),
+                        children: List.generate(7, (i) => _buildDaySection(i)),
                       ),
                     ),
 
@@ -322,9 +334,10 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     );
   }
 
-  Widget _buildShiftRow(int i) {
-    final shift = _shifts[i];
-    final isLast = i == 6;
+  Widget _buildDaySection(int day) {
+    final slots = _shifts.where((s) => s.dayOfWeek == day).toList();
+    final isLast = day == 6;
+    final hasShifts = slots.isNotEmpty;
 
     return Column(
       children: [
@@ -333,47 +346,75 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top row: day name + toggle
+              // Top row: day name + "add shift" button
               Row(
                 children: [
                   Text(
-                    _dayNames[i],
+                    _dayNames[day],
                     style: TextStyle(
-                      color: shift.isActive ? Colors.white : AppColors.textSecondary,
-                      fontWeight: shift.isActive ? FontWeight.w600 : FontWeight.normal,
+                      color: hasShifts ? Colors.white : AppColors.textSecondary,
+                      fontWeight: hasShifts ? FontWeight.w600 : FontWeight.normal,
                       fontSize: 14,
                     ),
                   ),
                   const Spacer(),
-                  Switch(
-                    value: shift.isActive,
-                    activeColor: AppColors.primary,
-                    onChanged: (v) => setState(() => _shifts[i].isActive = v),
+                  TextButton.icon(
+                    onPressed: () => _addSlot(day),
+                    icon: const Icon(Icons.add, size: 18, color: AppColors.primary),
+                    label: const Text('إضافة فترة',
+                        style: TextStyle(color: AppColors.primary, fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
                 ],
               ),
-              // Time row — only shown when active
-              if (shift.isActive)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildTimeTap(i, isStart: true),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 6),
-                        child: Text('–', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                      ),
-                      _buildTimeTap(i, isStart: false),
-                    ],
-                  ),
+              if (!hasShifts)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
+                  child: Text('لا يوجد دوام',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                 ),
+              ...slots.map(_buildSlotRow),
             ],
           ),
         ),
         if (!isLast)
           const Divider(height: 1, color: Color(0xFF2A2A3A), indent: 16, endIndent: 16),
       ],
+    );
+  }
+
+  Widget _buildSlotRow(_ShiftSlot slot) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          _buildTimeTap(slot, isStart: true),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 6),
+            child: Text('–', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+          ),
+          _buildTimeTap(slot, isStart: false),
+          if (slot.crossesMidnight)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Text('عبر منتصف الليل',
+                  style: TextStyle(color: AppColors.amber, fontSize: 11)),
+            ),
+          const Spacer(),
+          InkWell(
+            onTap: () => setState(() => _shifts.remove(slot)),
+            borderRadius: BorderRadius.circular(20),
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(Icons.delete_outline, size: 20, color: Color(0xFFE57373)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -384,12 +425,12 @@ class _SupervisorFormScreenState extends State<SupervisorFormScreen> {
     return '$hour12:$minute $period';
   }
 
-  Widget _buildTimeTap(int dayIndex, {required bool isStart}) {
-    final time = isStart ? _shifts[dayIndex].startTime : _shifts[dayIndex].endTime;
+  Widget _buildTimeTap(_ShiftSlot slot, {required bool isStart}) {
+    final time = isStart ? slot.startTime : slot.endTime;
     final label = _formatTime12(time);
 
     return GestureDetector(
-      onTap: () => _pickTime(dayIndex, isStart),
+      onTap: () => _pickTime(slot, isStart),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(

@@ -96,51 +96,48 @@ class AdminService
     }
 
     /**
-     * Return all 7-day shift slots for a supervisor.
-     * Always returns entries for all 7 days (day_of_week 0–6), filling gaps with defaults.
+     * Return a supervisor's actual stored shifts. A supervisor may have any
+     * number of shifts per day (e.g. a morning and an evening slot); days with
+     * no shift simply have no rows.
      */
     public function getShifts(int $supervisorId): Collection
     {
         User::findOrFail($supervisorId);
 
-        $existing = Shift::where('user_id', $supervisorId)
+        return Shift::where('user_id', $supervisorId)
             ->orderBy('day_of_week')
-            ->get()
-            ->keyBy('day_of_week');
-
-        return collect(range(0, 6))->map(function (int $day) use ($supervisorId, $existing) {
-            if (isset($existing[$day])) {
-                return $existing[$day];
-            }
-
-            return new Shift([
-                'user_id'     => $supervisorId,
-                'day_of_week' => $day,
-                'start_time'  => '08:00:00',
-                'end_time'    => '16:00:00',
-                'is_active'   => false,
-            ]);
-        });
+            ->orderBy('start_time')
+            ->get();
     }
 
     /**
-     * Upsert shifts for a supervisor. Input: array of 7 entries, each with
-     * day_of_week (0–6), start_time, end_time, is_active.
+     * Replace a supervisor's shifts wholesale. Input: a flat list of entries,
+     * each with day_of_week (0–6), start_time, end_time, and optional is_active.
+     * Multiple entries may share the same day_of_week. Existing shifts are
+     * cleared first so the saved set exactly mirrors what the admin submitted.
      */
     public function updateShifts(int $supervisorId, array $shifts): Collection
     {
         User::findOrFail($supervisorId);
 
-        foreach ($shifts as $shift) {
-            Shift::updateOrCreate(
-                ['user_id' => $supervisorId, 'day_of_week' => (int) $shift['day_of_week']],
-                [
-                    'start_time' => $shift['start_time'],
-                    'end_time'   => $shift['end_time'],
-                    'is_active'  => (bool) ($shift['is_active'] ?? false),
-                ]
-            );
-        }
+        DB::transaction(function () use ($supervisorId, $shifts): void {
+            Shift::where('user_id', $supervisorId)->delete();
+
+            foreach ($shifts as $shift) {
+                // Skip explicitly-inactive entries so a toggled-off slot is dropped.
+                if (array_key_exists('is_active', $shift) && !$shift['is_active']) {
+                    continue;
+                }
+
+                Shift::create([
+                    'user_id'     => $supervisorId,
+                    'day_of_week' => (int) $shift['day_of_week'],
+                    'start_time'  => $shift['start_time'],
+                    'end_time'    => $shift['end_time'],
+                    'is_active'   => true,
+                ]);
+            }
+        });
 
         return $this->getShifts($supervisorId);
     }

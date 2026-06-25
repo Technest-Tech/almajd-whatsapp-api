@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/api_service.dart';
+import '../../../teachers/data/models/teacher_model.dart';
+import '../../../teachers/data/teacher_repository.dart';
 
 class ManagementHubScreen extends StatefulWidget {
   const ManagementHubScreen({super.key});
@@ -19,6 +22,7 @@ class _ManagementHubScreenState extends State<ManagementHubScreen> {
     _HubItem(icon: Icons.shield_rounded, label: 'المشرفون', subtitle: 'إدارة المشرفين', path: '/supervisors', color: Color(0xFFAB47BC)),
     _HubItem(icon: Icons.insert_chart_outlined_rounded, label: 'أداء المشرفين', subtitle: 'التقارير والإحصائيات', path: '/supervisors_stats', color: Color(0xFF00A884)),
     _HubItem(icon: Icons.bar_chart_rounded, label: 'التقارير', subtitle: 'إحصائيات النظام', path: '/analytics', color: Color(0xFFEF5350)),
+    _HubItem(icon: Icons.forum_rounded, label: 'ربط مجموعات واتساب', subtitle: 'ربط المجموعات بالمعلمين والطلاب', path: '/whatsapp-groups', color: Color(0xFF25D366)),
     _HubItem(icon: Icons.settings_rounded, label: 'إعدادات النظام', subtitle: 'الحساب والتفضيلات', path: '/settings', color: Color(0xFF78909C)),
   ];
 
@@ -92,6 +96,11 @@ class _ManagementHubScreenState extends State<ManagementHubScreen> {
 
         // ── Session Management Card ──────────────────────────────────────────
         _buildSessionManagementCard(context),
+
+        const SizedBox(height: 16),
+
+        // ── Reminder Pause Card ──────────────────────────────────────────────
+        _buildReminderPauseCard(context),
 
         const SizedBox(height: 16),
       ],
@@ -219,6 +228,72 @@ class _ManagementHubScreenState extends State<ManagementHubScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildReminderPauseCard(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.notifications_paused_rounded, size: 22, color: Colors.orange),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('إيقاف التذكيرات', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                      Text('إيقاف مؤقت لتذكيرات معلم أثناء الإجازة', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _openReminderPauseDialog(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.withValues(alpha: 0.15),
+                  foregroundColor: Colors.orange,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(color: Colors.orange.withValues(alpha: 0.4)),
+                  ),
+                ),
+                icon: const Icon(Icons.manage_accounts_rounded, size: 18),
+                label: const Text('إدارة إيقاف التذكيرات', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openReminderPauseDialog(BuildContext context) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => const _ReminderPauseDialog(),
     );
   }
 
@@ -509,6 +584,216 @@ class _GenerateSessionsDialogState extends State<_GenerateSessionsDialog> {
                 },
           child: const Text('تأكيد وتوليد'),
         ),
+      ],
+    );
+  }
+}
+
+// ── Reminder Pause Dialog ──────────────────────────────────────────────────
+
+class _ReminderPauseDialog extends StatefulWidget {
+  const _ReminderPauseDialog();
+
+  @override
+  State<_ReminderPauseDialog> createState() => _ReminderPauseDialogState();
+}
+
+class _ReminderPauseDialogState extends State<_ReminderPauseDialog> {
+  final _repo = GetIt.instance<TeacherRepository>();
+
+  bool _isLoading = true;
+  bool _isActing = false;
+  List<TeacherModel> _teachers = [];
+  List<TeacherModel> _filtered = [];
+  final Set<int> _selected = {};
+  String _search = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _isLoading = true);
+    try {
+      final teachers = await _repo.getTeachers();
+      teachers.sort((a, b) {
+        // Paused teachers first
+        if (a.remindersPaused && !b.remindersPaused) return -1;
+        if (!a.remindersPaused && b.remindersPaused) return 1;
+        return a.name.compareTo(b.name);
+      });
+      if (mounted) {
+        setState(() {
+          _teachers = teachers;
+          _applyFilter();
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _applyFilter() {
+    _filtered = _search.isEmpty
+        ? List.of(_teachers)
+        : _teachers.where((t) => t.name.toLowerCase().contains(_search.toLowerCase())).toList();
+  }
+
+  Future<void> _act(bool pause) async {
+    if (_selected.isEmpty) return;
+    setState(() => _isActing = true);
+    try {
+      for (final id in _selected) {
+        final updated = pause ? await _repo.pauseReminders(id) : await _repo.resumeReminders(id);
+        final idx = _teachers.indexWhere((t) => t.id == id);
+        if (idx != -1) _teachers[idx] = updated;
+      }
+      _teachers.sort((a, b) {
+        if (a.remindersPaused && !b.remindersPaused) return -1;
+        if (!a.remindersPaused && b.remindersPaused) return 1;
+        return a.name.compareTo(b.name);
+      });
+      if (mounted) {
+        setState(() {
+          _selected.clear();
+          _applyFilter();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(pause ? 'تم إيقاف التذكيرات للمعلمين المحددين' : 'تم استئناف التذكيرات للمعلمين المحددين'),
+          backgroundColor: pause ? Colors.orange : Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isActing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final anyPausedSelected = _selected.any((id) => _teachers.firstWhere((t) => t.id == id).remindersPaused);
+    final anyActiveSelected = _selected.any((id) => !_teachers.firstWhere((t) => t.id == id).remindersPaused);
+    final pausedCount = _teachers.where((t) => t.remindersPaused).length;
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.notifications_paused_rounded, color: Colors.orange, size: 22),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text('إدارة إيقاف التذكيرات', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          if (pausedCount > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+              ),
+              child: Text('$pausedCount موقوف', style: const TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600)),
+            ),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'ابحث عن معلم...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+              ),
+              onChanged: (v) => setState(() { _search = v; _applyFilter(); }),
+            ),
+            const SizedBox(height: 10),
+            if (_isLoading)
+              const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())
+            else
+              Flexible(
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: _filtered.isEmpty
+                      ? const Center(child: Padding(padding: EdgeInsets.all(16), child: Text('لا يوجد معلمون')))
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _filtered.length,
+                          itemBuilder: (ctx, i) {
+                            final t = _filtered[i];
+                            final isSelected = _selected.contains(t.id);
+                            return CheckboxListTile(
+                              value: isSelected,
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                              onChanged: (val) => setState(() {
+                                if (val == true) _selected.add(t.id);
+                                else _selected.remove(t.id);
+                              }),
+                              title: Row(
+                                children: [
+                                  Expanded(child: Text(t.name, style: const TextStyle(fontSize: 13))),
+                                  if (t.remindersPaused)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+                                      ),
+                                      child: const Text('موقوف', style: TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.w600)),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            if (_selected.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text('تم تحديد ${_selected.length} معلم', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isActing ? null : () => Navigator.pop(context),
+          child: const Text('إغلاق'),
+        ),
+        if (anyPausedSelected)
+          ElevatedButton.icon(
+            onPressed: _isActing ? null : () => _act(false),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+            icon: _isActing
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.play_circle_outline_rounded, size: 16),
+            label: const Text('استئناف', style: TextStyle(fontSize: 13)),
+          ),
+        if (anyActiveSelected)
+          ElevatedButton.icon(
+            onPressed: _isActing ? null : () => _act(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            icon: _isActing
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.pause_circle_outline_rounded, size: 16),
+            label: const Text('إيقاف', style: TextStyle(fontSize: 13)),
+          ),
       ],
     );
   }

@@ -24,10 +24,15 @@ class SessionLoadBalancerService
     public function __construct(private readonly ShiftService $shiftService) {}
 
     /**
-     * Assign supervisor_id for sessions that have no supervisor yet, based on
-     * who is on shift at the session's start time. All supervisors whose shift
-     * covers the session time can see it via the shift-based inbox query; we
-     * still record a primary supervisor_id for reporting/legacy purposes.
+     * Assign supervisor_id for sessions that have no supervisor yet, spreading
+     * each shift's lessons EVENLY across every supervisor on that shift.
+     *
+     * For each session we look up who is on shift at its start time and hand it
+     * to the least-loaded of those supervisors (balanced round-robin, tie-broken
+     * by user id). A per-day running tally — seeded from sessions already
+     * assigned that day — keeps repeat/incremental runs balanced and naturally
+     * handles overlapping shifts (a supervisor only receives sessions that fall
+     * inside their own window).
      */
     public function distribute(Collection $sessions): void
     {
@@ -44,43 +49,99 @@ class SessionLoadBalancerService
             return $date . ' ' . (string) $s->start_time;
         })->values();
 
-        DB::transaction(function () use ($sortedSessions): void {
-            foreach ($sortedSessions as $session) {
-                $sessionTime = Carbon::parse(
-                    ($session->session_date instanceof Carbon
-                        ? $session->session_date->format('Y-m-d')
-                        : (string) $session->session_date)
-                    . ' ' . $session->start_time
-                );
+        // $dayLoad[$date][$supervisorId] = number of sessions assigned to that
+        // supervisor on that day so far (seeded lazily from the DB below).
+        $dayLoad = [];
 
+        DB::transaction(function () use ($sortedSessions, &$dayLoad): void {
+            foreach ($sortedSessions as $session) {
+                $date = $session->session_date instanceof Carbon
+                    ? $session->session_date->format('Y-m-d')
+                    : (string) $session->session_date;
+
+                $sessionTime = Carbon::parse($date . ' ' . $session->start_time);
                 $supervisors = $this->shiftService->supervisorsOnShiftAt($sessionTime);
 
                 if ($supervisors->isEmpty()) {
-                    // No one on shift at this session's time — leave unassigned for admin.
+                    // No one on shift at this session's time — leave for admin.
                     continue;
                 }
 
-                // Check overflow alarm: warn if primary supervisor is over cap (non-blocking).
-                $primary = $supervisors->first();
-                $currentLoad = ClassSession::where('supervisor_id', $primary->id)
-                    ->whereIn('status', self::LOAD_STATUSES)
-                    ->count();
-
-                $cap = $primary->max_open_tickets ?? 20;
-                if ($currentLoad >= $cap) {
-                    // Try next on-shift supervisor under cap
-                    $primary = $supervisors->first(function (User $s) use ($cap): bool {
-                        $load = ClassSession::where('supervisor_id', $s->id)
-                            ->whereIn('status', self::LOAD_STATUSES)
-                            ->count();
-                        return $load < $cap;
-                    }) ?? $supervisors->first(); // still assign even if all over cap
+                if (!isset($dayLoad[$date])) {
+                    $dayLoad[$date] = [];
                 }
 
-                $session->update(['supervisor_id' => $primary->id]);
-                $this->assignTicketsForSession($session, $primary->id);
+                // Seed any supervisor not yet seen on this day from their
+                // existing same-day assignments so the balance is fair.
+                foreach ($supervisors as $sup) {
+                    if (!array_key_exists($sup->id, $dayLoad[$date])) {
+                        $dayLoad[$date][$sup->id] = ClassSession::whereDate('session_date', $date)
+                            ->where('supervisor_id', $sup->id)
+                            ->count();
+                    }
+                }
+
+                // Pick the on-shift supervisor carrying the fewest sessions today
+                // (deterministic tie-break by lowest user id).
+                $chosen = null;
+                $best   = null;
+                foreach ($supervisors as $sup) {
+                    $load = $dayLoad[$date][$sup->id];
+                    if ($chosen === null
+                        || $load < $best
+                        || ($load === $best && $sup->id < $chosen->id)) {
+                        $chosen = $sup;
+                        $best   = $load;
+                    }
+                }
+
+                $session->update(['supervisor_id' => $chosen->id]);
+                $dayLoad[$date][$chosen->id]++;
+                $this->assignTicketsForSession($session, $chosen->id);
             }
         });
+    }
+
+    /**
+     * Re-balance every active session in a date range across the supervisors on
+     * shift at each session's time. Existing assignments in the range are
+     * cleared first, so the result is an even split rather than an incremental
+     * top-up of whatever was assigned before.
+     *
+     * @return array{reassigned:int, unassigned:int, per_supervisor:array<int,int>}
+     */
+    public function redistributeRange(Carbon $from, Carbon $to): array
+    {
+        $sessions = ClassSession::query()
+            ->whereBetween('session_date', [$from->toDateString(), $to->toDateString()])
+            ->whereIn('status', self::LOAD_STATUSES)
+            ->get();
+
+        if ($sessions->isEmpty()) {
+            return ['reassigned' => 0, 'unassigned' => 0, 'per_supervisor' => []];
+        }
+
+        $ids = $sessions->pluck('id');
+        ClassSession::whereIn('id', $ids)->update(['supervisor_id' => null]);
+        $sessions->each(fn (ClassSession $s) => $s->setAttribute('supervisor_id', null));
+
+        $this->distribute($sessions);
+
+        $per        = [];
+        $unassigned = 0;
+        foreach (ClassSession::whereIn('id', $ids)->get(['id', 'supervisor_id']) as $s) {
+            if ($s->supervisor_id === null) {
+                $unassigned++;
+                continue;
+            }
+            $per[$s->supervisor_id] = ($per[$s->supervisor_id] ?? 0) + 1;
+        }
+
+        return [
+            'reassigned'     => array_sum($per),
+            'unassigned'     => $unassigned,
+            'per_supervisor' => $per,
+        ];
     }
 
     /**

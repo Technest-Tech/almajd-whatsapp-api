@@ -233,10 +233,12 @@ class _Avatar extends StatelessWidget {
             ? Border.all(color: AppColors.primary, width: 2)
             : Border.all(color: const Color(0xFFE0E0E0), width: 1),
       ),
-      child: const CircleAvatar(
+      child: CircleAvatar(
         radius: 22,
-        backgroundColor: Color(0xFFEEEEEE),
-        backgroundImage: AssetImage('assets/images/default_avatar.png'),
+        backgroundColor: const Color(0xFFEEEEEE),
+        backgroundImage: const AssetImage('assets/images/default_avatar.png'),
+        onBackgroundImageError: (_, __) {},
+        child: const Icon(Icons.person, size: 24, color: Color(0xFF9E9E9E)),
       ),
     );
   }

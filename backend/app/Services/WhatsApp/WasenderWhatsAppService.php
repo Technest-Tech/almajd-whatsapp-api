@@ -22,18 +22,31 @@ use Illuminate\Support\Facades\Log;
  */
 class WasenderWhatsAppService implements WhatsAppServiceInterface
 {
-    private string $apiKey;
+    private ?string $apiKeyOverride;
     private string $baseUrl;
 
     /**
-     * @param string|null $apiKey Override the Wasender session key. Defaults to the
-     *        primary session; pass a secondary session's key to send from another
-     *        linked number (e.g. the legacy "015" number for teacher timetables).
+     * @param string|null $apiKey Override the Wasender session key. When null
+     *        (the default) the key is resolved lazily per call from the active
+     *        session (see WasenderSession), so an admin switching the active
+     *        number takes effect immediately — even inside long-running queue
+     *        workers that hold this instance as a singleton. Pass an explicit
+     *        key to pin sends to a specific session (e.g. the legacy "015"
+     *        number for teacher timetables).
      */
     public function __construct(?string $apiKey = null)
     {
-        $this->apiKey  = $apiKey ?: (string) config('whatsapp.wasender.api_key');
+        $this->apiKeyOverride = $apiKey ?: null;
         $this->baseUrl = config('whatsapp.wasender.base_url', 'https://www.wasenderapi.com/api');
+    }
+
+    /**
+     * The Wasender session key to authenticate with: the explicit override if
+     * one was supplied, otherwise the currently-active session.
+     */
+    private function apiKey(): string
+    {
+        return $this->apiKeyOverride ?: WasenderSession::apiKey();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -196,13 +209,69 @@ class WasenderWhatsAppService implements WhatsAppServiceInterface
         $jid = $this->normalizeJid($phone);
 
         try {
-            $response = Http::withToken($this->apiKey)
+            $response = Http::withToken($this->apiKey())
                 ->get("{$this->baseUrl}/on-whatsapp/{$jid}");
 
             return (bool) ($response->json('data.exists') ?? false);
         } catch (\Throwable $e) {
             Log::warning('WasenderAPI: isOnWhatsApp check failed', ['phone' => $phone, 'error' => $e->getMessage()]);
             return false;
+        }
+    }
+
+    /**
+     * Fetch every WhatsApp group the active session is a member of.
+     *
+     * Used by the admin "link groups" flow to discover group JIDs and map them
+     * to teacher↔student pairs. Returns a normalised list; each entry has at
+     * least a `jid` (…@g.us) and a `name`, plus the raw participant phone list
+     * when Wasender provides it (so the UI can auto-suggest the teacher/student).
+     *
+     * @return array<int, array{jid: string, name: string, participants: array<int, string>}>
+     */
+    public function getGroups(): array
+    {
+        try {
+            $response = Http::withToken($this->apiKey())
+                ->get("{$this->baseUrl}/groups");
+
+            if (!$response->successful()) {
+                Log::warning('WasenderAPI: getGroups failed', [
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
+                ]);
+                return [];
+            }
+
+            $rows = $response->json('data') ?? $response->json() ?? [];
+
+            return collect($rows)
+                ->map(function ($g) {
+                    $jid = (string) ($g['jid'] ?? $g['id'] ?? $g['groupJid'] ?? $g['groupId'] ?? '');
+
+                    // Participants may arrive as strings or {id/jid} objects.
+                    $participants = collect($g['participants'] ?? $g['members'] ?? [])
+                        ->map(function ($p) {
+                            $raw = is_array($p) ? ($p['id'] ?? $p['jid'] ?? $p['phone'] ?? '') : $p;
+                            // Reduce a participant JID to a bare phone number.
+                            return preg_replace('/\D/', '', explode('@', (string) $raw)[0]);
+                        })
+                        ->filter()
+                        ->values()
+                        ->all();
+
+                    return [
+                        'jid'          => $jid,
+                        'name'         => (string) ($g['name'] ?? $g['subject'] ?? $g['title'] ?? ''),
+                        'participants' => $participants,
+                    ];
+                })
+                ->filter(fn ($g) => str_contains($g['jid'], '@g.us'))
+                ->values()
+                ->all();
+        } catch (\Throwable $e) {
+            Log::warning('WasenderAPI: getGroups threw', ['error' => $e->getMessage()]);
+            return [];
         }
     }
 
@@ -217,7 +286,7 @@ class WasenderWhatsAppService implements WhatsAppServiceInterface
      */
     private function post(string $endpoint, array $payload): array
     {
-        $response = Http::withToken($this->apiKey)
+        $response = Http::withToken($this->apiKey())
             ->asJson()
             ->post("{$this->baseUrl}{$endpoint}", $payload);
 

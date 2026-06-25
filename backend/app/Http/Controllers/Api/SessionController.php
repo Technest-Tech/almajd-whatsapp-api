@@ -34,23 +34,15 @@ class SessionController extends Controller
     {
         $filters = $request->only(['date', 'from', 'to', 'status', 'teacher_id', 'supervisor_id']);
 
-        // "My shift" view: when a supervisor asks for their OWN id, show every
-        // session inside their shift window — not just sessions where they are the
-        // single recorded owner. This is what lets co-shift supervisors all see the
-        // same lessons (shift-based visibility). Admins filtering by some OTHER
-        // supervisor's id keep literal owner filtering.
-        $shiftWindowUserId = null;
-        $user = $request->user();
-        if ($user && !empty($filters['supervisor_id'])
-            && (int) $filters['supervisor_id'] === (int) $user->id) {
-            $shiftWindowUserId = (int) $user->id;
-            unset($filters['supervisor_id']);
-        }
-
+        // Distribution model: sessions are split evenly across the supervisors on
+        // each shift and stamped with a single owner (supervisor_id). A
+        // supervisor's "mine" view therefore filters by literal supervisor_id —
+        // each one sees only the lessons assigned to them, not the whole shift.
+        // The "all" view (no supervisor_id) still returns the full day for
+        // oversight, and admins filtering by any supervisor id keep owner filtering.
         $paginator = $this->sessionService->list(
             filters: $filters,
             perPage: (int) $request->input('per_page', 20),
-            shiftWindowUserId: $shiftWindowUserId,
         );
         return $this->response->paginated($paginator);
     }
@@ -289,25 +281,25 @@ class SessionController extends Controller
             ]);
         }
 
-        // Find or create ticket
+        // Find or create ticket (scoped to the active number for isolation)
+        $fromNumber = \App\Services\WhatsApp\WasenderSession::fromNumber() ?: config('whatsapp.twilio.from_number');
         $ticket = Ticket::where('guardian_id', $guardian->id)
+            ->where('whatsapp_number', $fromNumber)
             ->whereIn('status', [TicketStatus::Open, TicketStatus::Pending])
             ->latest()
             ->first();
 
         if (!$ticket) {
             $ticket = Ticket::create([
-                'ticket_number' => Ticket::generateTicketNumber(),
-                'guardian_id'   => $guardian->id,
-                'status'        => TicketStatus::Open,
-                'priority'      => TicketPriority::Normal,
-                'channel'       => 'whatsapp',
-                'subject'       => 'تذكير بالحصة',
+                'ticket_number'   => Ticket::generateTicketNumber(),
+                'guardian_id'     => $guardian->id,
+                'status'          => TicketStatus::Open,
+                'priority'        => TicketPriority::Normal,
+                'channel'         => 'whatsapp',
+                'whatsapp_number' => $fromNumber,
+                'subject'         => 'تذكير بالحصة',
             ]);
         }
-
-        // Create outbound message
-        $fromNumber = config('whatsapp.wasender.from_number', config('whatsapp.twilio.from_number'));
 
         $whatsappMsg = WhatsappMessage::create([
             'wa_message_id'   => 'RMD_' . Str::ulid(),

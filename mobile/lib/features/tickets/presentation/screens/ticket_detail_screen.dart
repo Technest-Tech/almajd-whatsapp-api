@@ -550,6 +550,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
                   setState(() => _replyingTo = m);
                   _focusNode.requestFocus();
                 },
+                onForward: _forwardMessage,
                 onLongPress: (m) {},
                 onQuoteReplyTap: _scrollToMessage,
               ),
@@ -558,6 +559,49 @@ class _TicketDetailScreenState extends State<TicketDetailScreen>
         );
       },
     );
+  }
+
+  // ── Forward a message to another conversation ──
+  Future<void> _forwardMessage(MessageModel m) async {
+    final target = await showModalBottomSheet<TicketModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _ForwardPickerSheet(excludeTicketId: widget.ticketId),
+    );
+    if (target == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final repo = getIt<TicketRepository>();
+      await repo.replyToTicket(
+        target.id,
+        m.body,
+        mediaUrl: m.mediaUrl,
+      );
+      if (!mounted) return;
+      // If forwarded into the conversation we're already viewing, refresh it.
+      if (target.id == widget.ticketId) {
+        _loadData();
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('تم إعادة توجيه الرسالة إلى ${target.guardianName ?? target.studentName ?? 'المحادثة'}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('فشل في إعادة توجيه الرسالة'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _scrollToMessage(int targetId) async {
@@ -1308,6 +1352,140 @@ class _AnimatedChevronState extends State<_AnimatedChevron>
     return FadeTransition(
       opacity: _opacity,
       child: const Icon(Icons.chevron_left_rounded, color: Color(0xFF9E9E9E), size: 18),
+    );
+  }
+}
+
+// ── Forward destination picker ─────────────────────────────────────────────
+class _ForwardPickerSheet extends StatefulWidget {
+  final int excludeTicketId;
+  const _ForwardPickerSheet({required this.excludeTicketId});
+
+  @override
+  State<_ForwardPickerSheet> createState() => _ForwardPickerSheetState();
+}
+
+class _ForwardPickerSheetState extends State<_ForwardPickerSheet> {
+  final _searchController = TextEditingController();
+  List<TicketModel> _tickets = [];
+  bool _loading = true;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load([String? search]) async {
+    setState(() => _loading = true);
+    try {
+      final repo = getIt<TicketRepository>();
+      final list = await repo.getTickets(search: search, perPage: 50);
+      if (!mounted) return;
+      setState(() {
+        _tickets = list.where((t) => t.id != widget.excludeTicketId).toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  void _onSearchChanged(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _load(v.trim().isEmpty ? null : v.trim()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollController) => Column(
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('إعادة توجيه إلى',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _searchController,
+              onChanged: _onSearchChanged,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'بحث عن محادثة...',
+                hintStyle: const TextStyle(color: AppColors.textSecondary),
+                prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+                filled: true,
+                fillColor: AppColors.darkCardElevated,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                : _tickets.isEmpty
+                    ? const Center(
+                        child: Text('لا توجد محادثات',
+                            style: TextStyle(color: AppColors.textSecondary)))
+                    : ListView.builder(
+                        controller: scrollController,
+                        itemCount: _tickets.length,
+                        itemBuilder: (ctx, i) {
+                          final t = _tickets[i];
+                          final name = t.guardianName ?? t.studentName ?? t.ticketNumber;
+                          final subtitle = (t.guardianName != null && t.studentName != null)
+                              ? t.studentName!
+                              : (t.guardianPhone ?? '');
+                          final initial = name.trim().isNotEmpty ? name.trim()[0] : '?';
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: AppColors.primary.withValues(alpha: 0.2),
+                              child: Text(initial,
+                                  style: const TextStyle(color: AppColors.primary)),
+                            ),
+                            title: Text(name,
+                                style: const TextStyle(color: Colors.white, fontSize: 14)),
+                            subtitle: subtitle.isEmpty
+                                ? null
+                                : Text(subtitle,
+                                    style: const TextStyle(
+                                        color: AppColors.textSecondary, fontSize: 12)),
+                            onTap: () => Navigator.pop(context, t),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }

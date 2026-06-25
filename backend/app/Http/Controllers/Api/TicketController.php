@@ -221,8 +221,10 @@ class TicketController extends Controller
             $guardian->update(['name' => $student->name]);
         }
 
-        // Find existing open/pending ticket or create one
+        // Find existing open/pending ticket or create one (scoped to active number)
+        $ourNumber = \App\Services\WhatsApp\WasenderSession::fromNumber();
         $ticket = \App\Models\Ticket::where('guardian_id', $guardian->id)
+            ->where('whatsapp_number', $ourNumber)
             ->whereIn('status', [
                 \App\Enums\TicketStatus::Open,
                 \App\Enums\TicketStatus::Pending,
@@ -232,13 +234,14 @@ class TicketController extends Controller
 
         if (!$ticket) {
             $ticket = \App\Models\Ticket::create([
-                'ticket_number' => \App\Models\Ticket::generateTicketNumber(),
-                'guardian_id'   => $guardian->id,
-                'student_id'    => $student->id,
-                'status'        => \App\Enums\TicketStatus::Open,
-                'priority'      => \App\Enums\TicketPriority::Normal,
-                'channel'       => 'whatsapp',
-                'subject'       => 'New conversation with ' . $student->name,
+                'ticket_number'   => \App\Models\Ticket::generateTicketNumber(),
+                'guardian_id'     => $guardian->id,
+                'student_id'      => $student->id,
+                'status'          => \App\Enums\TicketStatus::Open,
+                'priority'        => \App\Enums\TicketPriority::Normal,
+                'channel'         => 'whatsapp',
+                'whatsapp_number' => $ourNumber,
+                'subject'         => 'New conversation with ' . $student->name,
             ]);
         } elseif (!$ticket->student_id) {
             $ticket->update(['student_id' => $student->id]);
@@ -307,51 +310,10 @@ class TicketController extends Controller
      */
     public function unreadCount(Request $request): JsonResponse
     {
-        $user  = $request->user();
-        $query = \App\Models\Ticket::where('unread_count', '>', 0);
-
-        if ($this->isSupervisorViewer($user)) {
-            $supervisorId = $user->id;
-            $today        = now()->toDateString();
-
-            $query->whereHas('guardian', function ($gq) use ($supervisorId, $today) {
-                $gq->where(function ($inner) use ($supervisorId, $today) {
-                    $inner->whereExists(function ($sub) use ($supervisorId, $today) {
-                        $sub->selectRaw('1')
-                            ->from('class_sessions as cs_s')
-                            ->join('students as st', 'st.id', '=', 'cs_s.student_id')
-                            ->whereColumn('st.whatsapp_number', 'guardians.phone')
-                            ->where('cs_s.session_date', $today)
-                            ->whereNotIn('cs_s.status', ['cancelled', 'completed'])
-                            ->whereExists(function ($sh) use ($supervisorId) {
-                                $sh->selectRaw('1')
-                                    ->from('shifts')
-                                    ->where('shifts.user_id', $supervisorId)
-                                    ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_s.session_date) - 1')
-                                    ->whereRaw('shifts.start_time <= cs_s.start_time')
-                                    ->whereRaw('shifts.end_time > cs_s.start_time');
-                            });
-                    })->orWhereExists(function ($sub) use ($supervisorId, $today) {
-                        $sub->selectRaw('1')
-                            ->from('class_sessions as cs_t')
-                            ->join('teachers as t', 't.id', '=', 'cs_t.teacher_id')
-                            ->whereColumn('t.whatsapp_number', 'guardians.phone')
-                            ->where('cs_t.session_date', $today)
-                            ->whereNotIn('cs_t.status', ['cancelled', 'completed'])
-                            ->whereExists(function ($sh) use ($supervisorId) {
-                                $sh->selectRaw('1')
-                                    ->from('shifts')
-                                    ->where('shifts.user_id', $supervisorId)
-                                    ->where('shifts.is_active', true)
-                                    ->whereRaw('shifts.day_of_week = DAYOFWEEK(cs_t.session_date) - 1')
-                                    ->whereRaw('shifts.start_time <= cs_t.start_time')
-                                    ->whereRaw('shifts.end_time > cs_t.start_time');
-                            });
-                    });
-                });
-            });
-        }
+        // Full-inbox unread count for everyone (supervisors included) — scoped to
+        // the active number to match the isolated ticket list.
+        $query = \App\Models\Ticket::where('unread_count', '>', 0)
+            ->where('whatsapp_number', \App\Services\WhatsApp\WasenderSession::fromNumber());
 
         $count = $query->sum('unread_count');
 
@@ -412,8 +374,10 @@ class TicketController extends Controller
             }
         }
 
-        // Find existing open/pending ticket or create one
+        // Find existing open/pending ticket or create one (scoped to active number)
+        $ourNumber = \App\Services\WhatsApp\WasenderSession::fromNumber();
         $ticket = \App\Models\Ticket::where('guardian_id', $guardian->id)
+            ->where('whatsapp_number', $ourNumber)
             ->whereIn('status', [
                 \App\Enums\TicketStatus::Open,
                 \App\Enums\TicketStatus::Pending,
@@ -423,12 +387,13 @@ class TicketController extends Controller
 
         if (!$ticket) {
             $ticket = \App\Models\Ticket::create([
-                'ticket_number' => \App\Models\Ticket::generateTicketNumber(),
-                'guardian_id'   => $guardian->id,
-                'status'        => \App\Enums\TicketStatus::Open,
-                'priority'      => \App\Enums\TicketPriority::Normal,
-                'channel'       => 'whatsapp',
-                'subject'       => 'New conversation with ' . $guardian->name,
+                'ticket_number'   => \App\Models\Ticket::generateTicketNumber(),
+                'guardian_id'     => $guardian->id,
+                'status'          => \App\Enums\TicketStatus::Open,
+                'priority'        => \App\Enums\TicketPriority::Normal,
+                'channel'         => 'whatsapp',
+                'whatsapp_number' => $ourNumber,
+                'subject'         => 'New conversation with ' . $guardian->name,
             ]);
         }
 

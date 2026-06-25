@@ -28,6 +28,7 @@ import '../../features/admin/presentation/screens/supervisor_form_screen.dart';
 import '../../features/admin/presentation/screens/supervisor_performance_screen.dart';
 import '../../features/admin/presentation/screens/settings_screen.dart';
 import '../../features/admin/presentation/screens/management_hub_screen.dart';
+import '../../features/admin/presentation/screens/whatsapp_groups_screen.dart';
 import '../../features/admin/presentation/screens/supervisors_stats_screen.dart';
 import '../../features/timetable/presentation/screens/timetable_screen.dart';
 import '../../features/templates/presentation/screens/templates_screen.dart';
@@ -328,6 +329,10 @@ class AppRouter {
           GoRoute(
             path: '/settings',
             builder: (_, __) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: '/whatsapp-groups',
+            builder: (_, __) => const WhatsAppGroupsScreen(),
           ),
           GoRoute(
             path: '/timetable',

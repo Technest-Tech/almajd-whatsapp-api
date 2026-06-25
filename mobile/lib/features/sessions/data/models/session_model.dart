@@ -14,6 +14,7 @@ class SessionModel {
   final String? cancellationReason;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final bool teacherRemindersPaused;
 
   const SessionModel({
     required this.id,
@@ -31,6 +32,7 @@ class SessionModel {
     this.cancellationReason,
     this.createdAt,
     this.updatedAt,
+    this.teacherRemindersPaused = false,
   });
 
   factory SessionModel.fromJson(Map<String, dynamic> json) {
@@ -50,6 +52,7 @@ class SessionModel {
       cancellationReason: json['cancellation_reason'],
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at']) : null,
       updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at']) : null,
+      teacherRemindersPaused: json['teacher'] != null && json['teacher']['reminders_paused'] == true,
     );
   }
 
